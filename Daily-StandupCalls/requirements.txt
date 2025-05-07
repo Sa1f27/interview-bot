@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+pymongo
+numpy
+scipy
+sounddevice
+pygame
+edge-tts
+groq
+python-dotenv
+openai

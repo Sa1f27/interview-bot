@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stand-Up calls</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        let timeLeft = {{ time_limit }};
+        function startTimer() {
+            const timerElement = document.getElementById('timer');
+            if (!timerElement) return;
+            const form = document.getElementById('answer-form');
+            const timer = setInterval(() => {
+                timeLeft--;
+                timerElement.textContent = `Time left: ${timeLeft}s`;
+                if (timeLeft <= 0) {
+                    clearInterval(timer);
+                    form.submit();
+                }
+            }, 1000);
+        }
+
+        async function showHint() {
+            try {
+                const response = await fetch(`/hint/{{ session_id }}/{{ question_number }}`);
+                if (!response.ok) throw new Error('Network error');
+                const hint = await response.text();
+                document.getElementById('hint').innerText = hint || 'No hint available';
+            } catch (error) {
+                document.getElementById('hint').innerText = 'Error fetching hint';
+            }
+        }
+
+        window.onload = startTimer;
+    </script>
+</head>
+<body class="bg-gray-900 text-white min-h-screen flex items-center justify-center">
+    <div class="bg-gray-800 p-8 rounded-lg shadow-lg max-w-2xl w-full">
+        <h1 class="text-2xl font-bold mb-6 text-center">{{ question_number }} of {{ total_questions }}</h1>
+        <div id="timer" class="text-center text-red-500 mb-4">Time left: {{ time_limit }}s</div>
+        <div class="prose prose-invert max-w-none mb-6">
+            {{ question_html | safe }}
+        </div>
+        <form id="answer-form" action="/submit-answer" method="post" class="space-y-4">
+            <input type="hidden" name="session_id" value="{{ session_id }}">
+            <input type="hidden" name="question_number" value="{{ question_number }}">
+            {% if options %}
+            <div class="mt-4">
+                <label class="block text-sm font-medium text-gray-300 mb-2">Select your answer:</label>
+                <ul class="list-none space-y-2">
+                    {% for option in options %}
+                    <li>
+                        <label class="flex items-center">
+                            <input
+                                type="radio"
+                                name="answer"
+                                value="{{ loop.index0 }}"
+                                required
+                                class="mr-2 text-blue-500 focus:ring-blue-500"
+                            >
+                            <span class="text-gray-200">{{ loop.index0|to_letter }}) {{ option }}</span>
+                        </label>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% else %}
+            <div class="mt-4">
+                <label for="answer" class="block text-sm font-medium text-gray-300 mb-2">Your answer:</label>
+                <textarea
+                    name="answer"
+                    id="answer"
+                    required
+                    class="w-full p-2 bg-gray-800 text-gray-200 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    rows="5"
+                    placeholder="Enter your answer here..."
+                ></textarea>
+            </div>
+            {% endif %}
+            <div class="flex justify-center space-x-4">
+                <button type="submit" class="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 transition">Submit Answer</button>
+                <button type="button" onclick="showHint()" class="bg-yellow-600 text-white px-6 py-2 rounded hover:bg-yellow-700 transition">Hint</button>
+            </div>
+            <div id="hint" class="text-gray-400 mt-4">{{ hint }}</div>
+        </form>
+    </div>
+</body>
+</html>

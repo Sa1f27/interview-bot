@@ -1,0 +1,11 @@
+Welcome to today’s session on SAP. SAP stands for Systems, Applications, and Products in Data Processing. It is one of the leading enterprise resource planning (ERP) software platforms in the world. SAP enables organizations to integrate all of their business processes into a single unified system, including finance, supply chain, human resources, production, and customer relationship management.
+
+The core module in SAP is the SAP ERP Central Component (SAP ECC), which includes multiple functional modules like FI (Financial Accounting), CO (Controlling), MM (Materials Management), SD (Sales and Distribution), and HCM (Human Capital Management). Each module handles a specific business process and shares data in real time with other modules.
+
+One of the most important transformations in SAP’s evolution is the move from traditional ECC to SAP S/4HANA. S/4HANA is a next-generation ERP suite built on the SAP HANA in-memory database, providing significant improvements in performance, real-time analytics, and a simplified data model. S/4HANA allows companies to make faster decisions with real-time insights and process automation.
+
+SAP also includes tools like SAP Fiori for user experience, which provides a modern, role-based UI, and SAP Business Technology Platform (BTP) for integration, data management, and extension scenarios in cloud environments.
+
+In this lecture, we also explored common use cases. For instance, in a manufacturing company, SAP can be used to track raw materials using MM, plan production using PP, and process sales orders using SD — all linked through automated workflows and real-time data updates. This seamless integration helps reduce manual work, errors, and time delays across departments.
+
+By the end of this session, you should be familiar with SAP’s architecture, its key modules, the role of S/4HANA, and the benefits of using SAP for business transformation. In upcoming sessions, we will go deeper into hands-on SAP navigation and specific business scenarios.
