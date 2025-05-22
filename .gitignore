@@ -10,6 +10,7 @@ venv/
 venv10/
 **/venv/
 **/venv10/
+venvapp/
 
 # === IDEs and Editors ===
 .vscode/

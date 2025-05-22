@@ -1,0 +1,14 @@
+fastapi 
+uvicorn 
+numpy 
+scipy 
+sounddevice 
+edge-tts 
+pymongo 
+langchain-core 
+langchain-openai 
+langchain-groq 
+openai 
+groq 
+python-multipart 
+pydantic

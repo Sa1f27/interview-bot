@@ -21,17 +21,6 @@
             }, 1000);
         }
 
-        async function showHint() {
-            try {
-                const response = await fetch(`/hint/{{ session_id }}/{{ question_number }}`);
-                if (!response.ok) throw new Error('Network error');
-                const hint = await response.text();
-                document.getElementById('hint').innerText = hint || 'No hint available';
-            } catch (error) {
-                document.getElementById('hint').innerText = 'Error fetching hint';
-            }
-        }
-
         window.onload = startTimer;
     </script>
 </head>
@@ -78,11 +67,9 @@
                 ></textarea>
             </div>
             {% endif %}
-            <div class="flex justify-center space-x-4">
+            <div class="flex justify-center">
                 <button type="submit" class="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 transition">Submit Answer</button>
-                <button type="button" onclick="showHint()" class="bg-yellow-600 text-white px-6 py-2 rounded hover:bg-yellow-700 transition">Hint</button>
             </div>
-            <div id="hint" class="text-gray-400 mt-4">{{ hint }}</div>
         </form>
     </div>
 </body>
