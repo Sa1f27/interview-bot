@@ -492,35 +492,42 @@ async def start_test():
         logger.error(f"Error starting test: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+from fastapi import UploadFile, File, Form
+
 @app.post("/record_and_respond", response_model=ConversationResponse)
-async def record_and_respond(request: RecordRequest):
-    """Record user's response and provide the next question"""
+async def record_and_respond(
+    session_id: str = Form(...),
+    audio: UploadFile = File(...)
+):
+    """Process uploaded audio and provide the next question"""
     try:
-        session_id = request.session_id
         session = session_manager.validate_session(session_id)
-        
+
         # Check if test has ended
         if session_manager.is_test_ended(session_id):
             closing_message = "The test has ended. Thank you for your participation."
             audio_path = await AudioManager.text_to_speech(closing_message, session.voice)
-            return {"ended": True, "response": closing_message, "audio_path": audio_path}
-        
-        # Record and transcribe audio
-        audio_path = AudioManager.record_audio()
-        if not audio_path:
-            return JSONResponse(
-                status_code=400, 
-                content={"error": "No audio detected or recording too short"}
-            )
-        
+            return {
+                "ended": True,
+                "response": closing_message,
+                "audio_path": audio_path
+            }
+
+        # Save uploaded audio file
+        audio_filename = f"user_{int(time.time())}.webm"
+        audio_path = os.path.join(AUDIO_DIR, audio_filename)
+        with open(audio_path, "wb") as out_file:
+            out_file.write(await audio.read())
+
+        # Transcribe user response
         user_response = AudioManager.transcribe(audio_path)
-        
-        # Get the last question and add the answer to the conversation log
+
+        # Log the answer to the last question
         last_question = session.conversation_log[-1].question
         last_concept = session.conversation_log[-1].concept
         session_manager.add_answer(session_id, user_response)
-        
-        # Generate follow-up question
+
+        # Generate follow-up
         history = session_manager.get_conversation_history(session_id)
         followup_data = await llm_manager.generate_followup(
             session.summary,
@@ -529,28 +536,27 @@ async def record_and_respond(request: RecordRequest):
             user_response,
             last_concept
         )
-        
-        # Extract data from response
+
         next_question = followup_data.get("question", "Can you elaborate more on that?")
         next_concept = followup_data.get("concept", last_concept)
         feedback = followup_data.get("feedback", "")
-        
-        # Add the new question to the conversation log
+
         session_manager.add_question(session_id, next_question, next_concept)
-        
-        # Generate audio for the next question
-        audio_path = await AudioManager.text_to_speech(next_question, session.voice)
-        
+
+        # Generate audio
+        next_audio_path = await AudioManager.text_to_speech(next_question, session.voice)
+
         return {
-            "ended": False, 
-            "response": next_question, 
-            "audio_path": audio_path,
+            "ended": False,
+            "response": next_question,
+            "audio_path": next_audio_path,
             "feedback": feedback
         }
-    
+
     except Exception as e:
         logger.error(f"Error processing response: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/summary", response_model=SummaryResponse)
 async def get_summary(session_id: str):

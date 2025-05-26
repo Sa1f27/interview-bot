@@ -138,202 +138,175 @@
   </div>
 
   <script>
-    let testActive = false;
-    let isRecording = false;
-    let sessionId = null;
-    const startBtn = document.getElementById("startBtn");
-    const retakeBtn = document.getElementById("retakeBtn");
-    const status = document.getElementById("status");
-    const timerLabel = document.getElementById("timerLabel");
-    const evaluation = document.getElementById("evaluation");
-    const summaryText = document.getElementById("summaryText");
-    const analytics = document.getElementById("analytics");
-    const aiIcon = document.getElementById("aiIcon");
-    const userIcon = document.getElementById("userIcon");
+  let testActive = false;
+  let isRecording = false;
+  let sessionId = null;
+  const startBtn = document.getElementById("startBtn");
+  const retakeBtn = document.getElementById("retakeBtn");
+  const status = document.getElementById("status");
+  const timerLabel = document.getElementById("timerLabel");
+  const evaluation = document.getElementById("evaluation");
+  const summaryText = document.getElementById("summaryText");
+  const analytics = document.getElementById("analytics");
+  const aiIcon = document.getElementById("aiIcon");
+  const userIcon = document.getElementById("userIcon");
 
-    function log(message) {
-      console.log(`[Client] ${message}`);
+  let mediaRecorder;
+  let audioChunks = [];
+
+  function log(message) {
+    console.log(`[Client] ${message}`);
+  }
+
+  function blink(who) {
+    aiIcon.classList.remove("blink");
+    userIcon.classList.remove("blink");
+    if (who === "ai") aiIcon.classList.add("blink");
+    if (who === "user") userIcon.classList.add("blink");
+    log(`Blinking: ${who || 'none'}`);
+  }
+
+  function cleanText(text) {
+    return text.replace(/[*_#`]/g, "").replace(/\n/g, " ").trim();
+  }
+
+  function playAudio(src) {
+    if (!src) return Promise.resolve();
+    return new Promise(resolve => {
+      const audio = new Audio(src);
+      audio.onended = resolve;
+      audio.onerror = resolve;
+      audio.play().catch(resolve);
+    });
+  }
+
+  function countdown(endTime) {
+    if (!testActive) return;
+    const left = Math.max(0, Math.floor((endTime - Date.now()) / 1000));
+    const m = String(Math.floor(left / 60)).padStart(1, "0");
+    const s = String(left % 60).padStart(2, "0");
+    timerLabel.innerText = `Time Left: ${m}:${s}`;
+    if (left > 0) {
+      setTimeout(() => countdown(endTime), 1000);
+    } else {
+      endTest("Test time limit reached.");
     }
+  }
 
-    function blink(who) {
-      aiIcon.classList.remove("blink");
-      userIcon.classList.remove("blink");
-      if (who === "ai") aiIcon.classList.add("blink");
-      if (who === "user") userIcon.classList.add("blink");
-      log(`Blinking: ${who || 'none'}`);
-    }
+  async function recordAndRespond() {
+    if (isRecording || !testActive) return;
+    isRecording = true;
+    blink("user");
+    setStatus("Listening to your response...");
 
-    function cleanText(text) {
-      return text.replace(/[*_#`]/g, "").replace(/\n/g, " ").trim();
-    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioChunks = [];
+      mediaRecorder = new MediaRecorder(stream);
+      mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+        const formData = new FormData();
+        formData.append("audio", audioBlob, "response.webm");
+        formData.append("session_id", sessionId);
 
-    function playAudio(src) {
-      if (!src) {
-        log("No audio source");
-        return Promise.resolve();
-      }
-      log(`Playing: ${src}`);
-      return new Promise(resolve => {
-        const audio = new Audio(src);
-        audio.onended = () => {
-          log("Audio ended");
-          resolve();
-        };
-        audio.onerror = () => {
-          log("Audio error");
-          resolve();
-        };
-        audio.play().catch(e => {
-          log(`Audio play error: ${e}`);
-          resolve();
-        });
-      });
-    }
-
-    function countdown(endTime) {
-      if (!testActive) return;
-      const left = Math.max(0, Math.floor((endTime - Date.now()) / 1000));
-      const m = String(Math.floor(left / 60)).padStart(1, "0");
-      const s = String(left % 60).padStart(2, "0");
-      timerLabel.innerText = `Time Left: ${m}:${s}`;
-      if (left > 0) {
-        setTimeout(() => countdown(endTime), 1000);
-      } else {
-        endTest("Test time limit reached.");
-      }
-    }
-
-    async function recordAndRespond() {
-      if (isRecording || !testActive) {
-        log("Recording skipped");
-        return;
-      }
-      isRecording = true;
-      startBtn.disabled = true;
-      setStatus("Listening to your response...");
-      blink("user");
-      log("Starting recording");
-      
-      try {
         const response = await fetch("/record_and_respond", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ session_id: sessionId }),
-          signal: AbortSignal.timeout(60000)
+          body: formData,
         });
+
         const data = await response.json();
-        
-        if (!response.ok) {
-          throw new Error(data.error || "Recording failed");
-        }
+
+        if (!response.ok) throw new Error(data.error || "Recording failed");
 
         log(`Response: ended=${data.ended}, response=${data.response}`);
-        
-        if (data.ended) {
-          setStatus(cleanText(data.response));
-          await playAudio(data.audio_path);
-          await showSummary();
-          endTest("Test ended by server.");
-          return;
-        }
-
         setStatus(cleanText(data.response));
         blink("ai");
         await playAudio(data.audio_path);
-        if (testActive) {
+
+        if (data.ended) {
+          await showSummary();
+          endTest("Test ended.");
+        } else if (testActive) {
           setStatus("Please respond...");
           isRecording = false;
           recordAndRespond();
         }
-      } catch (e) {
-        log(`Record error: ${e}`);
-        setStatus(`Error: ${e.message}. Click Start to try again.`);
-        isRecording = false;
-        startBtn.disabled = false;
-        startBtn.innerText = "▶️ Start Test";
-        endTest(`Error: ${e.message}`);
+      };
+
+      mediaRecorder.start();
+      setTimeout(() => {
+        if (mediaRecorder.state !== "inactive") {
+          mediaRecorder.stop();
+          stream.getTracks().forEach(track => track.stop());
+        }
+      }, 10000); // Max 10s recording
+    } catch (e) {
+      log(`Record error: ${e}`);
+      setStatus(`Error: ${e.message}`);
+      endTest(`Error: ${e.message}`);
+    }
+  }
+
+  async function showSummary() {
+    try {
+      const response = await fetch(`/summary?session_id=${sessionId}`);
+      const data = await response.json();
+      evaluation.style.display = "block";
+      summaryText.innerText = data.summary;
+      analytics.innerText = `Analytics:\nQuestions Answered: ${data.analytics.num_questions}\nAvg. Response Length: ${data.analytics.avg_response_length} words`;
+    } catch (e) {
+      setStatus("Failed to load summary");
+    }
+  }
+
+  function setStatus(t) {
+    status.innerText = t;
+  }
+
+  function endTest(reason) {
+    testActive = false;
+    isRecording = false;
+    startBtn.disabled = false;
+    startBtn.innerText = "▶️ Start Test";
+    retakeBtn.disabled = false;
+    blink(null);
+    setStatus(`Test ended: ${reason}`);
+  }
+
+  async function startTest() {
+    if (testActive) return;
+    testActive = true;
+    isRecording = false;
+    startBtn.disabled = true;
+    startBtn.innerText = "⏺️ Recording";
+    retakeBtn.disabled = true;
+    evaluation.style.display = "none";
+    setStatus("AI is asking a question...");
+    blink("ai");
+
+    try {
+      const response = await fetch("/start_test");
+      const data = await response.json();
+      sessionId = data.session_id;
+      setStatus(cleanText(data.question));
+      await playAudio(data.audio_path);
+      if (testActive) {
+        setStatus("Please respond...");
+        countdown(Date.now() + 300000);
+        recordAndRespond();
       }
-    }
-
-    async function showSummary() {
-      log("Fetching summary");
-      try {
-        const response = await fetch(`/summary?session_id=${sessionId}`);
-        const data = await response.json();
-        evaluation.style.display = "block";
-        summaryText.innerText = data.summary;
-        analytics.innerText = `Analytics:\nQuestions Answered: ${data.analytics.num_questions}\nAvg. Response Length: ${data.analytics.avg_response_length} words`;
-        log("Summary displayed");
-      } catch (e) {
-        log(`Summary error: ${e}`);
-        setStatus("Failed to load summary");
-      }
-    }
-
-    function setStatus(t) {
-      status.innerText = t;
-      log(`Status: ${t}`);
-    }
-
-    function endTest(reason) {
-      testActive = false;
-      isRecording = false;
+    } catch (e) {
+      setStatus(`Failed to start: ${e.message}`);
       startBtn.disabled = false;
       startBtn.innerText = "▶️ Start Test";
-      retakeBtn.disabled = false;
-      blink(null);
-      setStatus(`Test ended: ${reason}`);
-      log(`Test ended: ${reason}`);
+      testActive = false;
     }
+  }
 
-    async function startTest() {
-      if (testActive) {
-        log("Test already active");
-        return;
-      }
-      testActive = true;
-      isRecording = false;
-      startBtn.disabled = true;
-      startBtn.innerText = "⏺️ Recording";
-      retakeBtn.disabled = true;
-      evaluation.style.display = "none";
-      setStatus("AI is asking a question...");
-      blink("ai");
-      log("Starting test");
+  startBtn.onclick = startTest;
+  retakeBtn.onclick = startTest;
+</script>
 
-      try {
-        const response = await fetch("/start_test");
-        if (!response.ok) {
-          throw new Error("Failed to start test: " + response.statusText);
-        }
-        const data = await response.json();
-        sessionId = data.session_id;
-        log(`Question: ${data.question}`);
-        
-        setStatus(cleanText(data.question));
-        await playAudio(data.audio_path);
-        if (testActive) {
-          setStatus("Please respond...");
-          countdown(Date.now() + 300000);
-          recordAndRespond();
-        }
-      } catch (e) {
-        log(`Start error: ${e}`);
-        setStatus(`Failed to start: ${e.message}`);
-        startBtn.disabled = false;
-        startBtn.innerText = "▶️ Start Test";
-        testActive = false;
-      }
-    }
-
-    startBtn.onclick = () => {
-      log("Start button clicked");
-      startTest();
-    };
-    retakeBtn.onclick = () => {
-      log("Retake button clicked");
-      startTest();
-    };
-  </script>
 </body>
 </html>

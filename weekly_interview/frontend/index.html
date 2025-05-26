@@ -220,7 +220,6 @@
 
   <div class="controls">
     <button id="startInterviewBtn" onclick="startInterview()">🎯 Start Interview</button>
-    <button id="nextRoundBtn" style="display: none;" onclick="startNextRound()">⏭️ Next Round</button>
     <button id="restartInterviewBtn" style="display: none;" onclick="restartInterview()">🔄 Restart Interview</button>
   </div>
 
@@ -329,7 +328,6 @@
 
         // Hide start button
         document.getElementById("startInterviewBtn").style.display = "none";
-        document.getElementById("nextRoundBtn").style.display = "none";
         document.getElementById("restartInterviewBtn").style.display = "none";
         document.getElementById("evaluation").style.display = "none";
 
@@ -422,50 +420,46 @@
       }
     }
 
-    function handleRoundTransition(data) {
-      interviewActive = false;
+    async function handleRoundTransition(data) {
       currentRound = data.next_round;
       
-      setStatus(`✅ ${data.current_round} round completed!`);
+      setStatus(`✅ ${data.current_round} round completed! Starting ${currentRound}...`);
       updateProgressIndicator(currentRound);
       
-      document.getElementById("roundLabel").innerText = `Next: ${currentRound}`;
-      document.getElementById("nextRoundBtn").style.display = "inline-block";
-    }
+      document.getElementById("roundLabel").innerText = `Round: ${currentRound}`;
+      
+      // Automatically start the next round after a brief pause
+      setTimeout(async () => {
+        try {
+          setStatus("🔄 Starting next round...", true);
+          
+          const response = await fetch(`/start_next_round?session_id=${currentSessionId}`);
+          const data = await response.json();
 
-    async function startNextRound() {
-      if (isProcessing) return;
+          if (data.error) {
+            throw new Error(data.error);
+          }
 
-      try {
-        setStatus("🔄 Starting next round...", true);
-        isProcessing = true;
-        interviewActive = true;
+          document.getElementById("roundLabel").innerText = `Round: ${data.round}`;
+          updateProgressIndicator(data.round);
 
-        document.getElementById("nextRoundBtn").style.display = "none";
+          setBlinking("ai");
+          await playAudio(data.audio_path, data.question);
 
-        const response = await fetch(`/start_next_round?session_id=${currentSessionId}`);
-        const data = await response.json();
+          // Resume conversation loop for the new round
+          interviewActive = true;
+          setTimeout(() => startConversationLoop(), 1000);
 
-        if (data.error) {
-          throw new Error(data.error);
+        } catch (error) {
+          console.error("Error auto-starting next round:", error);
+          setStatus(`❌ Error transitioning to next round: ${error.message}`);
+          document.getElementById("restartInterviewBtn").style.display = "inline-block";
         }
-
-        document.getElementById("roundLabel").innerText = `Round: ${data.round}`;
-        updateProgressIndicator(data.round);
-
-        setBlinking("ai");
-        await playAudio(data.audio_path, data.question);
-
-        setTimeout(() => startConversationLoop(), 1000);
-
-      } catch (error) {
-        console.error("Error starting next round:", error);
-        setStatus(`❌ Error: ${error.message}`);
-        document.getElementById("nextRoundBtn").style.display = "inline-block";
-      } finally {
-        isProcessing = false;
-      }
+      }, 2000); // 2 second pause between rounds
     }
+
+    // Remove the manual startNextRound function since it's now automatic
+    // The handleRoundTransition function now handles automatic progression
 
     async function handleInterviewComplete() {
       try {
@@ -511,7 +505,6 @@
       document.getElementById("evaluation").style.display = "none";
       document.getElementById("summaryText").innerText = "";
       document.getElementById("restartInterviewBtn").style.display = "none";
-      document.getElementById("nextRoundBtn").style.display = "none";
       document.getElementById("startInterviewBtn").style.display = "inline-block";
 
       // Reset progress indicator
