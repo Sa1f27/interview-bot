@@ -27,7 +27,7 @@ app.add_middleware(
 )
 
 # Jinja2 template directory
-templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
+templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "frontend"))
 
 # Groq Client
 client = Groq()
