@@ -257,7 +257,7 @@ class AudioManager:
     @staticmethod
     def get_random_voice() -> str:
         """Get a random Indian English voice"""
-        voices = ["en-IN-PrabhatNeural", "en-IN-NeerjaNeural", "en-IN-AditiNeural"]
+        voices = ["en-IN-PrabhatNeural", "en-IN-NeerjaNeural"]
         return random.choice(voices)
     
     @staticmethod

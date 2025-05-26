@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% if page == 'start' %}Mock Test - Start{% elif page == 'test' %}Question {{ question_number }} of {{ total_questions }}{% elif page == 'results' %}Test Results{% else %}Mock Test{% endif %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        // Timer functionality for test page
+        {% if page == 'test' %}
+        let timeLeft = {{ time_limit }};
+        function startTimer() {
+            const timerElement = document.getElementById('timer');
+            if (!timerElement) return;
+            const form = document.getElementById('answer-form');
+            const timer = setInterval(() => {
+                timeLeft--;
+                timerElement.textContent = `Time left: ${timeLeft}s`;
+                timerElement.className = timeLeft <= 30 ? 'text-center text-red-400 mb-4 font-bold' : 'text-center text-yellow-400 mb-4';
+                if (timeLeft <= 0) {
+                    clearInterval(timer);
+                    form.submit();
+                }
+            }, 1000);
+        }
+        window.onload = startTimer;
+        {% endif %}
+    </script>
+</head>
+<body class="bg-gray-900 text-white min-h-screen flex items-center justify-center">
+    
+    {% if page == 'start' %}
+    <!-- Start Test Page -->
+    <div class="bg-gray-800 p-8 rounded-lg shadow-lg max-w-md w-full">
+        <h1 class="text-3xl font-bold mb-6 text-center text-blue-400">Mock Test</h1>
+        <p class="text-gray-300 mb-6 text-center">Test your knowledge with AI-generated questions</p>
+        <form action="/start-test" method="post" class="space-y-6">
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-3">Select your user type:</label>
+                <div class="space-y-3">
+                    <label class="flex items-center p-3 bg-gray-700 rounded-lg hover:bg-gray-600 cursor-pointer">
+                        <input type="radio" name="user_type" value="dev" required class="mr-3 text-blue-500">
+                        <div>
+                            <div class="font-medium">Developer</div>
+                            <div class="text-sm text-gray-400">Code writing, debugging, scenarios</div>
+                        </div>
+                    </label>
+                    <label class="flex items-center p-3 bg-gray-700 rounded-lg hover:bg-gray-600 cursor-pointer">
+                        <input type="radio" name="user_type" value="non_dev" required class="mr-3 text-blue-500">
+                        <div>
+                            <div class="font-medium">Non-Developer</div>
+                            <div class="text-sm text-gray-400">Multiple choice questions</div>
+                        </div>
+                    </label>
+                </div>
+            </div>
+            <button type="submit" class="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 transition font-medium">
+                Start Test
+            </button>
+        </form>
+    </div>
+
+    {% elif page == 'test' %}
+    <!-- Test Page -->
+    <div class="bg-gray-800 p-8 rounded-lg shadow-lg max-w-4xl w-full mx-4">
+        <div class="flex justify-between items-center mb-6">
+            <h1 class="text-2xl font-bold text-blue-400">Question {{ question_number }} of {{ total_questions }}</h1>
+            <div class="text-sm bg-gray-700 px-3 py-1 rounded">{{ user_type|title }} Mode</div>
+        </div>
+        
+        <div id="timer" class="text-center text-yellow-400 mb-4">Time left: {{ time_limit }}s</div>
+        
+        <div class="bg-gray-700 p-6 rounded-lg mb-6">
+            <div class="prose prose-invert max-w-none">
+                {{ question_html | safe }}
+            </div>
+        </div>
+        
+        <form id="answer-form" action="/submit-answer" method="post" class="space-y-6">
+            <input type="hidden" name="session_id" value="{{ session_id }}">
+            <input type="hidden" name="question_number" value="{{ question_number }}">
+            
+            {% if options %}
+            <!-- Multiple Choice Options -->
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-3">Select your answer:</label>
+                <div class="space-y-2">
+                    {% for option in options %}
+                    <label class="flex items-start p-3 bg-gray-700 rounded-lg hover:bg-gray-600 cursor-pointer">
+                        <input type="radio" name="answer" value="{{ loop.index0 }}" required class="mt-1 mr-3 text-blue-500">
+                        <span class="text-gray-200">{{ loop.index0|to_letter }}) {{ option }}</span>
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
+            {% else %}
+            <!-- Text Answer -->
+            <div>
+                <label for="answer" class="block text-sm font-medium text-gray-300 mb-3">Your answer:</label>
+                <textarea
+                    name="answer"
+                    id="answer"
+                    required
+                    class="w-full p-4 bg-gray-700 text-gray-200 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    rows="6"
+                    placeholder="Enter your detailed answer here..."
+                ></textarea>
+            </div>
+            {% endif %}
+            
+            <div class="flex justify-center">
+                <button type="submit" class="bg-blue-600 text-white px-8 py-3 rounded-lg hover:bg-blue-700 transition font-medium">
+                    Submit Answer
+                </button>
+            </div>
+        </form>
+    </div>
+
+    {% elif page == 'results' %}
+    <!-- Results Page -->
+    <div class="bg-gray-800 p-8 rounded-lg shadow-lg max-w-4xl w-full mx-4">
+        <div class="text-center mb-8">
+            <h1 class="text-3xl font-bold mb-4 text-blue-400">Test Completed!</h1>
+            <div class="text-6xl font-bold mb-4">
+                <span class="{% if score >= 8 %}text-green-400{% elif score >= 5 %}text-yellow-400{% else %}text-red-400{% endif %}">
+                    {{ score }}/10
+                </span>
+            </div>
+            <p class="text-gray-300 text-lg">
+                {% if score >= 8 %}Excellent work! 🎉{% elif score >= 5 %}Good job! 👍{% else %}Keep practicing! 💪{% endif %}
+            </p>
+        </div>
+        
+        <div class="bg-gray-700 p-6 rounded-lg mb-6">
+            <h3 class="text-xl font-bold mb-4 text-blue-400">Detailed Results</h3>
+            <div class="prose prose-invert max-w-none whitespace-pre-line">{{ analytics }}</div>
+        </div>
+        
+        <div class="flex flex-col sm:flex-row gap-4 justify-center">
+            <a href="/export-results?session_id={{ session_id }}" 
+               class="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 transition text-center font-medium">
+                📄 Export Results (PDF)
+            </a>
+            <a href="/" 
+               class="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition text-center font-medium">
+                🔄 Take New Test
+            </a>
+        </div>
+    </div>
+
+    {% elif page == 'error' %}
+    <!-- Error Page -->
+    <div class="bg-gray-800 p-8 rounded-lg shadow-lg max-w-md w-full text-center">
+        <div class="text-red-400 text-6xl mb-4">⚠️</div>
+        <h1 class="text-2xl font-bold text-red-400 mb-4">Error</h1>
+        <p class="text-gray-300 mb-6">{{ message }}</p>
+        <a href="/" class="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition">
+            Back to Home
+        </a>
+    </div>
+
+    {% endif %}
+</body>
+</html>
