@@ -1,15 +1,7 @@
 # === Python Artifacts ===
 __pycache__/
-*.py[cod]
-*.pyo
-*.pyd
-*.pyc
 
 # === Virtual Environments ===
-venv/
-venv10/
-**/venv/
-**/venv10/
 venvapp/
 
 # === IDEs and Editors ===
@@ -31,11 +23,6 @@ sessions/
 audio/
 *.log
 
-# === Node/Frontend Artifacts ===
-node_modules/
-frontend/node_modules/
-*.tsbuildinfo
-
 # === Static / Compiled / Generated Files ===
 *.mp3
 *.wav
@@ -44,9 +31,3 @@ frontend/node_modules/
 
 # === Environment & Credentials ===
 .env
-.env.*
-
-# === Misc ===
-*.bak
-*.tmp
-*.swp
