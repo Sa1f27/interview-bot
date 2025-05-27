@@ -319,7 +319,3 @@ async def export_results(session_id: str):
     pdf_path = f"test_results_{session_id}.pdf"
     pdf.output(pdf_path)
     return FileResponse(pdf_path, media_type="application/pdf", filename=pdf_path)
-
-# if __name__ == "__main__":
-#     import uvicorn
-#     uvicorn.run("main:app", host="127.0.0.1", port=7004, reload=True)

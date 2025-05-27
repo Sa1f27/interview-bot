@@ -185,6 +185,19 @@ class SessionManager:
         session_id = str(uuid.uuid4())
         self.sessions[session_id] = Session(summary, voice)
         return session_id
+    def get_truncated_conversation_history(self, session_id: str, window_size: int = 5) -> str:
+        """
+        Return a string of the last `window_size` Q&A pairs formatted,
+        or fewer if conversation is shorter.
+        """
+        session = self.validate_session(session_id)
+        last_entries = session.conversation_log[-window_size:]
+        history = []
+        for entry in last_entries:
+            q_line = f"Q: {entry.question}"
+            a_line = f"A: {entry.answer}" if entry.answer else "A: "
+            history.append(f"{q_line}\n{a_line}")
+        return "\n\n".join(history)
     
     def get_session(self, session_id: str) -> Optional[Session]:
         """Get a session by ID"""
@@ -215,15 +228,15 @@ class SessionManager:
         if session.conversation_log:
             session.conversation_log[-1].answer = answer
     
-    def get_conversation_history(self, session_id: str) -> str:
-        """Get formatted conversation history for a session"""
-        session = self.validate_session(session_id)
-        history = []
-        for entry in session.conversation_log:
-            q_line = f"Q: {entry.question}"
-            a_line = f"A: {entry.answer}" if entry.answer else "A: "
-            history.append(f"{q_line}\n{a_line}")
-        return "\n\n".join(history)
+    # def get_conversation_history(self, session_id: str) -> str:
+    #     """Get formatted conversation history for a session"""
+    #     session = self.validate_session(session_id)
+    #     history = []
+    #     for entry in session.conversation_log:
+    #         q_line = f"Q: {entry.question}"
+    #         a_line = f"A: {entry.answer}" if entry.answer else "A: "
+    #         history.append(f"{q_line}\n{a_line}")
+    #     return "\n\n".join(history)
     
     def is_test_ended(self, session_id: str) -> bool:
         """Check if the test has ended"""
@@ -560,7 +573,7 @@ async def record_and_respond(
         session_manager.add_answer(session_id, user_response)
 
         # Generate follow-up question using LLM
-        history = session_manager.get_conversation_history(session_id)
+        history = session_manager.get_truncated_conversation_history(session_id)
         followup_data = await llm_manager.generate_followup(
             session.summary,
             history,
@@ -595,8 +608,8 @@ async def get_summary(session_id: str):
     """Get a summary evaluation of the test session"""
     try:
         session = session_manager.validate_session(session_id)
-        history = session_manager.get_conversation_history(session_id)
-        
+        history = session_manager.get_truncated_conversation_history(session_id)
+
         # Generate evaluation
         evaluation = await llm_manager.generate_evaluation(
             session.summary,
