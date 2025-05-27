@@ -94,6 +94,8 @@ app = FastAPI(title="Voice-Based Testing System")
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 AUDIO_DIR = os.path.join(BASE_DIR, "audio")
+TEMP_DIR = os.path.join(BASE_DIR, "temp")
+os.makedirs(TEMP_DIR, exist_ok=True)
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -120,6 +122,7 @@ class DatabaseManager:
         self.client = pymongo.MongoClient(connection_string)
         self.db = self.client[db_name]
         self.transcripts = self.db["drive"]
+        self.conversations = self.db["conversation"]
     
     def get_latest_summary(self) -> str:
         """Fetch the latest lecture summary from the database"""
@@ -127,6 +130,36 @@ class DatabaseManager:
         if not doc or "summary" not in doc:
             raise ValueError("No summary found in the database")
         return doc["summary"]
+    
+    def save_session_data(self, session_id: str, conversation_log: List[ConversationEntry], evaluation: str) -> bool:
+        """Save session data to the conversation collection"""
+        try:
+            # Convert conversation log to the required format
+            conversation_data = []
+            for entry in conversation_log:
+                conversation_data.append({
+                    "question": entry.question,
+                    "answer": entry.answer,
+                    "concept": entry.concept,
+                    "timestamp": entry.timestamp
+                })
+            
+            # Create the document to insert
+            document = {
+                "session_id": session_id,
+                "timestamp": time.time(),
+                "conversation_log": conversation_data,
+                "evaluation": evaluation
+            }
+            
+            # Insert into the conversation collection
+            result = self.conversations.insert_one(document)
+            logger.info(f"Session data saved successfully for session {session_id}, document ID: {result.inserted_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error saving session data for session {session_id}: {e}")
+            return False
     
     def close(self):
         """Close the database connection"""
@@ -511,7 +544,7 @@ async def record_and_respond(
             return {"ended": True, "response": closing_message, "audio_path": audio_path}
 
         # Save uploaded audio to file system
-        audio_filename = f"temp/{audio.filename}"
+        audio_filename = os.path.join(TEMP_DIR, audio.filename)
         with open(audio_filename, "wb") as f:
             f.write(await audio.read())
 
@@ -567,6 +600,16 @@ async def get_summary(session_id: str):
             history
         )
         
+        # Save session data to MongoDB
+        save_success = db_manager.save_session_data(
+            session_id=session_id,
+            conversation_log=session.conversation_log,
+            evaluation=evaluation
+        )
+        
+        if not save_success:
+            logger.warning(f"Failed to save session data for session {session_id}")
+        
         # Calculate analytics
         num_questions = len(session.conversation_log)
         answers = [entry.answer for entry in session.conversation_log if entry.answer]
@@ -619,4 +662,3 @@ def shutdown_event():
     """Clean up resources on application shutdown"""
     db_manager.close()
     AudioManager.clean_audio_folder()
-

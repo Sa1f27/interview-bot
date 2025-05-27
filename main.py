@@ -58,15 +58,31 @@ for prefix, import_spec in sub_apps.items():
         logger.info(f"✅ Mounted `{prefix}` sub-app at /{prefix}")
     except Exception as exc:
         logger.error(f"❌ Failed to mount `{prefix}` sub-app: {exc}")
+import socket
 
-# ——— Uvicorn entrypoint ———
+def get_local_ip():
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        # doesn't have to be reachable
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+    except Exception:
+        ip = "127.0.0.1"
+    finally:
+        s.close()
+    return ip
+
 if __name__ == "__main__":
     import uvicorn
+    local_ip = get_local_ip()
+    port = 8060
+    print(f"🚀 Starting server at https://{local_ip}:{port}")
     uvicorn.run(
         "main:app",
-        host="127.0.0.1",
-        port=8060,
+        host="0.0.0.0",
+        port=port,
         reload=True,
         log_level="info",
+        ssl_certfile="certs/cert.pem",
+        ssl_keyfile="certs/key.pem",
     )
-# ——— End of main.py ———

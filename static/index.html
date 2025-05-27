@@ -27,7 +27,7 @@
             border-radius: 20px;
             box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
             text-align: center;
-            max-width: 600px;
+            max-width: 1200px;
             width: 90%;
             backdrop-filter: blur(10px);
         }
@@ -50,6 +50,7 @@
 
         .modules-grid {
             display: grid;
+            grid-template-columns: repeat(3, 1fr);
             gap: 1.5rem;
             margin-bottom: 2rem;
         }
@@ -133,6 +134,10 @@
                 margin: 1rem;
             }
 
+            .modules-grid {
+                grid-template-columns: 1fr;
+            }
+
             h1 {
                 font-size: 2rem;
             }
@@ -143,6 +148,12 @@
 
             .module-icon {
                 font-size: 2rem;
+            }
+        }
+
+        @media (max-width: 1024px) and (min-width: 769px) {
+            .modules-grid {
+                grid-template-columns: repeat(2, 1fr);
             }
         }
     </style>
