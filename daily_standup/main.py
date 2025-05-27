@@ -36,7 +36,6 @@ SILENCE_DURATION = 2.0
 MAX_RECORDING_DURATION = 10.0
 TEST_DURATION_SEC = 120
 INACTIVITY_TIMEOUT = 120
-AUDIO_DIR = "audio"
 TTS_SPEED = 1.2
 
 # ========================
@@ -94,6 +93,7 @@ app = FastAPI(title="Voice-Based Testing System")
 # Get base directory
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+AUDIO_DIR = os.path.join(BASE_DIR, "audio")
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -103,12 +103,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount static directories
-app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "frontend")), name="static")
-app.mount("/audio", StaticFiles(directory=os.path.join(BASE_DIR, "audio")), name="audio")
-
 # Ensure audio directory exists
 os.makedirs(AUDIO_DIR, exist_ok=True)
+
+# Mount static directories
+app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "frontend")), name="static")
+app.mount("/audio", StaticFiles(directory=AUDIO_DIR), name="audio")
 
 # ========================
 # Database setup
@@ -419,7 +419,7 @@ class AudioManager:
             
             os.remove(raw_path)
             if os.path.exists(final_path):
-                return f"/{AUDIO_DIR}/{os.path.basename(final_path)}"
+                return f"./audio/{os.path.basename(final_path)}"
         except Exception as e:
             logger.error(f"Text-to-speech error: {e}")
         
@@ -452,7 +452,7 @@ class AudioManager:
 
 def get_random_voice() -> str:
     """Get a random TTS voice"""
-    voices = ["en-IN-PrabhatNeural", "en-IN-NeerjaNeural", "en-IN-AditiNeural"]
+    voices = ["en-IN-PrabhatNeural", "en-IN-NeerjaNeural"]
     return random.choice(voices)
 
 # ========================
@@ -492,35 +492,38 @@ async def start_test():
         logger.error(f"Error starting test: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+from fastapi import UploadFile, File, Form
+from fastapi.responses import JSONResponse
+
 @app.post("/record_and_respond", response_model=ConversationResponse)
-async def record_and_respond(request: RecordRequest):
+async def record_and_respond(
+    audio: UploadFile = File(...),
+    session_id: str = Form(...)
+):
     """Record user's response and provide the next question"""
     try:
-        session_id = request.session_id
         session = session_manager.validate_session(session_id)
-        
+
         # Check if test has ended
         if session_manager.is_test_ended(session_id):
             closing_message = "The test has ended. Thank you for your participation."
             audio_path = await AudioManager.text_to_speech(closing_message, session.voice)
             return {"ended": True, "response": closing_message, "audio_path": audio_path}
-        
-        # Record and transcribe audio
-        audio_path = AudioManager.record_audio()
-        if not audio_path:
-            return JSONResponse(
-                status_code=400, 
-                content={"error": "No audio detected or recording too short"}
-            )
-        
-        user_response = AudioManager.transcribe(audio_path)
-        
-        # Get the last question and add the answer to the conversation log
+
+        # Save uploaded audio to file system
+        audio_filename = f"temp/{audio.filename}"
+        with open(audio_filename, "wb") as f:
+            f.write(await audio.read())
+
+        # Transcribe the uploaded audio
+        user_response = AudioManager.transcribe(audio_filename)
+
+        # Get last question + log response
         last_question = session.conversation_log[-1].question
         last_concept = session.conversation_log[-1].concept
         session_manager.add_answer(session_id, user_response)
-        
-        # Generate follow-up question
+
+        # Generate follow-up question using LLM
         history = session_manager.get_conversation_history(session_id)
         followup_data = await llm_manager.generate_followup(
             session.summary,
@@ -529,28 +532,27 @@ async def record_and_respond(request: RecordRequest):
             user_response,
             last_concept
         )
-        
-        # Extract data from response
+
+        # Extract next question and other info
         next_question = followup_data.get("question", "Can you elaborate more on that?")
         next_concept = followup_data.get("concept", last_concept)
         feedback = followup_data.get("feedback", "")
-        
-        # Add the new question to the conversation log
+
+        # Update session log and synthesize speech
         session_manager.add_question(session_id, next_question, next_concept)
-        
-        # Generate audio for the next question
         audio_path = await AudioManager.text_to_speech(next_question, session.voice)
-        
+
         return {
-            "ended": False, 
-            "response": next_question, 
+            "ended": False,
+            "response": next_question,
             "audio_path": audio_path,
             "feedback": feedback
         }
-    
+
     except Exception as e:
         logger.error(f"Error processing response: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/summary", response_model=SummaryResponse)
 async def get_summary(session_id: str):
@@ -618,7 +620,3 @@ def shutdown_event():
     db_manager.close()
     AudioManager.clean_audio_folder()
 
-# Run the application
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("main:app", host="127.0.0.1", port=7008, reload=True)

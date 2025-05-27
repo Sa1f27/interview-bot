@@ -31,7 +31,8 @@ logger = logging.getLogger(__name__)
 
 # Constants
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-AUDIO_DIR = "audio"
+AUDIO_DIR = os.path.join(BASE_DIR, "audio")
+# Audio recording parameters
 SAMPLE_RATE = 16000
 BLOCK_SIZE = 4096
 SILENCE_THRESHOLD = 0.01
@@ -293,7 +294,7 @@ class AudioManager:
             ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
             
             os.remove(raw_path)
-            return f"/{final_path}" if os.path.exists(final_path) else None
+            return f"./audio/{os.path.basename(final_path)}" if os.path.exists(final_path) else None
             
         except Exception as e:
             logger.error(f"TTS error: {e}")
@@ -656,8 +657,7 @@ app.add_middleware(
 
 # Static files
 app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "frontend")), name="static")
-app.mount("/audio", StaticFiles(directory=os.path.join(BASE_DIR, "audio")), name="audio")
-
+app.mount("/audio", StaticFiles(directory=AUDIO_DIR), name="audio")
 # Initialize managers
 session_manager = SessionManager()
 
@@ -737,7 +737,3 @@ async def shutdown_event():
     session_manager.cleanup_expired_sessions()
     AudioManager.clean_old_audio_files()
     logger.info("Interview system shut down")
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("main:app", host="127.0.0.1", port=7007, reload=True)

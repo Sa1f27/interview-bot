@@ -117,10 +117,10 @@
 
   <div class="main-container">
     <div class="column">
-      <img src="/static/icons/ai.png" id="aiIcon" class="icon" />
+      <img src="./static/icons/ai.png" id="aiIcon" class="icon" />
     </div>
     <div class="column">
-      <img src="/static/icons/user.png" id="userIcon" class="icon" />
+      <img src="./static/icons/user.png" id="userIcon" class="icon" />
     </div>
   </div>
 
@@ -210,7 +210,7 @@
         formData.append("audio", audioBlob, "response.webm");
         formData.append("session_id", sessionId);
 
-        const response = await fetch("/record_and_respond", {
+        const response = await fetch("./record_and_respond", {
           method: "POST",
           body: formData,
         });
@@ -250,7 +250,7 @@
 
   async function showSummary() {
     try {
-      const response = await fetch(`/summary?session_id=${sessionId}`);
+      const response = await fetch(`./summary?session_id=${sessionId}`);
       const data = await response.json();
       evaluation.style.display = "block";
       summaryText.innerText = data.summary;
@@ -286,7 +286,7 @@
     blink("ai");
 
     try {
-      const response = await fetch("/start_test");
+      const response = await fetch("./start_test");
       const data = await response.json();
       sessionId = data.session_id;
       setStatus(cleanText(data.question));

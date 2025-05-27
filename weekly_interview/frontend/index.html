@@ -209,10 +209,10 @@
 
   <div class="main-container">
     <div class="column">
-      <img src="/static/icons/ai.png" id="aiIcon" class="icon" alt="AI" />
+      <img src="./static/icons/ai.png" id="aiIcon" class="icon" alt="AI" />
     </div>
     <div class="column">
-      <img src="/static/icons/user.png" id="userIcon" class="icon" alt="User" />
+      <img src="./static/icons/user.png" id="userIcon" class="icon" alt="User" />
     </div>
   </div>
 
@@ -286,37 +286,39 @@
       }
     }
 
-    async function playAudio(path, fallbackText) {
-      if (!path && fallbackText) {
-        console.warn("Using browser TTS fallback");
-        const synth = new SpeechSynthesisUtterance(fallbackText);
-        synth.lang = "en-IN";
-        synth.rate = 1.1;
-        window.speechSynthesis.speak(synth);
-        
-        return new Promise(resolve => {
-          synth.onend = () => {
-            setBlinking(null);
-            resolve();
-          };
-        });
-      }
-
-      try {
-        const audio = new Audio(path);
-        await audio.play();
-
-        return new Promise(resolve => {
-          audio.onended = () => {
-            setBlinking(null);
-            resolve();
-          };
-        });
-      } catch (e) {
-        console.error("Audio playback error:", e);
+async function playAudio(path, fallbackText) {
+  if (!path && fallbackText) {
+    console.warn("Using browser TTS fallback");
+    const synth = new SpeechSynthesisUtterance(fallbackText);
+    synth.lang = "en-IN";
+    synth.rate = 1.1;
+    window.speechSynthesis.speak(synth);
+    
+    return new Promise(resolve => {
+      synth.onend = () => {
         setBlinking(null);
-      }
-    }
+        resolve();
+      };
+    });
+  }
+
+  try {
+    // Fix: Convert absolute path to relative path
+    const audioPath = path && path.startsWith('/') ? '.' + path : path;
+    const audio = new Audio(audioPath);
+    await audio.play();
+
+    return new Promise(resolve => {
+      audio.onended = () => {
+        setBlinking(null);
+        resolve();
+      };
+    });
+  } catch (e) {
+    console.error("Audio playback error:", e);
+    setBlinking(null);
+  }
+}
 
     async function startInterview() {
       if (isProcessing) return;
@@ -332,7 +334,7 @@
         document.getElementById("evaluation").style.display = "none";
 
         // Start interview
-        const response = await fetch("/start_interview");
+        const response = await fetch("./start_interview");
         const data = await response.json();
 
         if (data.error) {
@@ -367,7 +369,7 @@
         isProcessing = true;
         setBlinking("user");
 
-        const response = await fetch("/record_and_respond", {
+        const response = await fetch("./record_and_respond", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ session_id: currentSessionId })
@@ -433,7 +435,7 @@
         try {
           setStatus("🔄 Starting next round...", true);
           
-          const response = await fetch(`/start_next_round?session_id=${currentSessionId}`);
+          const response = await fetch(`./start_next_round?session_id=${currentSessionId}`);
           const data = await response.json();
 
           if (data.error) {
@@ -465,7 +467,7 @@
       try {
         setStatus("📊 Generating evaluation report...", true);
         
-        const response = await fetch(`/evaluate?session_id=${currentSessionId}`);
+        const response = await fetch(`./evaluate?session_id=${currentSessionId}`);
         const data = await response.json();
 
         // Update progress indicator

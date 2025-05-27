@@ -7,6 +7,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         // Timer functionality for test page
+        
         {% if page == 'test' %}
         let timeLeft = {{ time_limit }};
         function startTimer() {
@@ -34,7 +35,7 @@
     <div class="bg-gray-800 p-8 rounded-lg shadow-lg max-w-md w-full">
         <h1 class="text-3xl font-bold mb-6 text-center text-blue-400">Mock Test</h1>
         <p class="text-gray-300 mb-6 text-center">Test your knowledge with AI-generated questions</p>
-        <form action="/start-test" method="post" class="space-y-6">
+        <form action="./start-test" method="post" class="space-y-6">
             <div>
                 <label class="block text-sm font-medium text-gray-300 mb-3">Select your user type:</label>
                 <div class="space-y-3">
@@ -76,7 +77,7 @@
             </div>
         </div>
         
-        <form id="answer-form" action="/submit-answer" method="post" class="space-y-6">
+        <form id="answer-form" action="./submit-answer" method="post" class="space-y-6">
             <input type="hidden" name="session_id" value="{{ session_id }}">
             <input type="hidden" name="question_number" value="{{ question_number }}">
             
