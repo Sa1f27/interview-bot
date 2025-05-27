@@ -287,6 +287,9 @@ class LLMManager:
         If their response does NOT show understanding:
             - Ask a simpler follow-up question about the SAME concept
 
+        if their response is totally off-topic:
+            - Ask them to stay on topic and provide a new question
+
         Format your response as:
         UNDERSTANDING: [YES or NO]
         CONCEPT: [same concept or new concept]
@@ -309,7 +312,7 @@ class LLMManager:
         3. How well they covered the core concepts
         4. One specific recommendation for further study
 
-        Be constructive and specific. Do NOT give numeric scores.
+        Be constructive and specific. Give numeric scores too out of 10.
         Keep your evaluation under 200 words.
         """)
     
