@@ -9,11 +9,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 import pyodbc
 
-import numpy as np
-import sounddevice as sd
-import scipy.io.wavfile as wavfile
+# REMOVED: sounddevice, scipy imports - no longer needed
 import subprocess
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, UploadFile, File, Form
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -33,16 +31,14 @@ logger = logging.getLogger(__name__)
 # Constants
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 AUDIO_DIR = os.path.join(BASE_DIR, "audio")
-# Audio recording parameters
-SAMPLE_RATE = 16000 # Sample rate for audio recording
-BLOCK_SIZE = 4096 # Block size for audio processing
-SILENCE_THRESHOLD = 0.005 # Threshold for silence detection
-SILENCE_DURATION = 3 # Duration of silence to consider end of recording
-MAX_RECORDING_DURATION = 15.0 # Maximum recording duration is 15 seconds
-MIN_RECORDING_DURATION = 1.0  # Minimum duration to consider a valid recording is 1 second
+TEMP_DIR = os.path.join(BASE_DIR, "temp")
 
-# Ensure audio directory exists
+# REMOVED: Audio recording parameters - now handled by frontend
+TTS_SPEED = 1.3
+
+# Ensure directories exist
 os.makedirs(AUDIO_DIR, exist_ok=True)
+os.makedirs(TEMP_DIR, exist_ok=True)
 
 # ========================
 # Enums and Data Models
@@ -297,23 +293,14 @@ class LLMManager:
             RoundType.TECHNICAL: [
                 "this is a fallback question for technical round.",
                 "Check for errors in your code and try again."
-                # "Can you explain your experience with databases?",
-                # "How do you approach debugging complex issues?",
-                # "Let's move to the communication round."
             ],
             RoundType.COMMUNICATION: [
                 "this is a fallback question for communication round.",
                 "Check for errors in your code and try again."
-                # "How would you explain a technical concept to a non-technical person?",
-                # "Tell me about a time you had to present to a group.",
-                # "Let's proceed to the HR round."
             ],
             RoundType.HR: [
                 "this is a fallback question for HR round.",
                 "Check for errors in your code and try again."
-                # "Tell me about a challenging situation you handled at work.",
-                # "How do you handle feedback and criticism?",
-                # "Thank you for completing the interview."
             ]
         }
         
@@ -375,7 +362,7 @@ def _extract_score(text: str, pattern: str) -> Optional[float]:
     return None
 
 # ========================
-# Audio Manager
+# Audio Manager - REFACTORED
 # ========================
 
 class AudioManager:
@@ -399,14 +386,19 @@ class AudioManager:
         try:
             current_time = time.time()
             for filename in os.listdir(AUDIO_DIR):
-                if filename.startswith(("ai_", "temp_")) and filename.endswith((".mp3", ".wav")):
+                if filename.startswith(("ai_", "temp_")) and filename.endswith((".mp3", ".wav", ".webm")):
                     filepath = os.path.join(AUDIO_DIR, filename)
                     if os.path.getmtime(filepath) < current_time - 3600:  # 1 hour
                         os.remove(filepath)
+            # Clean temp directory
+            for filename in os.listdir(TEMP_DIR):
+                filepath = os.path.join(TEMP_DIR, filename)
+                if os.path.getmtime(filepath) < current_time - 3600:
+                    os.remove(filepath)
         except Exception as e:
             logger.warning(f"Audio cleanup error: {e}")
     
-    async def text_to_speech(self, text: str, voice: str, speed: float = 1.3) -> Optional[str]:
+    async def text_to_speech(self, text: str, voice: str, speed: float = TTS_SPEED) -> Optional[str]:
         """Convert text to speech and return audio file path"""
         try:
             self.clean_old_audio_files()
@@ -432,69 +424,7 @@ class AudioManager:
             logger.error(f"TTS error: {e}")
             return None
     
-    def record_audio(self) -> Optional[str]:
-        """Record audio from microphone"""
-        logger.info("Starting audio recording...")
-        
-        chunks = []
-        silence_start = None
-        recording = True
-        start_time = time.time()
-        
-        def callback(indata, frames, time_info, status):
-            nonlocal silence_start, recording
-            
-            if status:
-                logger.error(f"Audio callback error: {status}")
-                recording = False
-                return
-            
-            rms = np.sqrt(np.mean(indata**2))
-            chunks.append(indata.copy())
-            
-            # Silence detection
-            if rms < SILENCE_THRESHOLD:
-                if silence_start is None:
-                    silence_start = time.time()
-                elif time.time() - silence_start > SILENCE_DURATION:
-                    recording = False
-            else:
-                silence_start = None
-            
-            # Maximum duration check
-            if time.time() - start_time > MAX_RECORDING_DURATION:
-                recording = False
-        
-        try:
-            with sd.InputStream(
-                samplerate=SAMPLE_RATE,
-                channels=1,
-                blocksize=BLOCK_SIZE,
-                callback=callback
-            ):
-                while recording:
-                    sd.sleep(100)
-        except Exception as e:
-            logger.error(f"Recording error: {e}")
-            return None
-        
-        if not chunks:
-            return None
-        
-        # Process audio
-        audio_data = np.concatenate(chunks)
-        duration = len(audio_data) / SAMPLE_RATE
-        
-        if duration < MIN_RECORDING_DURATION:
-            logger.info(f"Recording too short: {duration:.1f}s")
-            return None
-        
-        # Save to file
-        filepath = os.path.join(AUDIO_DIR, f"temp_input_{int(time.time())}.wav")
-        wavfile.write(filepath, SAMPLE_RATE, (audio_data * 32767).astype(np.int16))
-        
-        logger.info(f"Recording saved: {duration:.1f}s")
-        return filepath
+    # REMOVED: record_audio method - now handled by frontend
     
     def transcribe_audio(self, filepath: str) -> Optional[str]:
         """Transcribe audio using Groq Whisper"""
@@ -519,7 +449,7 @@ class AudioManager:
             return None
 
 # ========================
-# Session Manager with Enhanced Debugging
+# Session Manager - UPDATED FOR UPLOAD
 # ========================
 
 class SessionManager:
@@ -654,32 +584,34 @@ class SessionManager:
             "round": session.current_round.value
         }
     
-    async def process_user_response(self, session_id: str) -> Dict[str, Any]:
-        """Process user's audio response and generate AI reply"""
+    # NEW METHOD: Process uploaded audio instead of recording
+    async def process_user_response_upload(self, session_id: str, audio_file: UploadFile) -> Dict[str, Any]:
+        """Process user's uploaded audio response and generate AI reply"""
         session = self.get_session(session_id)
         if not session:
-            logger.error(f"Session {session_id} not found in process_user_response")
+            logger.error(f"Session {session_id} not found in process_user_response_upload")
             raise HTTPException(status_code=404, detail="Session not found")
         
-        logger.info(f"Processing user response for session {session_id}, round {session.current_round.value}")
+        logger.info(f"Processing uploaded audio for session {session_id}, round {session.current_round.value}")
         
-        # Record and transcribe audio
+        # Save uploaded audio to temp directory
         try:
-            logger.info("Starting audio recording...")
-            audio_file = self.audio_manager.record_audio()
-            if not audio_file:
-                logger.warning("No audio recorded")
-                return {"error": "No audio recorded", "retry": True}
+            audio_filename = os.path.join(TEMP_DIR, f"user_input_{int(time.time())}_{audio_file.filename}")
+            with open(audio_filename, "wb") as f:
+                content = await audio_file.read()
+                f.write(content)
             
-            logger.info(f"Audio file recorded: {audio_file}")
-            user_text = self.audio_manager.transcribe_audio(audio_file)
+            logger.info(f"Audio file saved: {audio_filename}")
+            
+            # Transcribe audio
+            user_text = self.audio_manager.transcribe_audio(audio_filename)
             
             # Cleanup audio file
             try:
-                os.remove(audio_file)
-                logger.info(f"Cleaned up audio file: {audio_file}")
+                os.remove(audio_filename)
+                logger.info(f"Cleaned up audio file: {audio_filename}")
             except Exception as cleanup_error:
-                logger.warning(f"Failed to cleanup audio file {audio_file}: {cleanup_error}")
+                logger.warning(f"Failed to cleanup audio file {audio_filename}: {cleanup_error}")
             
             if not user_text:
                 logger.warning("Could not transcribe audio")
@@ -872,7 +804,7 @@ app.mount("/audio", StaticFiles(directory=AUDIO_DIR), name="audio")
 session_manager = SessionManager()
 
 # ========================
-# API Endpoints
+# API Endpoints - UPDATED
 # ========================
 
 @app.get("/", response_class=HTMLResponse)
@@ -897,29 +829,33 @@ async def start_interview():
         logger.error(f"Error starting interview: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+# UPDATED: New endpoint for audio upload instead of recording
 @app.post("/record_and_respond")
-async def record_and_respond(request: RecordRequest):
-    """Record user response and provide AI reply"""
+async def record_and_respond(
+    audio: UploadFile = File(...),
+    session_id: str = Form(...)
+):
+    """Process uploaded audio response and provide AI reply"""
     try:
-        logger.info(f"Processing response for session: {request.session_id}")
+        logger.info(f"Processing uploaded audio for session: {session_id}")
         
         # Check if session exists first
-        session = session_manager.get_session(request.session_id)
+        session = session_manager.get_session(session_id)
         if not session:
-            logger.error(f"Session {request.session_id} not found in record_and_respond")
+            logger.error(f"Session {session_id} not found in record_and_respond")
             # List all available sessions for debugging
             available_sessions = session_manager.list_sessions()
             logger.error(f"Available sessions: {available_sessions}")
-            raise HTTPException(status_code=404, detail=f"Session {request.session_id} not found")
+            raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
         
-        result = await session_manager.process_user_response(request.session_id)
-        logger.info(f"Response processed successfully for session {request.session_id}")
+        result = await session_manager.process_user_response_upload(session_id, audio)
+        logger.info(f"Response processed successfully for session {session_id}")
         return result
         
     except HTTPException:
         raise  # Re-raise HTTP exceptions as-is
     except Exception as e:
-        logger.error(f"Error processing response for session {request.session_id}: {e}", exc_info=True)
+        logger.error(f"Error processing response for session {session_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/start_next_round")
@@ -1019,5 +955,3 @@ async def health_check():
         "active_sessions": len(session_manager.sessions),
         "timestamp": time.time()
     }
-
-# Note: Startup/shutdown events are now handled by the lifespan context manager above
