@@ -11,7 +11,8 @@ import random
 import subprocess
 from typing import Dict, List, Optional, Any
 from pydantic import BaseModel
-
+import pyodbc
+import random
 import numpy as np
 import sounddevice as sd
 import scipy.io.wavfile as wavfile
@@ -41,7 +42,54 @@ TTS_SPEED = 1.2
 # ========================
 # Models and schemas
 # ========================
+# ========================
+# SQL Server setup
+# ========================
 
+# SQL Server connection parameters
+DB_CONFIG = {
+    "DRIVER": "ODBC Driver 17 for SQL Server",
+    "SERVER": "192.168.48.200",
+    "DATABASE": "SuperDB",
+    "UID": "sa",
+    "PWD": "Welcome@123",
+}
+
+CONNECTION_STRING = (
+    f"DRIVER={{{DB_CONFIG['DRIVER']}}};"
+    f"SERVER={DB_CONFIG['SERVER']};"
+    f"DATABASE={DB_CONFIG['DATABASE']};"
+    f"UID={DB_CONFIG['UID']};"
+    f"PWD={DB_CONFIG['PWD']}"
+)
+
+def get_db_connection():
+    try:
+        conn = pyodbc.connect(CONNECTION_STRING)
+        return conn
+    except pyodbc.Error as e:
+        logger.error(f"Database connection error: {e}")
+        return None
+
+def fetch_random_student_id():
+    """Fetch a random student ID from SQL Server"""
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return None
+        
+        cursor = conn.cursor()
+        cursor.execute("SELECT DISTINCT Student_ID FROM tbl_Student_Info")
+        rows = cursor.fetchall()
+        student_ids = [row[0] for row in rows if row[0] is not None]
+        
+        cursor.close()
+        conn.close()
+        return random.choice(student_ids) if student_ids else None
+    except Exception as e:
+        logger.error(f"Error fetching student ID: {e}")
+        return None
+    
 class Session:
     """Session data model for a test session"""
     def __init__(self, summary: str, voice: str):
@@ -122,7 +170,7 @@ class DatabaseManager:
         self.client = pymongo.MongoClient(connection_string)
         self.db = self.client[db_name]
         self.transcripts = self.db["drive"]
-        self.conversations = self.db["conversation"]
+        self.conversations = self.db["daily_standup_results"]
     
     def get_latest_summary(self) -> str:
         """Fetch the latest lecture summary from the database"""
@@ -134,6 +182,9 @@ class DatabaseManager:
     def save_session_data(self, session_id: str, conversation_log: List[ConversationEntry], evaluation: str) -> bool:
         """Save session data to the conversation collection"""
         try:
+            # Fetch random student ID from SQL Server
+            student_id = fetch_random_student_id()
+            
             # Convert conversation log to the required format
             conversation_data = []
             for entry in conversation_log:
@@ -147,6 +198,7 @@ class DatabaseManager:
             # Create the document to insert
             document = {
                 "session_id": session_id,
+                "student_id": student_id,  # Added student_id from SQL Server
                 "timestamp": time.time(),
                 "conversation_log": conversation_data,
                 "evaluation": evaluation
@@ -154,7 +206,7 @@ class DatabaseManager:
             
             # Insert into the conversation collection
             result = self.conversations.insert_one(document)
-            logger.info(f"Session data saved successfully for session {session_id}, document ID: {result.inserted_id}")
+            logger.info(f"Session data saved successfully for session {session_id}, student_id {student_id}, document ID: {result.inserted_id}")
             return True
             
         except Exception as e:
@@ -616,11 +668,17 @@ async def get_summary(session_id: str):
             history
         )
         
+        # Fetch random student ID from SQL Server
+        # student_id = fetch_random_student_id()
+        # if student_id is None:
+        #     logger.warning("Could not fetch student ID from SQL Server")
+
         # Save session data to MongoDB
         save_success = db_manager.save_session_data(
             session_id=session_id,
             conversation_log=session.conversation_log,
-            evaluation=evaluation
+            evaluation=evaluation,
+            # student_id=student_id
         )
         
         if not save_success:

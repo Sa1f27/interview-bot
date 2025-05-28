@@ -11,6 +11,12 @@ import re
 import pymongo
 from groq import Groq
 import os
+import time
+import logging
+import pyodbc
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # --- Setup ---
 BASE_DIR = os.path.dirname(__file__)
@@ -37,17 +43,124 @@ def to_letter(index: int) -> str:
     return chr(65 + index)
 templates.env.filters['to_letter'] = to_letter
 
-# MongoDB Summary Fetch
-mongo_client = pymongo.MongoClient("mongodb://sa:L%40nc%5Eere%400012@192.168.48.200:27017/?authSource=admin")
-db = mongo_client["test"]
-transcripts_collection = db["drive"]
+# SQL Server connection parameters
+DB_CONFIG = {
+    "DRIVER": "ODBC Driver 17 for SQL Server",
+    "SERVER": "192.168.48.200",
+    "DATABASE": "SuperDB",
+    "UID": "sa",
+    "PWD": "Welcome@123",
+}
+CONNECTION_STRING = (
+    f"DRIVER={{{DB_CONFIG['DRIVER']}}};"
+    f"SERVER={DB_CONFIG['SERVER']};"
+    f"DATABASE={DB_CONFIG['DATABASE']};"
+    f"UID={DB_CONFIG['UID']};"
+    f"PWD={DB_CONFIG['PWD']}"
+)
 
-def load_transcript():
+def get_db_connection():
     try:
-        doc = transcripts_collection.find_one({}, sort=[("_id", -1)], projection={"_id": 0, "summary": 1})
-        return doc["summary"] if doc and "summary" in doc else "Summary not found."
+        conn = pyodbc.connect(CONNECTION_STRING)
+        return conn
+    except pyodbc.Error as e:
+        logger.error(f"Database connection error: {e}")
+        return None
+
+def fetch_random_student_id():
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return None
+        cursor = conn.cursor()
+        cursor.execute("SELECT DISTINCT Student_ID FROM tbl_Student_Info")
+        rows = cursor.fetchall()
+        student_ids = [row[0] for row in rows if row[0] is not None]
+        cursor.close()
+        conn.close()
+        return random.choice(student_ids) if student_ids else None
     except Exception as e:
-        return f"Error loading summary: {str(e)}"
+        logger.error(f"Error fetching student ID: {e}")
+        return None
+    
+# MongoDB Manager Class
+class DatabaseManager:
+    """MongoDB database manager for mock test application"""
+    def __init__(self, connection_string, db_name):
+        self.client = pymongo.MongoClient(connection_string)
+        self.db = self.client[db_name]
+        self.transcripts_collection = self.db["drive"]
+        self.test_results_collection = self.db["mock_test_results"]
+    
+    def load_transcript(self):
+        """Fetch the latest lecture summary from the database"""
+        try:
+            doc = self.transcripts_collection.find_one({}, sort=[("_id", -1)], projection={"_id": 0, "summary": 1})
+            return doc["summary"] if doc and "summary" in doc else "Summary not found."
+        except Exception as e:
+            return f"Error loading summary: {str(e)}"
+    
+    def save_test_results(self, session_id: str, session_data: dict, answers_data: list) -> bool:
+        """Save test results to the test_results collection"""
+        try:
+            # Calculate additional metrics
+            total_questions = len(answers_data)
+            correct_answers = sum(1 for answer in answers_data if answer["correct"])
+            score_percentage = (correct_answers / total_questions * 100) if total_questions > 0 else 0
+            
+            # Fetch student ID from SQL Server
+            student_id = fetch_random_student_id()
+            if student_id is None:
+                logger.warning("Could not fetch student ID from SQL Server")
+                
+            # Prepare question-answer details
+            qa_details = []
+            for i, answer in enumerate(answers_data):
+                qa_details.append({
+                    "question_number": i + 1,
+                    "question": answer["question"],
+                    "user_answer": answer["answer"],
+                    "correct": answer["correct"],
+                    "feedback": answer["feedback"],
+                    "options": answer.get("options", [])
+                })
+            
+            # Create the document to insert
+            document = {
+                "session_id": session_id,
+                "timestamp": time.time(),
+                "student_id": student_id,
+                "user_type": session_data["user_type"],
+                "final_score": correct_answers,
+                "total_questions": total_questions,
+                "score_percentage": round(score_percentage, 2),
+                "question_types": session_data["question_types"],
+                "qa_details": qa_details,
+                "test_completed": True
+            }
+            
+            # Insert into the test_results collection
+            result = self.test_results_collection.insert_one(document)
+            logger.info(f"Test results saved successfully for session {session_id}, document ID: {result.inserted_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error saving test results for session {session_id}: {e}")
+            return False
+    
+    def close(self):
+        """Close the database connection"""
+        self.client.close()
+
+# Initialize database manager
+db_manager = DatabaseManager(
+    "mongodb://sa:L%40nc%5Eere%400012@192.168.48.200:27017/?authSource=admin", 
+    "test"
+)
+
+# Helper function to load transcript using the database manager
+def load_transcript():
+    return db_manager.load_transcript()
 
 # In-memory storage
 SESSIONS = {}
@@ -133,7 +246,7 @@ def generate_question(user_type, question_type, transcript, difficulty, prev_ans
         completion = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[{"role": "system", "content": prompt}],
-            temperature=1,
+            temperature=0.7,
             max_completion_tokens=1024,
             top_p=1,
             stream=False
@@ -233,7 +346,7 @@ async def submit_answer(request: Request, session_id: str = Form(...), answer: s
     if user_type == "non_dev" and answer.isdigit() and int(answer) < len(options):
         full_answer = options[int(answer)]
 
-    eval_prompt = f"Evaluate answer: {ans_data['question']}\nAnswer: {full_answer}\nReturn 'Correct', 'Incorrect', or 'Partial' with a comment."
+    eval_prompt = f"Evaluate answer: {ans_data['question']}\nAnswer: {full_answer}\nReturn 'Correct', 'Incorrect', or 'Partial' with a concise comment."
     try:
         completion = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
@@ -255,6 +368,16 @@ async def submit_answer(request: Request, session_id: str = Form(...), answer: s
 
     # Test completed
     if count >= 10:
+        # Save test results to MongoDB
+        save_success = db_manager.save_test_results(
+            session_id=session_id,
+            session_data=session,
+            answers_data=ANSWERS[session_id]
+        )
+        
+        if not save_success:
+            logger.warning(f"Failed to save test results for session {session_id}")
+        
         analytics = generate_analytics(session_id)
         return templates.TemplateResponse("index.html", {
             "request": request,
@@ -319,3 +442,9 @@ async def export_results(session_id: str):
     pdf_path = f"test_results_{session_id}.pdf"
     pdf.output(pdf_path)
     return FileResponse(pdf_path, media_type="application/pdf", filename=pdf_path)
+
+# Handle application shutdown
+@app.on_event("shutdown")
+def shutdown_event():
+    """Clean up resources on application shutdown"""
+    db_manager.close()

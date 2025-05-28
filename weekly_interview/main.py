@@ -7,6 +7,7 @@ import asyncio
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
 from enum import Enum
+import pyodbc
 
 import numpy as np
 import sounddevice as sd
@@ -82,6 +83,46 @@ class RecordRequest(BaseModel):
 # Database Manager
 # ========================
 
+# SQL Server connection parameters
+DB_CONFIG = {
+    "DRIVER": "ODBC Driver 17 for SQL Server",
+    "SERVER": "192.168.48.200",
+    "DATABASE": "SuperDB",
+    "UID": "sa",
+    "PWD": "Welcome@123",
+}
+CONNECTION_STRING = (
+    f"DRIVER={{{DB_CONFIG['DRIVER']}}};"
+    f"SERVER={DB_CONFIG['SERVER']};"
+    f"DATABASE={DB_CONFIG['DATABASE']};"
+    f"UID={DB_CONFIG['UID']};"
+    f"PWD={DB_CONFIG['PWD']}"
+)
+
+def get_db_connection():
+    try:
+        conn = pyodbc.connect(CONNECTION_STRING)
+        return conn
+    except pyodbc.Error as e:
+        logger.error(f"Database connection error: {e}")
+        return None
+
+def fetch_random_student_id():
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return None
+        cursor = conn.cursor()
+        cursor.execute("SELECT DISTINCT Student_ID FROM tbl_Student_Info")
+        rows = cursor.fetchall()
+        student_ids = [row[0] for row in rows if row[0] is not None]
+        cursor.close()
+        conn.close()
+        return random.choice(student_ids) if student_ids else None
+    except Exception as e:
+        logger.error(f"Error fetching student ID: {e}")
+        return None
+    
 class DatabaseManager:
     def __init__(self):
         try:
@@ -90,7 +131,7 @@ class DatabaseManager:
             )
             self.db = self.client["test"]
             self.transcripts = self.db["drive"]
-            self.interviews = self.db["interviews"]
+            self.interviews = self.db["interviews_results"]
             logger.info("Database connection established")
         except Exception as e:
             logger.error(f"Database connection failed: {e}")
@@ -102,6 +143,8 @@ class DatabaseManager:
                 logger.warning("No database connection available")
                 return False
                 
+            # Fetch student ID from SQL Server
+            student_id = fetch_random_student_id()
             # Flatten conversations
             conv_data = {}
             for round_type, conv_list in conversations.items():
@@ -114,6 +157,7 @@ class DatabaseManager:
             doc = {
                 "session_id": session_id,
                 "timestamp": time.time(),
+                "student_id": student_id,
                 "conversations": conv_data,
                 "evaluation": evaluation,
                 "scores": scores
@@ -134,9 +178,8 @@ class DatabaseManager:
             docs = list(self.transcripts.find({}, {"_id": 0, "summary": 1}).limit(5))
             if not docs:
                 return "No technical content available."
-            
             summaries = [doc.get("summary", "") for doc in docs if doc.get("summary")]
-            return "\n\n".join(summaries[:3])  # Limit to 3 summaries for efficiency
+            return "\n\n".join(summaries[:5])  # Limit to 5 summaries for efficiency
         except Exception as e:
             logger.error(f"Database error: {e}")
             return "Technical content unavailable."
@@ -222,9 +265,9 @@ class LLMManager:
         {hr_conversation}
         
         Provide a structured evaluation with:
-        1. Technical competency (2-3 sentences) - Score: X/10
-        2. Communication skills (2-3 sentences) - Score: X/10  
-        3. Cultural fit and soft skills (2-3 sentences) - Score: X/10
+        1. Technical round - Score: X/10
+        2. Communication round - Score: X/10  
+        3. HR round - Score: X/10
         4. Overall recommendation and areas for improvement (2-3 sentences) - Overall Score: X/10
         
         Keep the evaluation professional, constructive, and under 250 words.
@@ -315,9 +358,9 @@ def extract_scores_from_evaluation(text: str) -> Dict[str, Optional[float]]:
     scores = {"technical_score": None, "communication_score": None, "hr_score": None, "overall_score": None}
 
     # Updated regex patterns to match the evaluation format
-    scores["technical_score"] = _extract_score(text, r"Technical competency.*?Score:\s*(\d+(?:\.\d+)?)/10")
-    scores["communication_score"] = _extract_score(text, r"Communication skills.*?Score:\s*(\d+(?:\.\d+)?)/10")
-    scores["hr_score"] = _extract_score(text, r"Cultural fit.*?Score:\s*(\d+(?:\.\d+)?)/10")
+    scores["technical_score"] = _extract_score(text, r"Technical round.*?Score:\s*(\d+(?:\.\d+)?)/10")
+    scores["communication_score"] = _extract_score(text, r"Communication round.*?Score:\s*(\d+(?:\.\d+)?)/10")
+    scores["hr_score"] = _extract_score(text, r"HR round.*?Score:\s*(\d+(?:\.\d+)?)/10")
     scores["overall_score"] = _extract_score(text, r"Overall Score:\s*(\d+(?:\.\d+)?)/10")
 
     return scores
