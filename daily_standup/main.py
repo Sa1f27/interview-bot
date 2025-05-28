@@ -24,6 +24,7 @@ from langchain_openai import ChatOpenAI
 from langchain_groq import ChatGroq
 from langchain.chains import create_history_aware_retriever, create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
+from contextlib import asynccontextmanager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -134,9 +135,18 @@ class SummaryResponse(BaseModel):
 # ========================
 # Application setup
 # ========================
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan context manager"""
+    # Startup
+    logger.info("Daily standup system starting up...")
+    yield
+    # Shutdown
+    db_manager.close()
+    AudioManager.clean_audio_folder()
+    logger.info("Daily standup system shut down")
 
-# Initialize FastAPI app
-app = FastAPI(title="Voice-Based Testing System")
+app = FastAPI(title="Voice-Based Testing System", lifespan=lifespan)
 
 # Get base directory
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -730,9 +740,3 @@ async def cleanup_resources():
         logger.error(f"Error during cleanup: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# Handle application shutdown
-@app.on_event("shutdown")
-def shutdown_event():
-    """Clean up resources on application shutdown"""
-    db_manager.close()
-    AudioManager.clean_audio_folder()
