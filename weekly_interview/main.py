@@ -62,8 +62,8 @@ class ConversationEntry:
     timestamp: float = field(default_factory=time.time)
 
 @dataclass
-class InterviewSession:
-    session_id: str
+class InterviewTest:
+    test_id: str
     current_round: RoundType
     state: InterviewState
     voice: str
@@ -73,7 +73,7 @@ class InterviewSession:
     last_activity: float = field(default_factory=time.time)
 
 class RecordRequest(BaseModel):
-    session_id: str
+    test_id: str
 
 # ========================
 # Database Manager
@@ -133,7 +133,7 @@ class DatabaseManager:
             logger.error(f"Database connection failed: {e}")
             self.client = None
     
-    def save_interview_data(self, session_id: str, conversations: Dict[RoundType, List[ConversationEntry]], evaluation: str, scores: Dict[str, Optional[float]]) -> bool:
+    def save_interview_data(self, test_id: str, conversations: Dict[RoundType, List[ConversationEntry]], evaluation: str, scores: Dict[str, Optional[float]]) -> bool:
         try:
             if not self.client:
                 logger.warning("No database connection available")
@@ -151,7 +151,7 @@ class DatabaseManager:
                 } for entry in conv_list]
             
             doc = {
-                "session_id": session_id,
+                "test_id": test_id,
                 "timestamp": time.time(),
                 "student_id": student_id,
                 "conversations": conv_data,
@@ -159,7 +159,7 @@ class DatabaseManager:
                 "scores": scores
             }
             result = self.interviews.insert_one(doc)
-            logger.info(f"Interview saved for session {session_id}, id {result.inserted_id}")
+            logger.info(f"Interview saved for test {test_id}, id {result.inserted_id}")
             return True
         except Exception as e:
             logger.error(f"Error saving interview data: {e}")
@@ -449,24 +449,24 @@ class AudioManager:
             return None
 
 # ========================
-# Session Manager - UPDATED FOR UPLOAD
+# Test Manager - UPDATED FOR UPLOAD
 # ========================
 
-class SessionManager:
+class TestManager:
     def __init__(self):
-        self.sessions: Dict[str, InterviewSession] = {}
+        self.tests: Dict[str, InterviewTest] = {}
         self.db_manager = DatabaseManager()
         self.llm_manager = LLMManager()
         self.audio_manager = AudioManager()
-        logger.info("SessionManager initialized")
+        logger.info("TestManager initialized")
     
-    def create_session(self) -> str:
-        """Create a new interview session"""
-        session_id = str(uuid.uuid4())
+    def create_test(self) -> str:
+        """Create a new interview test"""
+        test_id = str(uuid.uuid4())
         voice = AudioManager.get_random_voice()
         
-        session = InterviewSession(
-            session_id=session_id,
+        test = InterviewTest(
+            test_id=test_id,
             current_round=RoundType.TECHNICAL,
             state=InterviewState.NOT_STARTED,
             voice=voice
@@ -474,45 +474,45 @@ class SessionManager:
         
         # Initialize conversation logs for all rounds
         for round_type in RoundType:
-            session.conversations[round_type] = []
+            test.conversations[round_type] = []
         
-        self.sessions[session_id] = session
-        logger.info(f"Created session {session_id}. Total sessions: {len(self.sessions)}")
-        logger.info(f"Session details: Round={session.current_round.value}, State={session.state.value}")
-        return session_id
+        self.tests[test_id] = test
+        logger.info(f"Created test {test_id}. Total tests: {len(self.tests)}")
+        logger.info(f"Test details: Round={test.current_round.value}, State={test.state.value}")
+        return test_id
     
-    def get_session(self, session_id: str) -> Optional[InterviewSession]:
-        """Get session by ID with enhanced debugging"""
-        logger.info(f"Looking for session: {session_id}")
-        logger.info(f"Available sessions: {list(self.sessions.keys())}")
+    def get_test(self, test_id: str) -> Optional[InterviewTest]:
+        """Get test by ID with enhanced debugging"""
+        logger.info(f"Looking for test: {test_id}")
+        logger.info(f"Available tests: {list(self.tests.keys())}")
         
-        session = self.sessions.get(session_id)
-        if session:
-            session.last_activity = time.time()
-            logger.info(f"Found session {session_id}. Round: {session.current_round.value}, State: {session.state.value}")
+        test = self.tests.get(test_id)
+        if test:
+            test.last_activity = time.time()
+            logger.info(f"Found test {test_id}. Round: {test.current_round.value}, State: {test.state.value}")
         else:
-            logger.error(f"Session {session_id} not found! Available sessions: {list(self.sessions.keys())}")
+            logger.error(f"Test {test_id} not found! Available tests: {list(self.tests.keys())}")
         
-        return session
+        return test
     
-    def list_sessions(self) -> Dict[str, Dict[str, str]]:
-        """Debug method to list all active sessions"""
-        session_info = {}
-        for sid, session in self.sessions.items():
-            session_info[sid] = {
-                "round": session.current_round.value,
-                "state": session.state.value,
-                "last_activity": time.ctime(session.last_activity),
-                "questions_asked": str(session.questions_asked)
+    def list_tests(self) -> Dict[str, Dict[str, str]]:
+        """Debug method to list all active tests"""
+        test_info = {}
+        for tid, test in self.tests.items():
+            test_info[tid] = {
+                "round": test.current_round.value,
+                "state": test.state.value,
+                "last_activity": time.ctime(test.last_activity),
+                "questions_asked": str(test.questions_asked)
             }
-        return session_info
+        return test_info
     
-    def should_end_round(self, session: InterviewSession) -> bool:
+    def should_end_round(self, test: InterviewTest) -> bool:
         """Determine if current round should end based on questions asked"""
-        current_round = session.current_round
-        questions_asked = session.questions_asked[current_round]
+        current_round = test.current_round
+        questions_asked = test.questions_asked[current_round]
         
-        # Increased limits for longer sessions
+        # Increased limits for longer tests
         limits = {
             RoundType.TECHNICAL: 12,
             RoundType.COMMUNICATION: 12,
@@ -530,9 +530,9 @@ class SessionManager:
         except ValueError:
             return None
     
-    def format_conversation_history(self, session: InterviewSession, round_type: RoundType) -> str:
+    def format_conversation_history(self, test: InterviewTest, round_type: RoundType) -> str:
         """Format conversation history for LLM context"""
-        conversations = session.conversations.get(round_type, [])
+        conversations = test.conversations.get(round_type, [])
         if not conversations:
             return "No previous conversation in this round."
         
@@ -546,53 +546,53 @@ class SessionManager:
         
         return "\n".join(formatted)
     
-    async def generate_first_question(self, session_id: str) -> Dict[str, Any]:
+    async def generate_first_question(self, test_id: str) -> Dict[str, Any]:
         """Generate the first question for a round"""
-        session = self.get_session(session_id)
-        if not session:
-            logger.error(f"Session {session_id} not found in generate_first_question")
-            raise HTTPException(status_code=404, detail="Session not found")
+        test = self.get_test(test_id)
+        if not test:
+            logger.error(f"Test {test_id} not found in generate_first_question")
+            raise HTTPException(status_code=404, detail="Test not found")
         
-        session.state = InterviewState.IN_PROGRESS
-        session.round_start_time = time.time()
+        test.state = InterviewState.IN_PROGRESS
+        test.round_start_time = time.time()
         
         # Get technical content for technical round
         technical_content = ""
-        if session.current_round == RoundType.TECHNICAL:
+        if test.current_round == RoundType.TECHNICAL:
             technical_content = self.db_manager.get_technical_content()
         
         # Generate question
-        history = self.format_conversation_history(session, session.current_round)
-        question_count = session.questions_asked[session.current_round] + 1
+        history = self.format_conversation_history(test, test.current_round)
+        question_count = test.questions_asked[test.current_round] + 1
         
         question = await self.llm_manager.generate_question(
-            session.current_round,
+            test.current_round,
             history,
             question_count,
             technical_content
         )
         
-        session.questions_asked[session.current_round] += 1
-        logger.info(f"Generated question {question_count} for round {session.current_round.value}")
+        test.questions_asked[test.current_round] += 1
+        logger.info(f"Generated question {question_count} for round {test.current_round.value}")
         
         # Generate audio
-        audio_path = await self.audio_manager.text_to_speech(question, session.voice)
+        audio_path = await self.audio_manager.text_to_speech(question, test.voice)
         
         return {
             "question": question,
             "audio_path": audio_path,
-            "round": session.current_round.value
+            "round": test.current_round.value
         }
     
     # NEW METHOD: Process uploaded audio instead of recording
-    async def process_user_response_upload(self, session_id: str, audio_file: UploadFile) -> Dict[str, Any]:
+    async def process_user_response_upload(self, test_id: str, audio_file: UploadFile) -> Dict[str, Any]:
         """Process user's uploaded audio response and generate AI reply"""
-        session = self.get_session(session_id)
-        if not session:
-            logger.error(f"Session {session_id} not found in process_user_response_upload")
-            raise HTTPException(status_code=404, detail="Session not found")
+        test = self.get_test(test_id)
+        if not test:
+            logger.error(f"Test {test_id} not found in process_user_response_upload")
+            raise HTTPException(status_code=404, detail="Test not found")
         
-        logger.info(f"Processing uploaded audio for session {session_id}, round {session.current_round.value}")
+        logger.info(f"Processing uploaded audio for test {test_id}, round {test.current_round.value}")
         
         # Save uploaded audio to temp directory
         try:
@@ -623,23 +623,23 @@ class SessionManager:
             logger.error(f"Audio processing error: {audio_error}")
             return {"error": "Audio processing failed", "retry": True}
         
-        # Update session activity
-        session.last_activity = time.time()
+        # Update test activity
+        test.last_activity = time.time()
         
         # Check if we should end the round or continue
-        if self.should_end_round(session):
-            return await self._handle_round_transition(session, user_text)
+        if self.should_end_round(test):
+            return await self._handle_round_transition(test, user_text)
         
         # Generate next question
         technical_content = ""
-        if session.current_round == RoundType.TECHNICAL:
+        if test.current_round == RoundType.TECHNICAL:
             technical_content = self.db_manager.get_technical_content()
         
-        history = self.format_conversation_history(session, session.current_round)
-        question_count = session.questions_asked[session.current_round] + 1
+        history = self.format_conversation_history(test, test.current_round)
+        question_count = test.questions_asked[test.current_round] + 1
         
         ai_response = await self.llm_manager.generate_question(
-            session.current_round,
+            test.current_round,
             history,
             question_count,
             technical_content
@@ -647,8 +647,8 @@ class SessionManager:
         
         # Save conversation entry
         entry = ConversationEntry(user_input=user_text, ai_response=ai_response)
-        session.conversations[session.current_round].append(entry)
-        session.questions_asked[session.current_round] += 1
+        test.conversations[test.current_round].append(entry)
+        test.questions_asked[test.current_round] += 1
         
         # Check for round transition keywords in AI response
         transition_keywords = [
@@ -661,38 +661,38 @@ class SessionManager:
         is_transition = any(keyword in ai_response.lower() for keyword in transition_keywords)
         
         if is_transition:
-            return await self._handle_round_transition(session, user_text, ai_response)
+            return await self._handle_round_transition(test, user_text, ai_response)
         
         # Generate audio for next question
-        audio_path = await self.audio_manager.text_to_speech(ai_response, session.voice)
+        audio_path = await self.audio_manager.text_to_speech(ai_response, test.voice)
         
         return {
             "response": ai_response,
             "audio_path": audio_path,
             "continue": True,
-            "round": session.current_round.value
+            "round": test.current_round.value
         }
     
-    async def _handle_round_transition(self, session: InterviewSession, 
+    async def _handle_round_transition(self, test: InterviewTest, 
                                      user_text: str, ai_response: str = None) -> Dict[str, Any]:
         """Handle transition between rounds or end of interview"""
-        current_round = session.current_round
+        current_round = test.current_round
         
         # Save the user's response if we have an AI response
         if ai_response:
             entry = ConversationEntry(user_input=user_text, ai_response=ai_response)
-            session.conversations[current_round].append(entry)
+            test.conversations[current_round].append(entry)
         
         # Check if there's a next round
         next_round = self.get_next_round(current_round)
         
         if next_round:
             # Transition to next round
-            session.current_round = next_round
-            session.state = InterviewState.ROUND_COMPLETE
+            test.current_round = next_round
+            test.state = InterviewState.ROUND_COMPLETE
             
             transition_message = f"Thank you for the {current_round.value.lower()} round. Let's move to the {next_round.value.lower()} round."
-            audio_path = await self.audio_manager.text_to_speech(transition_message, session.voice)
+            audio_path = await self.audio_manager.text_to_speech(transition_message, test.voice)
             
             return {
                 "response": transition_message,
@@ -703,10 +703,10 @@ class SessionManager:
             }
         else:
             # Interview complete
-            session.state = InterviewState.INTERVIEW_COMPLETE
+            test.state = InterviewState.INTERVIEW_COMPLETE
             
             completion_message = "Thank you for completing all interview rounds. Generating your evaluation report..."
-            audio_path = await self.audio_manager.text_to_speech(completion_message, session.voice)
+            audio_path = await self.audio_manager.text_to_speech(completion_message, test.voice)
             
             return {
                 "response": completion_message,
@@ -714,36 +714,36 @@ class SessionManager:
                 "interview_complete": True
             }
     
-    async def generate_evaluation(self, session_id: str) -> Dict[str, Any]:
+    async def generate_evaluation(self, test_id: str) -> Dict[str, Any]:
         """Generate final interview evaluation"""
-        session = self.get_session(session_id)
-        if not session:
-            logger.error(f"Session {session_id} not found in generate_evaluation")
-            raise HTTPException(status_code=404, detail="Session not found")
+        test = self.get_test(test_id)
+        if not test:
+            logger.error(f"Test {test_id} not found in generate_evaluation")
+            raise HTTPException(status_code=404, detail="Test not found")
         
         # Generate evaluation using LLMManager
-        evaluation = await self.llm_manager.evaluate_interview(session.conversations)
+        evaluation = await self.llm_manager.evaluate_interview(test.conversations)
         scores = extract_scores_from_evaluation(evaluation)
         
         # Save to database
         save_success = self.db_manager.save_interview_data(
-            session_id=session_id,
-            conversations=session.conversations,
+            test_id=test_id,
+            conversations=test.conversations,
             evaluation=evaluation,
             scores=scores
         )
         
         if not save_success:
-            logger.warning(f"Failed to save interview data for session {session_id}")
+            logger.warning(f"Failed to save interview data for test {test_id}")
         
         # Generate analytics
-        total_questions = sum(session.questions_asked.values())
-        total_responses = sum(len(convs) for convs in session.conversations.values())
+        total_questions = sum(test.questions_asked.values())
+        total_responses = sum(len(convs) for convs in test.conversations.values())
         round_durations = {}
         
         # Calculate approximate round durations
         for round_type in RoundType:
-            question_count = session.questions_asked[round_type]
+            question_count = test.questions_asked[round_type]
             round_durations[round_type.value] = f"{question_count} questions"
         
         return {
@@ -756,17 +756,17 @@ class SessionManager:
             }
         }
     
-    def cleanup_expired_sessions(self):
-        """Remove expired sessions (older than 4 hours)"""
+    def cleanup_expired_tests(self):
+        """Remove expired tests (older than 4 hours)"""
         current_time = time.time()
-        expired_sessions = [
-            sid for sid, session in self.sessions.items()
-            if current_time - session.last_activity > 14400  # 4 hours
+        expired_tests = [
+            tid for tid, test in self.tests.items()
+            if current_time - test.last_activity > 14400  # 4 hours
         ]
         
-        for sid in expired_sessions:
-            self.sessions.pop(sid, None)
-            logger.info(f"Cleaned up expired session: {sid}")
+        for tid in expired_tests:
+            self.tests.pop(tid, None)
+            logger.info(f"Cleaned up expired test: {tid}")
 
 # ========================
 # FastAPI Application with Lifespan
@@ -781,7 +781,7 @@ async def lifespan(app: FastAPI):
     logger.info("Interview system starting up...")
     yield
     # Shutdown
-    session_manager.cleanup_expired_sessions()
+    test_manager.cleanup_expired_tests()
     AudioManager.clean_old_audio_files()
     logger.info("Interview system shut down")
 
@@ -801,7 +801,7 @@ app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "frontend")), 
 app.mount("/audio", StaticFiles(directory=AUDIO_DIR), name="audio")
 
 # Initialize managers
-session_manager = SessionManager()
+test_manager = TestManager()
 
 # ========================
 # API Endpoints - UPDATED
@@ -814,16 +814,16 @@ async def home():
 
 @app.get("/start_interview")
 async def start_interview():
-    """Start a new interview session"""
+    """Start a new interview test"""
     try:
         logger.info("Starting new interview...")
-        session_id = session_manager.create_session()
-        logger.info(f"Session created: {session_id}")
+        test_id = test_manager.create_test()
+        logger.info(f"Test created: {test_id}")
         
-        result = await session_manager.generate_first_question(session_id)
-        result["session_id"] = session_id
+        result = await test_manager.generate_first_question(test_id)
+        result["test_id"] = test_id
         
-        logger.info(f"First question generated for session {session_id}")
+        logger.info(f"First question generated for test {test_id}")
         return result
     except Exception as e:
         logger.error(f"Error starting interview: {e}", exc_info=True)
@@ -833,114 +833,114 @@ async def start_interview():
 @app.post("/record_and_respond")
 async def record_and_respond(
     audio: UploadFile = File(...),
-    session_id: str = Form(...)
+    test_id: str = Form(...)
 ):
     """Process uploaded audio response and provide AI reply"""
     try:
-        logger.info(f"Processing uploaded audio for session: {session_id}")
+        logger.info(f"Processing uploaded audio for test: {test_id}")
         
-        # Check if session exists first
-        session = session_manager.get_session(session_id)
-        if not session:
-            logger.error(f"Session {session_id} not found in record_and_respond")
-            # List all available sessions for debugging
-            available_sessions = session_manager.list_sessions()
-            logger.error(f"Available sessions: {available_sessions}")
-            raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+        # Check if test exists first
+        test = test_manager.get_test(test_id)
+        if not test:
+            logger.error(f"Test {test_id} not found in record_and_respond")
+            # List all available tests for debugging
+            available_tests = test_manager.list_tests()
+            logger.error(f"Available tests: {available_tests}")
+            raise HTTPException(status_code=404, detail=f"Test {test_id} not found")
         
-        result = await session_manager.process_user_response_upload(session_id, audio)
-        logger.info(f"Response processed successfully for session {session_id}")
+        result = await test_manager.process_user_response_upload(test_id, audio)
+        logger.info(f"Response processed successfully for test {test_id}")
         return result
         
     except HTTPException:
         raise  # Re-raise HTTP exceptions as-is
     except Exception as e:
-        logger.error(f"Error processing response for session {session_id}: {e}", exc_info=True)
+        logger.error(f"Error processing response for test {test_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/start_next_round")
-async def start_next_round(session_id: str):
+async def start_next_round(test_id: str):
     """Start the next interview round"""
     try:
-        logger.info(f"Starting next round for session: {session_id}")
-        session = session_manager.get_session(session_id)
-        if not session:
-            logger.error(f"Session {session_id} not found in start_next_round")
-            raise HTTPException(status_code=404, detail="Session not found")
+        logger.info(f"Starting next round for test: {test_id}")
+        test = test_manager.get_test(test_id)
+        if not test:
+            logger.error(f"Test {test_id} not found in start_next_round")
+            raise HTTPException(status_code=404, detail="Test not found")
         
-        session.state = InterviewState.IN_PROGRESS
-        result = await session_manager.generate_first_question(session_id)
-        logger.info(f"Next round started for session {session_id}")
+        test.state = InterviewState.IN_PROGRESS
+        result = await test_manager.generate_first_question(test_id)
+        logger.info(f"Next round started for test {test_id}")
         return result
     except Exception as e:
         logger.error(f"Error starting next round: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/evaluate")
-async def get_evaluation(session_id: str):
+async def get_evaluation(test_id: str):
     """Get final interview evaluation"""
     try:
-        logger.info(f"Generating evaluation for session: {session_id}")
-        result = await session_manager.generate_evaluation(session_id)
-        logger.info(f"Evaluation generated for session {session_id}")
+        logger.info(f"Generating evaluation for test: {test_id}")
+        result = await test_manager.generate_evaluation(test_id)
+        logger.info(f"Evaluation generated for test {test_id}")
         return result
     except Exception as e:
         logger.error(f"Error generating evaluation: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 # Debug endpoints
-@app.get("/debug/sessions")
-async def debug_sessions():
-    """Debug endpoint to list all active sessions"""
+@app.get("/debug/tests")
+async def debug_tests():
+    """Debug endpoint to list all active tests"""
     try:
-        sessions_info = session_manager.list_sessions()
+        tests_info = test_manager.list_tests()
         return {
-            "total_sessions": len(sessions_info),
-            "sessions": sessions_info
+            "total_tests": len(tests_info),
+            "tests": tests_info
         }
     except Exception as e:
         logger.error(f"Error in debug endpoint: {e}")
         return {"error": str(e)}
 
-@app.get("/debug/session/{session_id}")
-async def debug_session(session_id: str):
-    """Debug endpoint to get detailed session info"""
+@app.get("/debug/test/{test_id}")
+async def debug_test(test_id: str):
+    """Debug endpoint to get detailed test info"""
     try:
-        session = session_manager.get_session(session_id)
-        if not session:
-            return {"error": "Session not found", "session_id": session_id}
+        test = test_manager.get_test(test_id)
+        if not test:
+            return {"error": "Test not found", "test_id": test_id}
         
         return {
-            "session_id": session_id,
-            "current_round": session.current_round.value,
-            "state": session.state.value,
-            "voice": session.voice,
-            "questions_asked": session.questions_asked,
+            "test_id": test_id,
+            "current_round": test.current_round.value,
+            "state": test.state.value,
+            "voice": test.voice,
+            "questions_asked": test.questions_asked,
             "conversations_count": {
                 round_type.value: len(convs) 
-                for round_type, convs in session.conversations.items()
+                for round_type, convs in test.conversations.items()
             },
-            "last_activity": time.ctime(session.last_activity),
-            "round_start_time": time.ctime(session.round_start_time)
+            "last_activity": time.ctime(test.last_activity),
+            "round_start_time": time.ctime(test.round_start_time)
         }
     except Exception as e:
-        logger.error(f"Error in session debug endpoint: {e}")
+        logger.error(f"Error in test debug endpoint: {e}")
         return {"error": str(e)}
 
 @app.get("/cleanup")
 async def cleanup():
-    """Clean up expired sessions and old files"""
+    """Clean up expired tests and old files"""
     try:
-        sessions_before = len(session_manager.sessions)
-        session_manager.cleanup_expired_sessions()
-        sessions_after = len(session_manager.sessions)
+        tests_before = len(test_manager.tests)
+        test_manager.cleanup_expired_tests()
+        tests_after = len(test_manager.tests)
         
         AudioManager.clean_old_audio_files()
         
         return {
             "message": "Cleanup completed",
-            "sessions_removed": sessions_before - sessions_after,
-            "active_sessions": sessions_after
+            "tests_removed": tests_before - tests_after,
+            "active_tests": tests_after
         }
     except Exception as e:
         logger.error(f"Cleanup error: {e}")
@@ -952,6 +952,6 @@ async def health_check():
     """Health check endpoint"""
     return {
         "status": "healthy",
-        "active_sessions": len(session_manager.sessions),
+        "active_tests": len(test_manager.tests),
         "timestamp": time.time()
     }

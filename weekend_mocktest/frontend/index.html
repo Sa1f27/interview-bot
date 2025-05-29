@@ -78,7 +78,7 @@
         </div>
         
         <form id="answer-form" action="./submit-answer" method="post" class="space-y-6">
-            <input type="hidden" name="session_id" value="{{ session_id }}">
+            <input type="hidden" name="test_id" value="{{ test_id }}">
             <input type="hidden" name="question_number" value="{{ question_number }}">
             
             {% if options %}
@@ -138,10 +138,6 @@
         </div>
         
         <div class="flex flex-col sm:flex-row gap-4 justify-center">
-            <a href="/export-results?session_id={{ session_id }}" 
-               class="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 transition text-center font-medium">
-                📄 Export Results (PDF)
-            </a>
             <a href="/" 
                class="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition text-center font-medium">
                 🔄 Take New Test

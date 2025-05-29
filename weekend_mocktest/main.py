@@ -1,10 +1,9 @@
 # Simplified FastAPI Mock Test Application
 from fastapi import FastAPI, Request, Form, HTTPException
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 import markdown
-from fpdf import FPDF
 import uuid
 import random
 import re
@@ -14,6 +13,7 @@ import os
 import time
 import logging
 import pyodbc
+from contextlib import asynccontextmanager
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -21,7 +21,20 @@ logger = logging.getLogger(__name__)
 # --- Setup ---
 BASE_DIR = os.path.dirname(__file__)
 
-app = FastAPI()
+# Initialize database manager
+db_manager = None
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan context manager"""
+    # Startup
+    logger.info("Mock test application starting up...")
+    yield
+    # Shutdown
+    db_manager.close()
+    logger.info("Mock test application shut down")
+
+app = FastAPI(lifespan=lifespan)
 
 # CORS setup
 app.add_middleware(
@@ -100,7 +113,7 @@ class DatabaseManager:
         except Exception as e:
             return f"Error loading summary: {str(e)}"
     
-    def save_test_results(self, session_id: str, session_data: dict, answers_data: list) -> bool:
+    def save_test_results(self, test_id: str, test_data: dict, answers_data: list) -> bool:
         """Save test results to the test_results collection"""
         try:
             # Calculate additional metrics
@@ -127,32 +140,32 @@ class DatabaseManager:
             
             # Create the document to insert
             document = {
-                "session_id": session_id,
+                "test_id": test_id,
                 "timestamp": time.time(),
                 "student_id": student_id,
-                "user_type": session_data["user_type"],
+                "user_type": test_data["user_type"],
                 "final_score": correct_answers,
                 "total_questions": total_questions,
                 "score_percentage": round(score_percentage, 2),
-                "question_types": session_data["question_types"],
+                "question_types": test_data["question_types"],
                 "qa_details": qa_details,
                 "test_completed": True
             }
             
             # Insert into the test_results collection
             result = self.test_results_collection.insert_one(document)
-            logger.info(f"Test results saved successfully for session {session_id}, document ID: {result.inserted_id}")
+            logger.info(f"Test results saved successfully for test {test_id}, document ID: {result.inserted_id}")
             return True
             
         except Exception as e:
-            logger.error(f"Error saving test results for session {session_id}: {e}")
+            logger.error(f"Error saving test results for test {test_id}: {e}")
             return False
     
     def close(self):
         """Close the database connection"""
         self.client.close()
 
-# Initialize database manager
+# Initialize database manager early - will be properly set in lifespan
 db_manager = DatabaseManager(
     "mongodb://sa:L%40nc%5Eere%400012@192.168.48.200:27017/?authSource=admin", 
     "test"
@@ -163,7 +176,7 @@ def load_transcript():
     return db_manager.load_transcript()
 
 # In-memory storage
-SESSIONS = {}
+TESTS = {}
 ANSWERS = {}
 
 @app.get("/", response_class=HTMLResponse)
@@ -182,7 +195,7 @@ async def start_test(request: Request, user_type: str = Form(...)):
             "message": "Invalid user type"
         })
 
-    session_id = str(uuid.uuid4())
+    test_id = str(uuid.uuid4())
     transcript_content = load_transcript()
     question_types = (
         ["code_writing"] * 4 + ["bug_fixing"] * 3 + ["scenario"] * 3
@@ -190,17 +203,17 @@ async def start_test(request: Request, user_type: str = Form(...)):
         else ["mcq"] * 5 + ["scenario_mcq"] * 5
     )
     random.shuffle(question_types)
-    SESSIONS[session_id] = {
+    TESTS[test_id] = {
         "user_type": user_type, 
         "score": 0, 
         "question_count": 1, 
         "question_types": question_types
     }
-    ANSWERS[session_id] = []
+    ANSWERS[test_id] = []
 
     q_type = question_types[0]
     question, options = generate_question(user_type, q_type, transcript_content, difficulty=1, prev_answer=None)
-    ANSWERS[session_id].append({
+    ANSWERS[test_id].append({
         "question": question, 
         "answer": "", 
         "correct": False, 
@@ -211,7 +224,7 @@ async def start_test(request: Request, user_type: str = Form(...)):
     return templates.TemplateResponse("index.html", {
         "request": request,
         "page": "test",
-        "session_id": session_id,
+        "test_id": test_id,
         "user_type": user_type,
         "question_html": markdown.markdown(question),
         "options": options,
@@ -321,18 +334,18 @@ def generate_question(user_type, question_type, transcript, difficulty, prev_ans
     return question.strip(), options
 
 @app.post("/submit-answer", response_class=HTMLResponse)
-async def submit_answer(request: Request, session_id: str = Form(...), answer: str = Form(default=""), question_number: int = Form(...)):
-    session = SESSIONS.get(session_id)
-    if not session:
+async def submit_answer(request: Request, test_id: str = Form(...), answer: str = Form(default=""), question_number: int = Form(...)):
+    test = TESTS.get(test_id)
+    if not test:
         return templates.TemplateResponse("index.html", {
             "request": request, 
             "page": "error",
-            "message": "Session not found"
+            "message": "Test not found"
         })
     
-    user_type = session["user_type"]
-    score = session["score"]
-    count = session["question_count"]
+    user_type = test["user_type"]
+    score = test["score"]
+    count = test["question_count"]
     if question_number != count:
         return templates.TemplateResponse("index.html", {
             "request": request, 
@@ -340,7 +353,7 @@ async def submit_answer(request: Request, session_id: str = Form(...), answer: s
             "message": "Invalid question number"
         })
 
-    ans_data = ANSWERS[session_id][-1]
+    ans_data = ANSWERS[test_id][-1]
     options = ans_data["options"]
     full_answer = answer
     if user_type == "non_dev" and answer.isdigit() and int(answer) < len(options):
@@ -364,35 +377,35 @@ async def submit_answer(request: Request, session_id: str = Form(...), answer: s
 
     ans_data.update({"answer": full_answer, "correct": correct, "feedback": result})
     if correct:
-        session["score"] += 1
+        test["score"] += 1
 
     # Test completed
     if count >= 10:
         # Save test results to MongoDB
         save_success = db_manager.save_test_results(
-            session_id=session_id,
-            session_data=session,
-            answers_data=ANSWERS[session_id]
+            test_id=test_id,
+            test_data=test,
+            answers_data=ANSWERS[test_id]
         )
         
         if not save_success:
-            logger.warning(f"Failed to save test results for session {session_id}")
+            logger.warning(f"Failed to save test results for test {test_id}")
         
-        analytics = generate_analytics(session_id)
+        analytics = generate_analytics(test_id)
         return templates.TemplateResponse("index.html", {
             "request": request,
             "page": "results",
-            "score": session["score"],
+            "score": test["score"],
             "analytics": analytics,
-            "session_id": session_id
+            "test_id": test_id
         })
 
     # Next question
-    session["question_count"] += 1
-    next_type = session["question_types"][count % len(session["question_types"])]
+    test["question_count"] += 1
+    next_type = test["question_types"][count % len(test["question_types"])]
     transcript = load_transcript()
-    q, opts = generate_question(user_type, next_type, transcript, session["score"] // 2 + 1, full_answer)
-    ANSWERS[session_id].append({
+    q, opts = generate_question(user_type, next_type, transcript, test["score"] // 2 + 1, full_answer)
+    ANSWERS[test_id].append({
         "question": q, 
         "answer": "", 
         "correct": False, 
@@ -403,17 +416,17 @@ async def submit_answer(request: Request, session_id: str = Form(...), answer: s
     return templates.TemplateResponse("index.html", {
         "request": request,
         "page": "test",
-        "session_id": session_id,
+        "test_id": test_id,
         "user_type": user_type,
         "question_html": markdown.markdown(q),
         "options": opts,
-        "question_number": session["question_count"],
+        "question_number": test["question_count"],
         "total_questions": 10,
         "time_limit": 300 if user_type == "dev" else 120
     })
 
-def generate_analytics(session_id):
-    answers = ANSWERS[session_id]
+def generate_analytics(test_id):
+    answers = ANSWERS[test_id]
     total = len(answers)
     correct = sum(1 for a in answers if a["correct"])
     breakdown = "\n\n".join(
@@ -421,30 +434,3 @@ def generate_analytics(session_id):
         for i, a in enumerate(answers)
     )
     return f"**Score: {correct}/{total}**\n\n{breakdown}"
-
-@app.get("/export-results", response_class=FileResponse)
-async def export_results(session_id: str):
-    session = SESSIONS.get(session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-    
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", size=12)
-    pdf.cell(200, 10, txt="Mock Test Results", ln=True, align="C")
-    pdf.cell(200, 10, txt=f"Final Score: {session['score']}/10", ln=True)
-    pdf.ln(10)
-    
-    # Add detailed analytics
-    analytics_text = generate_analytics(session_id).replace("**", "").replace("✅", "Correct").replace("❌", "Incorrect")
-    pdf.multi_cell(0, 10, txt=analytics_text)
-    
-    pdf_path = f"test_results_{session_id}.pdf"
-    pdf.output(pdf_path)
-    return FileResponse(pdf_path, media_type="application/pdf", filename=pdf_path)
-
-# Handle application shutdown
-@app.on_event("shutdown")
-def shutdown_event():
-    """Clean up resources on application shutdown"""
-    db_manager.close()

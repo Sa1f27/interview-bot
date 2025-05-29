@@ -140,7 +140,7 @@
   <script>
   let testActive = false;
   let isRecording = false;
-  let sessionId = null;
+  let testId = null;
   const startBtn = document.getElementById("startBtn");
   const retakeBtn = document.getElementById("retakeBtn");
   const status = document.getElementById("status");
@@ -208,7 +208,7 @@
         const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
         const formData = new FormData();
         formData.append("audio", audioBlob, "response.webm");
-        formData.append("session_id", sessionId);
+        formData.append("test_id", testId);
 
         const response = await fetch("./record_and_respond", {
           method: "POST",
@@ -250,7 +250,7 @@
 
   async function showSummary() {
     try {
-      const response = await fetch(`./summary?session_id=${sessionId}`);
+      const response = await fetch(`./summary?test_id=${testId}`);
       const data = await response.json();
       evaluation.style.display = "block";
       summaryText.innerText = data.summary;
@@ -288,7 +288,7 @@
     try {
       const response = await fetch("./start_test");
       const data = await response.json();
-      sessionId = data.session_id;
+      testId = data.test_id;
       setStatus(cleanText(data.question));
       await playAudio(data.audio_path);
       if (testActive) {

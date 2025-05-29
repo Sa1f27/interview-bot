@@ -253,7 +253,7 @@
   </div>
 
   <script>
-    let currentSessionId = null;
+    let currentTestId = null;
     let currentRound = "Technical";
     let isProcessing = false;
     let interviewActive = false;
@@ -377,7 +377,7 @@
           const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
           const formData = new FormData();
           formData.append("audio", audioBlob, "response.webm");
-          formData.append("session_id", currentSessionId);
+          formData.append("test_id", currentTestId);
 
           try {
             setStatus("🔄 Processing your response...", true);
@@ -478,7 +478,7 @@
           throw new Error(data.error);
         }
 
-        currentSessionId = data.session_id;
+        currentTestId = data.test_id;
         currentRound = data.round;
 
         document.getElementById("roundLabel").innerText = `Round: ${currentRound}`;
@@ -527,7 +527,7 @@
         try {
           setStatus("🔄 Starting next round...", true);
           
-          const response = await fetch(`./start_next_round?session_id=${currentSessionId}`);
+          const response = await fetch(`./start_next_round?test_id=${currentTestId}`);
           const data = await response.json();
 
           if (data.error) {
@@ -556,7 +556,7 @@
       try {
         setStatus("📊 Generating evaluation report...", true);
         
-        const response = await fetch(`./evaluate?session_id=${currentSessionId}`);
+        const response = await fetch(`./evaluate?test_id=${currentTestId}`);
         const data = await response.json();
 
         // Update progress indicator
@@ -586,7 +586,7 @@
 
     function restartInterview() {
       // Reset all state
-      currentSessionId = null;
+      currentTestId = null;
       currentRound = "Technical";
       isProcessing = false;
       interviewActive = false;

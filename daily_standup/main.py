@@ -112,11 +112,11 @@ class ConversationEntry:
 
 class RecordRequest(BaseModel):
     """Request model for recording and responding endpoint"""
-    session_id: str
+    test_id: str
 
-class SessionResponse(BaseModel):
-    """Response model for session creation"""
-    session_id: str
+class TestResponse(BaseModel):
+    """Response model for test creation"""
+    test_id: str
     question: str
     audio_path: str
 
@@ -189,8 +189,8 @@ class DatabaseManager:
             raise ValueError("No summary found in the database")
         return doc["summary"]
     
-    def save_session_data(self, session_id: str, conversation_log: List[ConversationEntry], evaluation: str) -> bool:
-        """Save session data to the conversation collection"""
+    def save_test_data(self, test_id: str, conversation_log: List[ConversationEntry], evaluation: str) -> bool:
+        """Save test data to the conversation collection"""
         try:
             # Fetch random student ID from SQL Server
             student_id = fetch_random_student_id()
@@ -207,7 +207,7 @@ class DatabaseManager:
             
             # Create the document to insert
             document = {
-                "session_id": session_id,
+                "test_id": test_id,
                 "student_id": student_id,  # Added student_id from SQL Server
                 "timestamp": time.time(),
                 "conversation_log": conversation_data,
@@ -216,11 +216,11 @@ class DatabaseManager:
             
             # Insert into the conversation collection
             result = self.conversations.insert_one(document)
-            logger.info(f"Session data saved successfully for session {session_id}, student_id {student_id}, document ID: {result.inserted_id}")
+            logger.info(f"Test data saved successfully for test {test_id}, student_id {student_id}, document ID: {result.inserted_id}")
             return True
             
         except Exception as e:
-            logger.error(f"Error saving session data for session {session_id}: {e}")
+            logger.error(f"Error saving test data for test {test_id}: {e}")
             return False
     
     def close(self):
@@ -234,26 +234,27 @@ db_manager = DatabaseManager(
 )
 
 # ========================
-# Session management
+# Test management
 # ========================
 
-class SessionManager:
+class TestManager:
     """Manages test sessions"""
     def __init__(self):
-        self.sessions: Dict[str, Session] = {}
+        self.tests: Dict[str, Session] = {}
     
-    def create_session(self, summary: str, voice: str) -> str:
+    def create_test(self, summary: str, voice: str) -> str:
         """Create a new test session"""
-        session_id = str(uuid.uuid4())
-        self.sessions[session_id] = Session(summary, voice)
-        return session_id
-    def get_truncated_conversation_history(self, session_id: str, window_size: int = 5) -> str:
+        test_id = str(uuid.uuid4())
+        self.tests[test_id] = Session(summary, voice)
+        return test_id
+    
+    def get_truncated_conversation_history(self, test_id: str, window_size: int = 5) -> str:
         """
         Return a string of the last `window_size` Q&A pairs formatted,
         or fewer if conversation is shorter.
         """
-        session = self.validate_session(session_id)
-        last_entries = session.conversation_log[-window_size:]
+        test = self.validate_test(test_id)
+        last_entries = test.conversation_log[-window_size:]
         history = []
         for entry in last_entries:
             q_line = f"Q: {entry.question}"
@@ -261,52 +262,42 @@ class SessionManager:
             history.append(f"{q_line}\n{a_line}")
         return "\n\n".join(history)
     
-    def get_session(self, session_id: str) -> Optional[Session]:
-        """Get a session by ID"""
-        return self.sessions.get(session_id)
+    def get_test(self, test_id: str) -> Optional[Session]:
+        """Get a test by ID"""
+        return self.tests.get(test_id)
     
-    def validate_session(self, session_id: str) -> Session:
-        """Validate session ID and update last activity"""
-        session = self.get_session(session_id)
-        if not session:
-            raise HTTPException(status_code=400, detail="Session not found")
+    def validate_test(self, test_id: str) -> Session:
+        """Validate test ID and update last activity"""
+        test = self.get_test(test_id)
+        if not test:
+            raise HTTPException(status_code=400, detail="Test not found")
         
-        if time.time() > session.last_activity + INACTIVITY_TIMEOUT:
-            raise HTTPException(status_code=400, detail="Session timed out")
+        if time.time() > test.last_activity + INACTIVITY_TIMEOUT:
+            raise HTTPException(status_code=400, detail="Test timed out")
         
-        session.last_activity = time.time()
-        return session
+        test.last_activity = time.time()
+        return test
     
-    def add_question(self, session_id: str, question: str, concept: str = None):
-        """Add a question to the session conversation log"""
-        session = self.validate_session(session_id)
-        session.conversation_log.append(ConversationEntry(question=question, concept=concept))
-        session.current_concept = concept
-        session.question_index += 1
+    def add_question(self, test_id: str, question: str, concept: str = None):
+        """Add a question to the test conversation log"""
+        test = self.validate_test(test_id)
+        test.conversation_log.append(ConversationEntry(question=question, concept=concept))
+        test.current_concept = concept
+        test.question_index += 1
     
-    def add_answer(self, session_id: str, answer: str):
+    def add_answer(self, test_id: str, answer: str):
         """Add an answer to the last question in the conversation log"""
-        session = self.validate_session(session_id)
-        if session.conversation_log:
-            session.conversation_log[-1].answer = answer
+        test = self.validate_test(test_id)
+        if test.conversation_log:
+            test.conversation_log[-1].answer = answer
     
-    # def get_conversation_history(self, session_id: str) -> str:
-    #     """Get formatted conversation history for a session"""
-    #     session = self.validate_session(session_id)
-    #     history = []
-    #     for entry in session.conversation_log:
-    #         q_line = f"Q: {entry.question}"
-    #         a_line = f"A: {entry.answer}" if entry.answer else "A: "
-    #         history.append(f"{q_line}\n{a_line}")
-    #     return "\n\n".join(history)
-    
-    def is_test_ended(self, session_id: str) -> bool:
+    def is_test_ended(self, test_id: str) -> bool:
         """Check if the test has ended"""
-        session = self.validate_session(session_id)
-        return time.time() > session.deadline
+        test = self.validate_test(test_id)
+        return time.time() > test.deadline
 
-# Initialize session manager
-session_manager = SessionManager()
+# Initialize test manager
+test_manager = TestManager()
 
 # ========================
 # LLM and prompt setup
@@ -575,29 +566,29 @@ async def home():
     """Serve the main application page"""
     return FileResponse(os.path.join(BASE_DIR, "frontend", "index.html"))
 
-@app.get("/start_test", response_model=SessionResponse)
+@app.get("/start_test", response_model=TestResponse)
 async def start_test():
     """Start a new test session"""
     try:
         # Get latest lecture summary
         summary = db_manager.get_latest_summary()
         
-        # Create a new session
+        # Create a new test
         voice = get_random_voice()
-        session_id = session_manager.create_session(summary, voice)
+        test_id = test_manager.create_test(summary, voice)
         
         # Generate first question
         question_data = await llm_manager.generate_first_question(summary)
         question = question_data.get("question", "What can you tell me about this topic?")
         concept = question_data.get("concept", "general understanding")
         
-        # Add question to session
-        session_manager.add_question(session_id, question, concept)
+        # Add question to test
+        test_manager.add_question(test_id, question, concept)
         
         # Generate audio for the question
         audio_path = await AudioManager.text_to_speech(question, voice)
         
-        return {"session_id": session_id, "question": question, "audio_path": audio_path}
+        return {"test_id": test_id, "question": question, "audio_path": audio_path}
     
     except Exception as e:
         logger.error(f"Error starting test: {e}")
@@ -609,16 +600,16 @@ from fastapi.responses import JSONResponse
 @app.post("/record_and_respond", response_model=ConversationResponse)
 async def record_and_respond(
     audio: UploadFile = File(...),
-    session_id: str = Form(...)
+    test_id: str = Form(...)
 ):
     """Record user's response and provide the next question"""
     try:
-        session = session_manager.validate_session(session_id)
+        test = test_manager.validate_test(test_id)
 
         # Check if test has ended
-        if session_manager.is_test_ended(session_id):
+        if test_manager.is_test_ended(test_id):
             closing_message = "The test has ended. Thank you for your participation."
-            audio_path = await AudioManager.text_to_speech(closing_message, session.voice)
+            audio_path = await AudioManager.text_to_speech(closing_message, test.voice)
             return {"ended": True, "response": closing_message, "audio_path": audio_path}
 
         # Save uploaded audio to file system
@@ -630,14 +621,14 @@ async def record_and_respond(
         user_response = AudioManager.transcribe(audio_filename)
 
         # Get last question + log response
-        last_question = session.conversation_log[-1].question
-        last_concept = session.conversation_log[-1].concept
-        session_manager.add_answer(session_id, user_response)
+        last_question = test.conversation_log[-1].question
+        last_concept = test.conversation_log[-1].concept
+        test_manager.add_answer(test_id, user_response)
 
         # Generate follow-up question using LLM
-        history = session_manager.get_truncated_conversation_history(session_id)
+        history = test_manager.get_truncated_conversation_history(test_id)
         followup_data = await llm_manager.generate_followup(
-            session.summary,
+            test.summary,
             history,
             last_question,
             user_response,
@@ -649,9 +640,9 @@ async def record_and_respond(
         next_concept = followup_data.get("concept", last_concept)
         feedback = followup_data.get("feedback", "")
 
-        # Update session log and synthesize speech
-        session_manager.add_question(session_id, next_question, next_concept)
-        audio_path = await AudioManager.text_to_speech(next_question, session.voice)
+        # Update test log and synthesize speech
+        test_manager.add_question(test_id, next_question, next_concept)
+        audio_path = await AudioManager.text_to_speech(next_question, test.voice)
 
         return {
             "ended": False,
@@ -666,41 +657,35 @@ async def record_and_respond(
 
 
 @app.get("/summary", response_model=SummaryResponse)
-async def get_summary(session_id: str):
+async def get_summary(test_id: str):
     """Get a summary evaluation of the test session"""
     try:
-        session = session_manager.validate_session(session_id)
-        history = session_manager.get_truncated_conversation_history(session_id)
+        test = test_manager.validate_test(test_id)
+        history = test_manager.get_truncated_conversation_history(test_id)
 
         # Generate evaluation
         evaluation = await llm_manager.generate_evaluation(
-            session.summary,
+            test.summary,
             history
         )
         
-        # Fetch random student ID from SQL Server
-        # student_id = fetch_random_student_id()
-        # if student_id is None:
-        #     logger.warning("Could not fetch student ID from SQL Server")
-
-        # Save session data to MongoDB
-        save_success = db_manager.save_session_data(
-            session_id=session_id,
-            conversation_log=session.conversation_log,
-            evaluation=evaluation,
-            # student_id=student_id
+        # Save test data to MongoDB
+        save_success = db_manager.save_test_data(
+            test_id=test_id,
+            conversation_log=test.conversation_log,
+            evaluation=evaluation
         )
         
         if not save_success:
-            logger.warning(f"Failed to save session data for session {session_id}")
+            logger.warning(f"Failed to save test data for test {test_id}")
         
         # Calculate analytics
-        num_questions = len(session.conversation_log)
-        answers = [entry.answer for entry in session.conversation_log if entry.answer]
+        num_questions = len(test.conversation_log)
+        answers = [entry.answer for entry in test.conversation_log if entry.answer]
         avg_length = sum(len(answer.split()) for answer in answers) / len(answers) if answers else 0
         
         # Calculate concept coverage
-        unique_concepts = set(entry.concept for entry in session.conversation_log if entry.concept)
+        unique_concepts = set(entry.concept for entry in test.conversation_log if entry.concept)
         concept_coverage = len(unique_concepts)
         
         return {
@@ -719,24 +704,23 @@ async def get_summary(session_id: str):
 # Cleanup endpoint
 @app.get("/cleanup")
 async def cleanup_resources():
-    """Clean up audio files and expired sessions"""
+    """Clean up audio files and expired tests"""
     try:
         # Clean up audio files
         AudioManager.clean_audio_folder()
         
-        # Clean up expired sessions
+        # Clean up expired tests
         current_time = time.time()
-        expired_sessions = [
-            sid for sid, session in session_manager.sessions.items()
-            if current_time > session.last_activity + INACTIVITY_TIMEOUT * 2
+        expired_tests = [
+            tid for tid, test in test_manager.tests.items()
+            if current_time > test.last_activity + INACTIVITY_TIMEOUT * 2
         ]
         
-        for sid in expired_sessions:
-            session_manager.sessions.pop(sid, None)
+        for tid in expired_tests:
+            test_manager.tests.pop(tid, None)
         
-        return {"message": f"Cleaned up {len(expired_sessions)} expired sessions and old audio files"}
+        return {"message": f"Cleaned up {len(expired_tests)} expired tests and old audio files"}
     
     except Exception as e:
         logger.error(f"Error during cleanup: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
