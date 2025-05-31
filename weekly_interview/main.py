@@ -127,7 +127,7 @@ class DatabaseManager:
             )
             self.db = self.client["test"]
             self.transcripts = self.db["drive"]
-            self.interviews = self.db["interviews_results"]
+            self.interviews = self.db["mock_interview_results"]
             logger.info("Database connection established")
         except Exception as e:
             logger.error(f"Database connection failed: {e}")

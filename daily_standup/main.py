@@ -73,7 +73,7 @@ def get_db_connection():
         return None
 
 def fetch_random_student_id():
-    """Fetch a random student ID from SQL Server"""
+    """Fetch a random student ID  from tbl_Student_Info and session_id from session table from SQL Server"""
     try:
         conn = get_db_connection()
         if not conn:
@@ -81,9 +81,14 @@ def fetch_random_student_id():
         
         cursor = conn.cursor()
         cursor.execute("SELECT DISTINCT Student_ID FROM tbl_Student_Info")
+        
         rows = cursor.fetchall()
         student_ids = [row[0] for row in rows if row[0] is not None]
-        
+
+        # cursor.execute("SELECT DISTINCT session_id FROM session")
+        # rows = cursor.fetchall()
+        # session_ids = [row[0] for row in rows if row[0] is not None]
+
         cursor.close()
         conn.close()
         return random.choice(student_ids) if student_ids else None
