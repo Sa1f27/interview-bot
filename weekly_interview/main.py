@@ -13,6 +13,7 @@ import io
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import LETTER
 from fastapi.responses import StreamingResponse
+import textwrap
 
 import subprocess
 from fastapi import FastAPI, Request, HTTPException, UploadFile, File, Form
@@ -116,7 +117,7 @@ def fetch_random_student_info():
             return None
         
         cursor = conn.cursor()
-        cursor.execute("SELECT DISTINCT Student_ID, First_Name, Last_Name FROM tbl_Student")
+        cursor.execute("SELECT DISTINCT ID, First_Name, Last_Name FROM tbl_Student")
 
         rows = cursor.fetchall()
         student_ids = [row[0] for row in rows if row[0] is not None]
@@ -126,7 +127,7 @@ def fetch_random_student_info():
             logger.warning("No valid student data found in the database")
             return None
 
-        cursor.execute("SELECT DISTINCT session_id FROM tbl_Session")
+        cursor.execute("SELECT DISTINCT Session_ID FROM tbl_Session")
         rows = cursor.fetchall()
         session_ids = [row[0] for row in rows if row[0] is not None]
 
@@ -164,7 +165,7 @@ class DatabaseManager:
             # Fetch student ID from SQL Server
             student_id, first_name, last_name, session_id = fetch_random_student_info()
             if not student_id:  # If no student ID is fetched, log and return
-                logger.warning("No valid Student_ID fetched from SQL Server")
+                logger.warning("No valid ID fetched from SQL Server")
             
             name = first_name + " " + last_name if first_name and last_name else "Unknown Student"
             # Flatten conversations
@@ -1052,62 +1053,132 @@ async def health_check():
     
 @app.get("/download_results/{test_id}")
 async def download_interview_pdf(test_id: str):
+    """
+    Fetch the saved test document from MongoDB and stream it as a PDF.
+    """
+    # 1) Check MongoDB connection / fetch document
+    if not test_manager.db_manager.client:
+        raise HTTPException(status_code=500, detail="Database connection unavailable")
     doc = test_manager.db_manager.interviews.find_one({"test_id": test_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Test ID not found")
 
-    buffer = io.BytesIO()
-    p = canvas.Canvas(buffer, pagesize=LETTER)
-    width, height = LETTER
-    margin = 50
-    y = height - margin
+    try:
+        # 2) Create PDF in memory
+        buffer = io.BytesIO()
+        p = canvas.Canvas(buffer, pagesize=LETTER)
+        width, height = LETTER
+        margin = 50
+        y = height - margin
 
-    def write_line(label, value, indent=0):
-        nonlocal y
+        # Helper function: writes one line, handles page breaks, resets font
+        def write_line(label, value, indent=0):
+            nonlocal y
+            if y < margin + 50:
+                p.showPage()
+                p.setFont("Helvetica", 12)  # Reset font on new page
+                y = height - margin
+            p.drawString(margin + indent, y, f"{label}: {value}")
+            y -= 20
+            return y
+
+        # 3) Header
+        p.setFont("Helvetica-Bold", 14)
+        p.drawString(margin, y, f"Interview Summary – Test ID: {test_id}")
+        y -= 30
+
+        # 4) Basic fields
+        p.setFont("Helvetica", 12)
+        name_val = doc.get("name", "N/A")
+        y = write_line("Name", str(name_val))
+
+        student_val = doc.get("Student_ID", "N/A")
+        y = write_line("Student ID", str(student_val))
+
+        session_val = doc.get("session_id", "N/A")
+        y = write_line("Session ID", str(session_val))
+
+        # Timestamp
+        try:
+            ts = float(doc.get("timestamp", time.time()))
+            timestr = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts))
+        except:
+            timestr = "N/A"
+        y = write_line("Saved At", timestr)
+
+        # Scores block
+        scores = doc.get("scores", {})
+        for key in ["technical_score", "communication_score", "hr_score", "overall_score"]:
+            score_val = scores.get(key, "N/A")
+            # Capitalize for label (e.g., "Technical Score")
+            label = key.replace("_", " ").title()
+            y = write_line(label, str(score_val))
+
+        # 5) Evaluation text (splitlines; no wrapping)
+        y -= 10
+        p.setFont("Helvetica-Bold", 12)
         if y < margin + 50:
             p.showPage()
+            p.setFont("Helvetica-Bold", 12)
             y = height - margin
-            p.setFont("Helvetica", 12)
-        p.drawString(margin + indent, y, f"{label}: {value}")
+        p.drawString(margin, y, "Evaluation:")
         y -= 20
 
-    p.setFont("Helvetica-Bold", 14)
-    p.drawString(margin, y, f"Interview Summary - Test ID: {test_id}")
-    y -= 30
+        p.setFont("Helvetica", 12)
+        for line in str(doc.get("evaluation", "")).splitlines():
+            y = write_line(" ", line, indent=10)
 
-    p.setFont("Helvetica", 12)
-    write_line("Name", doc.get("name", "N/A"))
-    write_line("Student ID", str(doc.get("Student_ID", "N/A")))
-    write_line("Session ID", str(doc.get("session_id", "N/A")))
-    write_line("Saved At", time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(doc.get("timestamp", time.time()))))
-    y -= 10
+        # 6) Conversations header
+        y -= 10
+        p.setFont("Helvetica-Bold", 12)
+        if y < margin + 30:
+            p.showPage()
+            p.setFont("Helvetica-Bold", 12)
+            y = height - margin
+        p.drawString(margin, y, "Conversations")
+        y -= 20
 
-    scores = doc.get("scores", {})
-    for key in ["technical_score", "communication_score", "hr_score", "overall_score"]:
-        write_line(key.replace("_", " ").title(), scores.get(key, "N/A"))
+        # 7) Iterate over each round’s conversation entries
+        p.setFont("Helvetica", 11)
+        convs = doc.get("conversations", {})
+        for round_name, entries in convs.items():
+            # Round header
+            if y < margin + 50:
+                p.showPage()
+                p.setFont("Helvetica", 11)
+                y = height - margin
+            y = write_line("Round", round_name)
 
-    y -= 10
-    write_line("Evaluation", "", 0)
-    for line in doc.get("evaluation", "").splitlines():
-        write_line("  ", line, indent=10)
+            for idx, entry in enumerate(entries, start=1):
+                # Each entry: Q and A
+                if y < margin + 80:
+                    p.showPage()
+                    p.setFont("Helvetica", 11)
+                    y = height - margin
+                ai_resp = entry.get("ai_response", "N/A")
+                user_inp = entry.get("user_input", "N/A")
+                y = write_line(f"  Q{idx}", str(ai_resp), indent=10)
+                y = write_line(f"  A{idx}", str(user_inp), indent=10)
+                # Optionally show entry timestamp if available
+                try:
+                    ets = float(entry.get("timestamp", time.time()))
+                    etimestr = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ets))
+                except:
+                    etimestr = "N/A"
+                y = write_line(f"  Time{idx}", etimestr, indent=10)
+                y -= 5  # small gap
 
-    y -= 10
-    p.setFont("Helvetica-Bold", 12)
-    p.drawString(margin, y, "Conversations")
-    y -= 20
+        # 8) Finalize PDF
+        p.showPage()
+        p.save()
+        buffer.seek(0)
 
-    p.setFont("Helvetica", 11)
-    convs = doc.get("conversations", {})
-    for round_name, entries in convs.items():
-        write_line(f"Round: {round_name}", "", 0)
-        for idx, entry in enumerate(entries):
-            write_line(f"  Q{idx+1}: {entry['ai_response']}", "", 10)
-            write_line(f"  A{idx+1}: {entry['user_input']}", "", 10)
-            y -= 5
-
-    p.showPage()
-    p.save()
-    buffer.seek(0)
-    return StreamingResponse(buffer, media_type="application/pdf", headers={
-        "Content-Disposition": f"attachment; filename=interview_{test_id}.pdf"
-    })
+        filename = f"interview_{test_id}.pdf"
+        return StreamingResponse(
+            buffer,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+    except Exception as e:
+        logger.error(f"Error while generating PDF for {test_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error while generating PDF")

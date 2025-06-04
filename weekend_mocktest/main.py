@@ -94,7 +94,7 @@ def fetch_random_student_info():
             return None
         
         cursor = conn.cursor()
-        cursor.execute("SELECT DISTINCT Student_ID, First_Name, Last_Name FROM tbl_Student")
+        cursor.execute("SELECT DISTINCT ID, First_Name, Last_Name FROM tbl_Student")
 
         rows = cursor.fetchall()
         student_ids = [row[0] for row in rows if row[0] is not None]
@@ -104,7 +104,7 @@ def fetch_random_student_info():
             logger.warning("No valid student data found in the database")
             return None
 
-        cursor.execute("SELECT DISTINCT session_id FROM tbl_Session")
+        cursor.execute("SELECT DISTINCT Session_ID FROM tbl_Session")
         rows = cursor.fetchall()
         session_ids = [row[0] for row in rows if row[0] is not None]
 

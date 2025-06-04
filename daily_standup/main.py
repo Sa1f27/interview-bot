@@ -76,16 +76,16 @@ def get_db_connection():
         logger.error(f"Database connection error: {e}")
         return None
 
-# Fetch a random Student_ID and First_Name, Last_Name from tbl_Student SQL Server 
+# Fetch a random ID and First_Name, Last_Name from tbl_Student SQL Server 
 def fetch_random_student_info():
-    """Fetch a random student ID and name from tbl_Student and session_id from session table from SQL Server"""
+    """Fetch a random ID and name from tbl_Student and session_id from session table from SQL Server"""
     try:
         conn = get_db_connection()
         if not conn:
             return None
         
         cursor = conn.cursor()
-        cursor.execute("SELECT DISTINCT Student_ID, First_Name, Last_Name FROM tbl_Student")
+        cursor.execute("SELECT DISTINCT ID, First_Name, Last_Name FROM tbl_Student")
 
         rows = cursor.fetchall()
         student_ids = [row[0] for row in rows if row[0] is not None]
@@ -94,8 +94,8 @@ def fetch_random_student_info():
         if not student_ids or not first_names or not last_names:
             logger.warning("No valid student data found in the database")
             return None
-
-        cursor.execute("SELECT DISTINCT session_id FROM tbl_Session")
+        # Fetch distinct Session_ID
+        cursor.execute("SELECT DISTINCT Session_ID FROM tbl_Session")
         rows = cursor.fetchall()
         session_ids = [row[0] for row in rows if row[0] is not None]
 
@@ -151,6 +151,7 @@ class SummaryResponse(BaseModel):
     """Response model for test summary"""
     summary: str
     analytics: Dict[str, Any]
+    pdf_url: Optional[str] 
 
 # ========================
 # Application setup
@@ -755,90 +756,138 @@ async def cleanup_resources():
         logger.error(f"Error during cleanup: {e}")
         raise HTTPException(status_code=500, detail=str(e))
  
-# Download results pdf endpoint   
 @app.get("/download_results/{test_id}")
 async def download_results_pdf(test_id: str):
     """
     Fetch the saved test document from MongoDB and stream it as a PDF.
     """
-    # 1) Query MongoDB (same collection used in save_test_data)
-    doc = db_manager.conversations.find_one({"test_id": test_id}, {"_id": 0})
-    if not doc:
-        raise HTTPException(status_code=404, detail="Test ID not found")
+    try:
+        # 1) Query MongoDB (same collection used in save_test_data)
+        doc = db_manager.conversations.find_one({"test_id": test_id}, {"_id": 0})
+        if not doc:
+            raise HTTPException(status_code=404, detail="Test ID not found")
 
-    # 2) Create PDF in memory
-    buffer = io.BytesIO()
-    p = canvas.Canvas(buffer, pagesize=LETTER)
-    width, height = LETTER
-    margin = 50
-    y = height - margin
+        # 2) Create PDF in memory
+        buffer = io.BytesIO()
+        p = canvas.Canvas(buffer, pagesize=LETTER)
+        width, height = LETTER
+        margin = 50
+        y = height - margin
 
-    # Helper to write one line and handle page breaks
-    def write_line(label: str, value: str, indent: int = 0):
-        nonlocal y
+        # A helper that writes one line and returns the updated y.
+        # If we run out of vertical space, it will showPage() and reset y.
+        def write_line(canvas_obj, current_y, label: str, value: str, indent: int = 0):
+            # If we’re too close to the bottom, start a new page
+            if current_y < margin + 50:
+                canvas_obj.showPage()
+                canvas_obj.setFont("Helvetica", 12)
+                return height - margin  # reset y
+            # Draw the text
+            canvas_obj.drawString(margin + indent, current_y, f"{label}: {value}")
+            return current_y - 20
+
+        # 3) Header
+        p.setFont("Helvetica-Bold", 14)
+        p.drawString(margin, y, f"Daily Standup Results – Test ID: {test_id}")
+        y -= 30
+
+        # Prepare to write fields
+        p.setFont("Helvetica", 12)
+
+        name_val = doc.get("name", "N/A")
+        y = write_line(p, y, "Name", str(name_val))
+
+        student_val = doc.get("Student_ID", "N/A")
+        y = write_line(p, y, "Student_ID", str(student_val))
+
+        session_val = doc.get("session_id", "N/A")
+        y = write_line(p, y, "Session_ID", str(session_val))
+
+        # Format saved timestamp
+        try:
+            ts = float(doc.get("timestamp", time.time()))
+            timestr = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts))
+        except:
+            timestr = "N/A"
+        y = write_line(p, y, "Saved At", timestr)
+
+        score_val = doc.get("score", "N/A")
+        y = write_line(p, y, "Score", str(score_val))
+
+        eval_val = doc.get("evaluation", "N/A")
+        # If evaluation might be long, wrap it at ~80 chars
+        # and write each wrapped line as its own “write_line”
+        wrapped_eval = textwrap.wrap(str(eval_val), 80)
+        p.setFont("Helvetica-Bold", 12)
         if y < margin + 50:
             p.showPage()
             y = height - margin
-            p.setFont("Helvetica", 12)
-        p.drawString(margin + indent, y, f"{label}: {value}")
+            p.setFont("Helvetica-Bold", 12)
+        p.drawString(margin, y, "Evaluation:")
         y -= 20
+        p.setFont("Helvetica", 12)
+        for line in wrapped_eval:
+            y = write_line(p, y, "", line)
 
-    # 3) Header
-    p.setFont("Helvetica-Bold", 14)
-    p.drawString(margin, y, f"Daily Standup Results - Test ID: {test_id}")
-    y -= 30
-
-    p.setFont("Helvetica", 12)
-    write_line("Name", doc.get("name", "N/A"))
-    write_line("Student_ID", str(doc.get("Student_ID", "N/A")))
-    write_line("Session_ID", str(doc.get("session_id", "N/A")))
-
-    # Format saved timestamp
-    try:
-        ts = float(doc.get("timestamp", time.time()))
-        timestr = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts))
-    except:
-        timestr = "N/A"
-    write_line("Saved At", timestr)
-
-    write_line("Score", str(doc.get("score", "N/A")))
-    write_line("Evaluation", doc.get("evaluation", "N/A"))
-    y -= 10
-
-    # 4) Conversation Log
-    p.setFont("Helvetica-Bold", 12)
-    if y < margin + 30:
-        p.showPage()
-        y = height - margin
-    p.drawString(margin, y, "Conversation Log:")
-    y -= 20
-
-    p.setFont("Helvetica", 11)
-    for idx, entry in enumerate(doc.get("conversation_log", []), start=1):
-        if y < margin + 80:
-            p.showPage()
-            y = height - margin
-            p.setFont("Helvetica", 11)
-        write_line(f"{idx}. Concept", entry.get("concept", "N/A"), indent=0)
-        write_line("   Question", entry.get("question", "N/A"), indent=15)
-        write_line("   Answer", entry.get("answer", "N/A"), indent=15)
-        # Entry timestamp
-        try:
-            ets = float(entry.get("timestamp", time.time()))
-            etimestr = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ets))
-        except:
-            etimestr = "N/A"
-        write_line("   Asked/Answered At", etimestr, indent=15)
+        # Add a little gap before Conversation Log
         y -= 10
 
-    # 5) Finalize and stream
-    p.showPage()
-    p.save()
-    buffer.seek(0)
-    filename = f"standup_results_{test_id}.pdf"
+        # 4) Conversation Log header
+        p.setFont("Helvetica-Bold", 12)
+        if y < margin + 30:
+            p.showPage()
+            y = height - margin
+            p.setFont("Helvetica-Bold", 12)
+        p.drawString(margin, y, "Conversation Log:")
+        y -= 20
 
-    return StreamingResponse(
-        buffer,
-        media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
-    )
+        # 5) For each Q&A entry, indent appropriately
+        p.setFont("Helvetica", 11)
+        for idx, entry in enumerate(doc.get("conversation_log", []), start=1):
+            # If we’re too close to the bottom, start a new page
+            if y < margin + 80:
+                p.showPage()
+                p.setFont("Helvetica", 11)
+                y = height - margin
+
+            # Write “1. Concept: <concept>”
+            concept_val = entry.get("concept", "N/A")
+            y = write_line(p, y, f"{idx}. Concept", concept_val)
+
+            # Write “    Question: <question>”
+            question_val = entry.get("question", "N/A")
+            y = write_line(p, y, "    Question", question_val, indent=15)
+
+            # Write “    Answer: <answer>”
+            answer_val = entry.get("answer", "N/A")
+            y = write_line(p, y, "    Answer", answer_val, indent=15)
+
+            # Write timestamp for that entry
+            try:
+                ets = float(entry.get("timestamp", time.time()))
+                etimestr = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ets))
+            except:
+                etimestr = "N/A"
+            y = write_line(p, y, "    Asked/Answered At", etimestr, indent=15)
+
+            # Extra spacing between entries
+            y -= 10
+
+        # 6) Finalize and stream
+        p.showPage()
+        p.save()
+        buffer.seek(0)
+
+        filename = f"standup_results_{test_id}.pdf"
+        return StreamingResponse(
+            buffer,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+
+    except HTTPException:
+        # Re-raise 404 if doc not found
+        raise
+    except Exception as e:
+        logger.error(f"Error while generating PDF for {test_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error while generating PDF")
