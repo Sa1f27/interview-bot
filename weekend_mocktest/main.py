@@ -80,22 +80,41 @@ def get_db_connection():
         logger.error(f"Database connection error: {e}")
         return None
 
-def fetch_random_student_id():
+# Fetch a random student ID, name, and session ID from SQL Server
+def fetch_random_student_info():
+    """Fetch a random student ID and name from tbl_Student and session_id from session table from SQL Server"""
     try:
         conn = get_db_connection()
         if not conn:
             return None
+        
         cursor = conn.cursor()
-        cursor.execute("SELECT DISTINCT Student_ID FROM tbl_Student_Info")
+        cursor.execute("SELECT DISTINCT Student_ID, First_Name, Last_Name FROM tbl_Student")
+
         rows = cursor.fetchall()
         student_ids = [row[0] for row in rows if row[0] is not None]
+        first_names = [row[1] for row in rows if row[1] is not None]
+        last_names = [row[2] for row in rows if row[2] is not None]
+        if not student_ids or not first_names or not last_names:
+            logger.warning("No valid student data found in the database")
+            return None
+
+        cursor.execute("SELECT DISTINCT session_id FROM tbl_Session")
+        rows = cursor.fetchall()
+        session_ids = [row[0] for row in rows if row[0] is not None]
+
         cursor.close()
         conn.close()
-        return random.choice(student_ids) if student_ids else None
+        return (
+            random.choice(student_ids) if student_ids else None,
+            random.choice(first_names) if first_names else None,
+            random.choice(last_names) if last_names else None,
+            random.choice(session_ids) if session_ids else None
+        )
     except Exception as e:
         logger.error(f"Error fetching student ID: {e}")
         return None
-    
+
 # MongoDB Manager Class
 class DatabaseManager:
     """MongoDB database manager for mock test application"""
@@ -122,10 +141,14 @@ class DatabaseManager:
             score_percentage = (correct_answers / total_questions * 100) if total_questions > 0 else 0
             
             # Fetch student ID from SQL Server
-            student_id = fetch_random_student_id()
+            student_id, first_name, last_name, session_id = fetch_random_student_info()
             if student_id is None:
                 logger.warning("Could not fetch student ID from SQL Server")
                 
+            name = first_name + " " + last_name if first_name and last_name else "Unknown Student"
+            if not student_id:
+                student_id = "Unknown Student ID"
+            
             # Prepare question-answer details
             qa_details = []
             for i, answer in enumerate(answers_data):
@@ -142,7 +165,9 @@ class DatabaseManager:
             document = {
                 "test_id": test_id,
                 "timestamp": time.time(),
-                "student_id": student_id,
+                "Student_ID": student_id,
+                "name": name,
+                "session_id": session_id,
                 "user_type": test_data["user_type"],
                 "final_score": correct_answers,
                 "total_questions": total_questions,
@@ -154,7 +179,7 @@ class DatabaseManager:
             
             # Insert into the test_results collection
             result = self.test_results_collection.insert_one(document)
-            logger.info(f"Test results saved successfully for test {test_id}, document ID: {result.inserted_id}")
+            logger.info(f"Test results saved successfully for test {test_id}, name: {name}, Student_ID: {student_id}, score: {correct_answers}, session_id: {session_id}, document ID: {result.inserted_id}")
             return True
             
         except Exception as e:

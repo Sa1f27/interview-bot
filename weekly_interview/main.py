@@ -103,18 +103,37 @@ def get_db_connection():
         logger.error(f"Database connection error: {e}")
         return None
 
-def fetch_random_student_id():
+# Fetch a random Student_ID and First_Name, Last_Name from tbl_Student SQL Server 
+def fetch_random_student_info():
+    """Fetch a random student ID and name from tbl_Student and session_id from session table from SQL Server"""
     try:
         conn = get_db_connection()
         if not conn:
             return None
+        
         cursor = conn.cursor()
-        cursor.execute("SELECT DISTINCT Student_ID FROM tbl_Student_Info")
+        cursor.execute("SELECT DISTINCT Student_ID, First_Name, Last_Name FROM tbl_Student")
+
         rows = cursor.fetchall()
         student_ids = [row[0] for row in rows if row[0] is not None]
+        first_names = [row[1] for row in rows if row[1] is not None]
+        last_names = [row[2] for row in rows if row[2] is not None]
+        if not student_ids or not first_names or not last_names:
+            logger.warning("No valid student data found in the database")
+            return None
+
+        cursor.execute("SELECT DISTINCT session_id FROM tbl_Session")
+        rows = cursor.fetchall()
+        session_ids = [row[0] for row in rows if row[0] is not None]
+
         cursor.close()
         conn.close()
-        return random.choice(student_ids) if student_ids else None
+        return (
+            random.choice(student_ids) if student_ids else None,
+            random.choice(first_names) if first_names else None,
+            random.choice(last_names) if last_names else None,
+            random.choice(session_ids) if session_ids else None
+        )
     except Exception as e:
         logger.error(f"Error fetching student ID: {e}")
         return None
@@ -138,9 +157,12 @@ class DatabaseManager:
             if not self.client:
                 logger.warning("No database connection available")
                 return False
-                
             # Fetch student ID from SQL Server
-            student_id = fetch_random_student_id()
+            student_id, first_name, last_name, session_id = fetch_random_student_info()
+            if not student_id:  # If no student ID is fetched, log and return
+                logger.warning("No valid Student_ID fetched from SQL Server")
+            
+            name = first_name + " " + last_name if first_name and last_name else "Unknown Student"
             # Flatten conversations
             conv_data = {}
             for round_type, conv_list in conversations.items():
@@ -153,7 +175,9 @@ class DatabaseManager:
             doc = {
                 "test_id": test_id,
                 "timestamp": time.time(),
-                "student_id": student_id,
+                "Student_ID": student_id,
+                "name": name,
+                "session_id": session_id,
                 "conversations": conv_data,
                 "evaluation": evaluation,
                 "scores": scores
@@ -190,7 +214,65 @@ class LLMManager:
         self.llm = ChatOpenAI(model="gpt-4.1-mini", temperature=0.7, max_tokens=200)
         self.parser = StrOutputParser()
         
-        # Improved prompts for each round
+        # prompts for each round in longer interviews
+        # self.prompts = {
+        #     RoundType.TECHNICAL: PromptTemplate.from_template("""
+        #     You are conducting a technical interview round (20 minutes duration). Your goal is to ask comprehensive technical questions.
+        #     If the candidate goes off-topic, tell them explicitly that they are going off-topic and ask a redirected next technical question.
+            
+        #     Technical content for reference:
+        #     {technical_content}
+            
+        #     Previous conversation:
+        #     {history}
+            
+        #     Current question number: {question_count}
+            
+        #     Instructions:
+        #     - Questions 1-4: Ask fundamental technical concepts and basic programming knowledge
+        #     - Questions 5-8: Ask application-based questions and problem-solving scenarios  
+        #     - Questions 9+: Ask advanced problem-solving and system design questions
+        #     - If question count >= 12: Say "Thank you for the technical round. Let's move to the communication round."
+            
+        #     Ask specific, practical technical question. Keep it focused and clear.
+            
+        #     """),
+            
+        #     RoundType.COMMUNICATION: PromptTemplate.from_template("""
+        #     You are testing communication skills in this round (20 minutes duration). Focus on verbal communication, clarity, and presentation abilities.
+        #     If the candidate goes off-topic, tell them explicitly that they are going off-topic and ask a redirected next communication question.
+        #     Previous conversation:
+        #     {history}
+            
+        #     Current question number: {question_count}
+            
+        #     Instructions:
+        #     - Questions 1-4: Test clarity of explanation and articulation skills
+        #     - Questions 5-8: Test persuasion, storytelling, and explanation skills
+        #     - Questions 9-11: Test confidence, presentation skills, and leadership communication
+        #     - If question count >= 12: Say "Thank you for the communication round. Let's proceed to the HR round."
+
+        #     Ask question that evaluates verbal communication, confidence, or presentation skills.
+        #     """),
+            
+        #     RoundType.HR: PromptTemplate.from_template("""
+        #     You are an HR interviewer conducting behavioral assessment (20 minutes duration). Focus on cultural fit, teamwork, and soft skills.
+        #     If the candidate goes off-topic, tell them explicitly that they are going off-topic and ask a redirected next HR question.
+        #     Previous conversation:
+        #     {history}
+            
+        #     Current question number: {question_count}
+            
+        #     Instructions:
+        #     - Questions 1-4: Ask about past experiences, teamwork, and collaboration
+        #     - Questions 5-8: Ask situational and behavioral questions (STAR method encouraged)
+        #     - Questions 9-11: Ask about conflict resolution, adaptability, and growth mindset
+        #     - If question count >= 12: Say "Thank you for completing the interview. We'll now prepare your evaluation."
+        #     Ask behavioral or situational question that reveals personality and cultural fit.
+        #     """)
+        # }
+        
+        # prompts for each round in shorter interviews
         self.prompts = {
             RoundType.TECHNICAL: PromptTemplate.from_template("""
             You are conducting a technical interview round (20 minutes duration). Your goal is to ask comprehensive technical questions.
@@ -205,10 +287,10 @@ class LLMManager:
             Current question number: {question_count}
             
             Instructions:
-            - Questions 1-4: Ask fundamental technical concepts and basic programming knowledge
-            - Questions 5-8: Ask application-based questions and problem-solving scenarios  
-            - Questions 9+: Ask advanced problem-solving and system design questions
-            - If question count >= 12: Say "Thank you for the technical round. Let's move to the communication round."
+            - Questions 1-2: Ask fundamental technical concepts and basic programming knowledge
+            - Questions 3-4: Ask application-based questions and problem-solving scenarios
+            - Questions 5+: Ask advanced problem-solving and system design questions
+            - If question count >= 6: Say "Thank you for the technical round. Let's move to the communication round."
             
             Ask specific, practical technical question. Keep it focused and clear.
             
@@ -223,10 +305,10 @@ class LLMManager:
             Current question number: {question_count}
             
             Instructions:
-            - Questions 1-4: Test clarity of explanation and articulation skills
-            - Questions 5-8: Test persuasion, storytelling, and explanation skills
-            - Questions 9-11: Test confidence, presentation skills, and leadership communication
-            - If question count >= 12: Say "Thank you for the communication round. Let's proceed to the HR round."
+            - Questions 1-2: Test clarity of explanation and articulation skills
+            - Questions 3-4: Test persuasion, storytelling, and explanation skills
+            - Questions 5-6: Test confidence, presentation skills, and leadership communication
+            - If question count >= 6: Say "Thank you for the communication round. Let's proceed to the HR round."
 
             Ask question that evaluates verbal communication, confidence, or presentation skills.
             """),
@@ -240,13 +322,13 @@ class LLMManager:
             Current question number: {question_count}
             
             Instructions:
-            - Questions 1-4: Ask about past experiences, teamwork, and collaboration
-            - Questions 5-8: Ask situational and behavioral questions (STAR method encouraged)
-            - Questions 9-11: Ask about conflict resolution, adaptability, and growth mindset
-            - If question count >= 12: Say "Thank you for completing the interview. We'll now prepare your evaluation."
+            - Questions 1-2: Ask about past experiences, teamwork, and collaboration
+            - Questions 3-4: Ask situational and behavioral questions (STAR method encouraged)
+            - Questions 5-6: Ask about conflict resolution, adaptability, and growth mindset
+            - If question count >= 6: Say "Thank you for completing the interview. We'll now prepare your evaluation."
             Ask behavioral or situational question that reveals personality and cultural fit.
             """)
-        }
+        } 
 
         self.evaluation_prompt = PromptTemplate.from_template("""
         Evaluate this interview performance across all rounds. Provide specific scores and constructive feedback.
@@ -513,10 +595,17 @@ class TestManager:
         questions_asked = test.questions_asked[current_round]
         
         # Increased limits for longer tests
+        # limits = {
+        #     RoundType.TECHNICAL: 12,
+        #     RoundType.COMMUNICATION: 12,
+        #     RoundType.HR: 12
+        # }
+        
+        # decreased limits for shorter tests
         limits = {
-            RoundType.TECHNICAL: 12,
-            RoundType.COMMUNICATION: 12,
-            RoundType.HR: 12
+            RoundType.TECHNICAL: 3,
+            RoundType.COMMUNICATION: 3,
+            RoundType.HR: 3
         }
         
         return questions_asked >= limits[current_round]

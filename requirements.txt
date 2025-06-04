@@ -13,3 +13,6 @@ openai
 groq 
 python-multipart 
 pydantic
+pyodbc
+markdown
+jinja2

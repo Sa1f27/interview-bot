@@ -72,26 +72,37 @@ def get_db_connection():
         logger.error(f"Database connection error: {e}")
         return None
 
-def fetch_random_student_id():
-    """Fetch a random student ID  from tbl_Student_Info and session_id from session table from SQL Server"""
+# Fetch a random Student_ID and First_Name, Last_Name from tbl_Student SQL Server 
+def fetch_random_student_info():
+    """Fetch a random student ID and name from tbl_Student and session_id from session table from SQL Server"""
     try:
         conn = get_db_connection()
         if not conn:
             return None
         
         cursor = conn.cursor()
-        cursor.execute("SELECT DISTINCT Student_ID FROM tbl_Student_Info")
-        
+        cursor.execute("SELECT DISTINCT Student_ID, First_Name, Last_Name FROM tbl_Student")
+
         rows = cursor.fetchall()
         student_ids = [row[0] for row in rows if row[0] is not None]
+        first_names = [row[1] for row in rows if row[1] is not None]
+        last_names = [row[2] for row in rows if row[2] is not None]
+        if not student_ids or not first_names or not last_names:
+            logger.warning("No valid student data found in the database")
+            return None
 
-        # cursor.execute("SELECT DISTINCT session_id FROM session")
-        # rows = cursor.fetchall()
-        # session_ids = [row[0] for row in rows if row[0] is not None]
+        cursor.execute("SELECT DISTINCT session_id FROM tbl_Session")
+        rows = cursor.fetchall()
+        session_ids = [row[0] for row in rows if row[0] is not None]
 
         cursor.close()
         conn.close()
-        return random.choice(student_ids) if student_ids else None
+        return (
+            random.choice(student_ids) if student_ids else None,
+            random.choice(first_names) if first_names else None,
+            random.choice(last_names) if last_names else None,
+            random.choice(session_ids) if session_ids else None
+        )
     except Exception as e:
         logger.error(f"Error fetching student ID: {e}")
         return None
@@ -198,7 +209,12 @@ class DatabaseManager:
         """Save test data to the conversation collection"""
         try:
             # Fetch random student ID from SQL Server
-            student_id = fetch_random_student_id()
+            student_id, first_name, last_name, session_id = fetch_random_student_info()
+            name = first_name + " " + last_name if first_name and last_name else "Unknown Student"
+            # Extract score from evaluation text
+            import re
+            score_match = re.search(r'(\d+(?:\.\d+)?)\s*/\s*10', evaluation)
+            extracted_score = float(score_match.group(1)) if score_match else None
             
             # Convert conversation log to the required format
             conversation_data = []
@@ -213,15 +229,18 @@ class DatabaseManager:
             # Create the document to insert
             document = {
                 "test_id": test_id,
-                "student_id": student_id,  # Added student_id from SQL Server
+                "Student_ID": student_id,
+                "name": name,
+                "session_id": session_id,
                 "timestamp": time.time(),
                 "conversation_log": conversation_data,
-                "evaluation": evaluation
+                "evaluation": evaluation,
+                "score": extracted_score 
             }
             
             # Insert into the conversation collection
             result = self.conversations.insert_one(document)
-            logger.info(f"Test data saved successfully for test {test_id}, student_id {student_id}, document ID: {result.inserted_id}")
+            logger.info(f"Test data saved successfully for test {test_id}, name: {name}, Student_ID: {student_id}, score: {extracted_score}, session_id: {session_id}, document ID: {result.inserted_id}")
             return True
             
         except Exception as e:
