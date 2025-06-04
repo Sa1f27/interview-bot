@@ -9,7 +9,11 @@ from dataclasses import dataclass, field
 from enum import Enum
 import pyodbc
 
-# REMOVED: sounddevice, scipy imports - no longer needed
+import io
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import LETTER
+from fastapi.responses import StreamingResponse
+
 import subprocess
 from fastapi import FastAPI, Request, HTTPException, UploadFile, File, Form
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
@@ -972,6 +976,7 @@ async def get_evaluation(test_id: str):
         logger.info(f"Generating evaluation for test: {test_id}")
         result = await test_manager.generate_evaluation(test_id)
         logger.info(f"Evaluation generated for test {test_id}")
+        result["pdf_url"] = f"/download_results/{test_id}"
         return result
     except Exception as e:
         logger.error(f"Error generating evaluation: {e}", exc_info=True)
@@ -1044,3 +1049,65 @@ async def health_check():
         "active_tests": len(test_manager.tests),
         "timestamp": time.time()
     }
+    
+@app.get("/download_results/{test_id}")
+async def download_interview_pdf(test_id: str):
+    doc = test_manager.db_manager.interviews.find_one({"test_id": test_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Test ID not found")
+
+    buffer = io.BytesIO()
+    p = canvas.Canvas(buffer, pagesize=LETTER)
+    width, height = LETTER
+    margin = 50
+    y = height - margin
+
+    def write_line(label, value, indent=0):
+        nonlocal y
+        if y < margin + 50:
+            p.showPage()
+            y = height - margin
+            p.setFont("Helvetica", 12)
+        p.drawString(margin + indent, y, f"{label}: {value}")
+        y -= 20
+
+    p.setFont("Helvetica-Bold", 14)
+    p.drawString(margin, y, f"Interview Summary - Test ID: {test_id}")
+    y -= 30
+
+    p.setFont("Helvetica", 12)
+    write_line("Name", doc.get("name", "N/A"))
+    write_line("Student ID", str(doc.get("Student_ID", "N/A")))
+    write_line("Session ID", str(doc.get("session_id", "N/A")))
+    write_line("Saved At", time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(doc.get("timestamp", time.time()))))
+    y -= 10
+
+    scores = doc.get("scores", {})
+    for key in ["technical_score", "communication_score", "hr_score", "overall_score"]:
+        write_line(key.replace("_", " ").title(), scores.get(key, "N/A"))
+
+    y -= 10
+    write_line("Evaluation", "", 0)
+    for line in doc.get("evaluation", "").splitlines():
+        write_line("  ", line, indent=10)
+
+    y -= 10
+    p.setFont("Helvetica-Bold", 12)
+    p.drawString(margin, y, "Conversations")
+    y -= 20
+
+    p.setFont("Helvetica", 11)
+    convs = doc.get("conversations", {})
+    for round_name, entries in convs.items():
+        write_line(f"Round: {round_name}", "", 0)
+        for idx, entry in enumerate(entries):
+            write_line(f"  Q{idx+1}: {entry['ai_response']}", "", 10)
+            write_line(f"  A{idx+1}: {entry['user_input']}", "", 10)
+            y -= 5
+
+    p.showPage()
+    p.save()
+    buffer.seek(0)
+    return StreamingResponse(buffer, media_type="application/pdf", headers={
+        "Content-Disposition": f"attachment; filename=interview_{test_id}.pdf"
+    })

@@ -25,6 +25,10 @@ from langchain_groq import ChatGroq
 from langchain.chains import create_history_aware_retriever, create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from contextlib import asynccontextmanager
+import io
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import LETTER
+from fastapi.responses import StreamingResponse
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -718,8 +722,10 @@ async def get_summary(test_id: str):
                 "num_questions": num_questions,
                 "avg_response_length": round(avg_length, 1),
                 "concept_coverage": concept_coverage
-            }
+            },
+            "pdf_url": f"/download_results/{test_id}"
         }
+
     
     except Exception as e:
         logger.error(f"Error generating summary: {e}")
@@ -748,3 +754,91 @@ async def cleanup_resources():
     except Exception as e:
         logger.error(f"Error during cleanup: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+ 
+# Download results pdf endpoint   
+@app.get("/download_results/{test_id}")
+async def download_results_pdf(test_id: str):
+    """
+    Fetch the saved test document from MongoDB and stream it as a PDF.
+    """
+    # 1) Query MongoDB (same collection used in save_test_data)
+    doc = db_manager.conversations.find_one({"test_id": test_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Test ID not found")
+
+    # 2) Create PDF in memory
+    buffer = io.BytesIO()
+    p = canvas.Canvas(buffer, pagesize=LETTER)
+    width, height = LETTER
+    margin = 50
+    y = height - margin
+
+    # Helper to write one line and handle page breaks
+    def write_line(label: str, value: str, indent: int = 0):
+        nonlocal y
+        if y < margin + 50:
+            p.showPage()
+            y = height - margin
+            p.setFont("Helvetica", 12)
+        p.drawString(margin + indent, y, f"{label}: {value}")
+        y -= 20
+
+    # 3) Header
+    p.setFont("Helvetica-Bold", 14)
+    p.drawString(margin, y, f"Daily Standup Results - Test ID: {test_id}")
+    y -= 30
+
+    p.setFont("Helvetica", 12)
+    write_line("Name", doc.get("name", "N/A"))
+    write_line("Student_ID", str(doc.get("Student_ID", "N/A")))
+    write_line("Session_ID", str(doc.get("session_id", "N/A")))
+
+    # Format saved timestamp
+    try:
+        ts = float(doc.get("timestamp", time.time()))
+        timestr = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts))
+    except:
+        timestr = "N/A"
+    write_line("Saved At", timestr)
+
+    write_line("Score", str(doc.get("score", "N/A")))
+    write_line("Evaluation", doc.get("evaluation", "N/A"))
+    y -= 10
+
+    # 4) Conversation Log
+    p.setFont("Helvetica-Bold", 12)
+    if y < margin + 30:
+        p.showPage()
+        y = height - margin
+    p.drawString(margin, y, "Conversation Log:")
+    y -= 20
+
+    p.setFont("Helvetica", 11)
+    for idx, entry in enumerate(doc.get("conversation_log", []), start=1):
+        if y < margin + 80:
+            p.showPage()
+            y = height - margin
+            p.setFont("Helvetica", 11)
+        write_line(f"{idx}. Concept", entry.get("concept", "N/A"), indent=0)
+        write_line("   Question", entry.get("question", "N/A"), indent=15)
+        write_line("   Answer", entry.get("answer", "N/A"), indent=15)
+        # Entry timestamp
+        try:
+            ets = float(entry.get("timestamp", time.time()))
+            etimestr = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ets))
+        except:
+            etimestr = "N/A"
+        write_line("   Asked/Answered At", etimestr, indent=15)
+        y -= 10
+
+    # 5) Finalize and stream
+    p.showPage()
+    p.save()
+    buffer.seek(0)
+    filename = f"standup_results_{test_id}.pdf"
+
+    return StreamingResponse(
+        buffer,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )

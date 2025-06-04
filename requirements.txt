@@ -16,3 +16,4 @@ pydantic
 pyodbc
 markdown
 jinja2
+reportlab

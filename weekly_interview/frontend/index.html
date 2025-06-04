@@ -240,12 +240,22 @@
   <div class="controls">
     <button id="startInterviewBtn" onclick="startInterview()">🎯 Start Interview</button>
     <button id="restartInterviewBtn" style="display: none;" onclick="restartInterview()">🔄 Restart Interview</button>
+    
   </div>
 
   <div id="evaluation">
     <h3>📊 Interview Evaluation Report</h3>
     <pre id="summaryText"></pre>
   </div>
+
+  <div id="evaluation">
+    <h3>📊 Interview Evaluation Report</h3>
+    <pre id="summaryText"></pre>
+    <a id="pdfLink" href="#" target="_blank" style="display: none;">
+      <button>📄 Download PDF</button>
+    </a>
+  </div>
+
 
   <!-- Recording indicator -->
   <div id="recordingIndicator" class="recording-indicator">
@@ -568,6 +578,16 @@
         document.getElementById("roundLabel").innerText = "Interview Complete";
         document.getElementById("evaluation").style.display = "block";
         document.getElementById("summaryText").innerText = data.evaluation;
+
+        document.getElementById("summaryText").innerText = data.evaluation;
+
+        // Show PDF link if available
+        if (data.pdf_url) {
+          const pdfLink = document.getElementById("pdfLink");
+          pdfLink.href = data.pdf_url;
+          pdfLink.style.display = "inline-block";
+        }
+
 
         setStatus("🎉 Interview completed successfully!");
         document.getElementById("restartInterviewBtn").style.display = "inline-block";

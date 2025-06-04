@@ -14,6 +14,11 @@ import time
 import logging
 import pyodbc
 from contextlib import asynccontextmanager
+import io
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import LETTER
+from fastapi.responses import StreamingResponse
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -448,6 +453,7 @@ async def submit_answer(request: Request, test_id: str = Form(...), answer: str 
         "question_number": test["question_count"],
         "total_questions": 10,
         "time_limit": 300 if user_type == "dev" else 120
+        "pdf_url": f"/download_results/{test_id}"
     })
 
 def generate_analytics(test_id):
@@ -459,3 +465,76 @@ def generate_analytics(test_id):
         for i, a in enumerate(answers)
     )
     return f"**Score: {correct}/{total}**\n\n{breakdown}"
+
+@app.get("/download_results/{test_id}")
+async def download_results_pdf(test_id: str):
+    doc = db_manager.test_results_collection.find_one({"test_id": test_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Test ID not found in database")
+
+    buffer = io.BytesIO()
+    p = canvas.Canvas(buffer, pagesize=LETTER)
+    width, height = LETTER
+    margin = 50
+    y = height - margin
+
+    def write_line(label, value, indent=0):
+        nonlocal y
+        if y < margin + 50:
+            p.showPage()
+            y = height - margin
+            p.setFont("Helvetica", 12)
+        p.drawString(margin + indent, y, f"{label}: {value}")
+        y -= 20
+
+    p.setFont("Helvetica-Bold", 14)
+    p.drawString(margin, y, f"Mock Test Results - Test ID: {test_id}")
+    y -= 30
+
+    p.setFont("Helvetica", 12)
+    write_line("Name", doc.get("name", "N/A"))
+    write_line("Student_ID", str(doc.get("Student_ID", "N/A")))
+    write_line("Session_ID", str(doc.get("session_id", "N/A")))
+    try:
+        ts = float(doc.get("timestamp", time.time()))
+        timestr = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts))
+    except:
+        timestr = "N/A"
+    write_line("Saved At", timestr)
+    write_line("Score", f"{doc.get('final_score', 0)}/{doc.get('total_questions', 0)}")
+    write_line("Score %", doc.get("score_percentage", "N/A"))
+    write_line("User Type", doc.get("user_type", "N/A"))
+    y -= 10
+
+    p.setFont("Helvetica-Bold", 12)
+    if y < margin + 30:
+        p.showPage()
+        y = height - margin
+    p.drawString(margin, y, "Q&A Details:")
+    y -= 20
+
+    p.setFont("Helvetica", 11)
+    for idx, entry in enumerate(doc.get("qa_details", []), start=1):
+        if y < margin + 80:
+            p.showPage()
+            y = height - margin
+            p.setFont("Helvetica", 11)
+        write_line(f"{idx}. Question", entry.get("question", "N/A"))
+        write_line("   User Answer", entry.get("user_answer", "N/A"), indent=10)
+        write_line("   Correct", str(entry.get("correct", "N/A")), indent=10)
+        write_line("   Feedback", entry.get("feedback", "N/A"), indent=10)
+        options = entry.get("options", [])
+        if options:
+            write_line("   Options", ", ".join(options), indent=10)
+        y -= 5
+
+    p.showPage()
+    p.save()
+    buffer.seek(0)
+    filename = f"mock_test_results_{test_id}.pdf"
+
+    return StreamingResponse(
+        buffer,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )

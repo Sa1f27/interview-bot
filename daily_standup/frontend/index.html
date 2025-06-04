@@ -135,6 +135,8 @@
     <div id="summaryText"></div>
     <div id="analytics"></div>
     <button id="retakeBtn">🔄 Retake Interview</button>
+    <button id="downloadPdfBtn" style="display:none;">⬇️ Download Results as PDF</button>
+
   </div>
 
   <script>
@@ -150,6 +152,7 @@
   const analytics = document.getElementById("analytics");
   const aiIcon = document.getElementById("aiIcon");
   const userIcon = document.getElementById("userIcon");
+  const downloadPdfBtn = document.getElementById("downloadPdfBtn");
 
   let mediaRecorder;
   let audioChunks = [];
@@ -255,6 +258,14 @@
       evaluation.style.display = "block";
       summaryText.innerText = data.summary;
       analytics.innerText = `Analytics:\nQuestions Answered: ${data.analytics.num_questions}\nAvg. Response Length: ${data.analytics.avg_response_length} words`;
+
+      // Show and enable PDF download button if PDF URL is present
+      if (data.pdf_url) {
+        downloadPdfBtn.style.display = "inline-block";
+        downloadPdfBtn.onclick = () => {
+          window.location.href = data.pdf_url;
+        };
+      }
     } catch (e) {
       setStatus("Failed to load summary");
     }
