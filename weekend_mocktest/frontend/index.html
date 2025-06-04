@@ -138,14 +138,20 @@
         </div>
         
         <div class="flex flex-col sm:flex-row gap-4 justify-center">
-            <a href="{{ pdf_url }}" target="_blank"
-            class="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 transition text-center font-medium">
-                📄 Download PDF
-            </a>
-            <a href="/" class="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition text-center font-medium">
-                🔄 Take New Test
-            </a>
-        </div>
+                {% if pdf_url %}
+                <a href="{{ pdf_url }}" target="_blank"
+                class="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 transition text-center font-medium">
+                    📄 Download PDF
+                </a>
+                {% else %}
+                <span class="bg-gray-600 text-white px-6 py-3 rounded-lg text-center font-medium opacity-50">
+                    📄 PDF Not Available
+                </span>
+                {% endif %}
+                <a href="/" class="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition text-center font-medium">
+                    🔄 Take New Test
+                </a>
+            </div>
 
     </div>
 

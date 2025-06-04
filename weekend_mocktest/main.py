@@ -10,6 +10,7 @@ import re
 import pymongo
 from groq import Groq
 import os
+import textwrap 
 import time
 import logging
 import pyodbc
@@ -87,38 +88,46 @@ def get_db_connection():
 
 # Fetch a random student ID, name, and session ID from SQL Server
 def fetch_random_student_info():
-    """Fetch a random student ID and name from tbl_Student and session_id from session table from SQL Server"""
+    """Fetch a random ID, name from tbl_Student and session_id from session table from SQL Server"""
     try:
         conn = get_db_connection()
         if not conn:
             return None
         
         cursor = conn.cursor()
-        cursor.execute("SELECT DISTINCT ID, First_Name, Last_Name FROM tbl_Student")
-
-        rows = cursor.fetchall()
-        student_ids = [row[0] for row in rows if row[0] is not None]
-        first_names = [row[1] for row in rows if row[1] is not None]
-        last_names = [row[2] for row in rows if row[2] is not None]
-        if not student_ids or not first_names or not last_names:
+        # Fetch all student records (ID, First_Name, Last_Name)
+        cursor.execute("SELECT ID, First_Name, Last_Name FROM tbl_Student WHERE ID IS NOT NULL AND First_Name IS NOT NULL AND Last_Name IS NOT NULL")
+        
+        student_records = cursor.fetchall()
+        
+        if not student_records:
             logger.warning("No valid student data found in the database")
             return None
 
-        cursor.execute("SELECT DISTINCT Session_ID FROM tbl_Session")
-        rows = cursor.fetchall()
-        session_ids = [row[0] for row in rows if row[0] is not None]
+        # Fetch distinct Session_ID
+        cursor.execute("SELECT DISTINCT Session_ID FROM tbl_Session WHERE Session_ID IS NOT NULL")
+        session_rows = cursor.fetchall()
+        session_ids = [row[0] for row in session_rows]
 
         cursor.close()
         conn.close()
+
+        # Randomly select one student record
+        selected_student = random.choice(student_records)
+        student_id = selected_student[0]
+        first_name = selected_student[1]
+        last_name = selected_student[2]
+        
         return (
-            random.choice(student_ids) if student_ids else None,
-            random.choice(first_names) if first_names else None,
-            random.choice(last_names) if last_names else None,
+            student_id,
+            first_name,
+            last_name,
             random.choice(session_ids) if session_ids else None
         )
     except Exception as e:
-        logger.error(f"Error fetching student ID: {e}")
+        logger.error(f"Error fetching student info: {e}") # Updated error message for clarity
         return None
+
 
 # MongoDB Manager Class
 class DatabaseManager:
@@ -259,7 +268,7 @@ async def start_test(request: Request, user_type: str = Form(...)):
         "question_html": markdown.markdown(question),
         "options": options,
         "question_number": 1,
-        "total_questions": 10,
+        "total_questions": 2,
         "time_limit": 300 if user_type == "dev" else 120
     })
 
@@ -410,7 +419,7 @@ async def submit_answer(request: Request, test_id: str = Form(...), answer: str 
         test["score"] += 1
 
     # Test completed
-    if count >= 10:
+    if count >= 2:
         # Save test results to MongoDB
         save_success = db_manager.save_test_results(
             test_id=test_id,
@@ -427,7 +436,8 @@ async def submit_answer(request: Request, test_id: str = Form(...), answer: str 
             "page": "results",
             "score": test["score"],
             "analytics": analytics,
-            "test_id": test_id
+            "test_id": test_id,
+            "pdf_url": f"./download_results/{test_id}"
         })
 
     # Next question
@@ -451,9 +461,9 @@ async def submit_answer(request: Request, test_id: str = Form(...), answer: str 
         "question_html": markdown.markdown(q),
         "options": opts,
         "question_number": test["question_count"],
-        "total_questions": 10,
+        "total_questions": 2,
         "time_limit": 300 if user_type == "dev" else 120,
-        "pdf_url": f"/download_results/{test_id}"
+        
     })
 
 def generate_analytics(test_id):

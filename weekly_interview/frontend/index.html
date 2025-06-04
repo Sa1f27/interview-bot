@@ -246,11 +246,6 @@
   <div id="evaluation">
     <h3>📊 Interview Evaluation Report</h3>
     <pre id="summaryText"></pre>
-  </div>
-
-  <div id="evaluation">
-    <h3>📊 Interview Evaluation Report</h3>
-    <pre id="summaryText"></pre>
     <a id="pdfLink" href="#" target="_blank" style="display: none;">
       <button>📄 Download PDF</button>
     </a>
@@ -564,45 +559,44 @@
 
     async function handleInterviewComplete() {
       try {
-        setStatus("📊 Generating evaluation report...", true);
-        
-        const response = await fetch(`./evaluate?test_id=${currentTestId}`);
-        const data = await response.json();
+          setStatus("📊 Generating evaluation report...", true);
+          
+          const response = await fetch(`./evaluate?test_id=${currentTestId}`);
+          const data = await response.json();
 
-        // Update progress indicator
-        Object.values(roundDots).forEach(dotId => {
-          document.getElementById(dotId).classList.remove("active");
-          document.getElementById(dotId).classList.add("completed");
-        });
+          // Update progress indicator
+          Object.values(roundDots).forEach(dotId => {
+              document.getElementById(dotId).classList.remove("active");
+              document.getElementById(dotId).classList.add("completed");
+          });
 
-        document.getElementById("roundLabel").innerText = "Interview Complete";
-        document.getElementById("evaluation").style.display = "block";
-        document.getElementById("summaryText").innerText = data.evaluation;
+          document.getElementById("roundLabel").innerText = "Interview Complete";
+          document.getElementById("evaluation").style.display = "block";
+          document.getElementById("summaryText").innerText = data.evaluation;
 
-        document.getElementById("summaryText").innerText = data.evaluation;
+          // Show PDF link if available
+          if (data.pdf_url) {
+              const pdfLink = document.getElementById("pdfLink");
+              if (pdfLink) {
+                  pdfLink.href = data.pdf_url;
+                  pdfLink.style.display = "inline-block";
+              }
+          }
 
-        // Show PDF link if available
-        if (data.pdf_url) {
-          const pdfLink = document.getElementById("pdfLink");
-          pdfLink.href = data.pdf_url;
-          pdfLink.style.display = "inline-block";
-        }
+          setStatus("🎉 Interview completed successfully!");
+          document.getElementById("restartInterviewBtn").style.display = "inline-block";
 
-
-        setStatus("🎉 Interview completed successfully!");
-        document.getElementById("restartInterviewBtn").style.display = "inline-block";
-
-        // Optional: Read the evaluation aloud
-        setTimeout(() => {
-          playAudio(null, data.evaluation);
-        }, 1000);
+          // Optional: Read the evaluation aloud
+          setTimeout(() => {
+              playAudio(null, data.evaluation);
+          }, 1000);
 
       } catch (error) {
-        log(`Error generating evaluation: ${error}`);
-        setStatus(`❌ Evaluation error: ${error.message}`);
-        document.getElementById("restartInterviewBtn").style.display = "inline-block";
+          log(`Error generating evaluation: ${error}`);
+          setStatus(`❌ Evaluation error: ${error.message}`);
+          document.getElementById("restartInterviewBtn").style.display = "inline-block";
       }
-    }
+  }
 
     function restartInterview() {
       // Reset all state
