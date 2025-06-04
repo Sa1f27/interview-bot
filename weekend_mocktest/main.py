@@ -452,7 +452,7 @@ async def submit_answer(request: Request, test_id: str = Form(...), answer: str 
         "options": opts,
         "question_number": test["question_count"],
         "total_questions": 10,
-        "time_limit": 300 if user_type == "dev" else 120
+        "time_limit": 300 if user_type == "dev" else 120,
         "pdf_url": f"/download_results/{test_id}"
     })
 
