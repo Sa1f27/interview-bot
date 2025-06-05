@@ -1,9 +1,8 @@
-# REST API FastAPI Mock Test Application
-from fastapi import FastAPI, Request, HTTPException, Depends, Form
+# Fixed REST API FastAPI Mock Test Application - Based on original working code
+from fastapi import FastAPI, Request, HTTPException, Form, BackgroundTasks
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import markdown
@@ -26,7 +25,7 @@ from reportlab.lib.pagesizes import LETTER
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- Pydantic Models ---
+# --- Simple Pydantic Models (Fixed regex issue) ---
 class StartTestRequest(BaseModel):
     user_type: str  # "dev" or "non_dev"
 
@@ -51,13 +50,6 @@ class TestResultsResponse(BaseModel):
     analytics: str
     pdf_available: bool
 
-class QuestionData(BaseModel):
-    question: str
-    answer: str
-    correct: bool
-    options: List[str]
-    feedback: str
-
 # --- Setup ---
 BASE_DIR = os.path.dirname(__file__)
 
@@ -75,12 +67,7 @@ async def lifespan(app: FastAPI):
         db_manager.close()
     logger.info("Mock test application shut down")
 
-app = FastAPI(
-    title="Weekend Mock Test API",
-    description="REST API for mock testing with AI-generated questions",
-    version="1.0.0",
-    lifespan=lifespan
-)
+app = FastAPI(lifespan=lifespan)
 
 # CORS setup
 app.add_middleware(
@@ -91,7 +78,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount static files and templates
+# Jinja2 template directory
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "frontend"))
 
 # Groq Client
@@ -718,4 +705,3 @@ async def get_test_by_id(test_id: str):
     except Exception as e:
         logger.error(f"Error fetching test ID {test_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch test result")
-
