@@ -1059,7 +1059,7 @@ async def health_check():
         "timestamp": time.time()
     }
     
-@app.get("/download_results/{test_id}")
+@app.get("/api/download_results/{test_id}")
 async def download_interview_pdf(test_id: str):
     """
     Fetch the saved test document from MongoDB and stream it as a PDF.
@@ -1190,3 +1190,37 @@ async def download_interview_pdf(test_id: str):
     except Exception as e:
         logger.error(f"Error while generating PDF for {test_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error while generating PDF")
+
+
+@app.get("/api/interviews", response_class=JSONResponse)
+async def get_all_interviews():
+    """
+    Retrieve all interview documents, excluding conversations and evaluation.
+    """
+    try:
+        results = list(test_manager.db_manager.interviews.find(
+            {}, 
+            {"_id": 0, "conversations": 0, "evaluation": 0}
+        ))
+        return {"interviews": results}
+    except Exception as e:
+        logger.error(f"Error fetching interview results: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve interviews")
+
+
+@app.get("/api/interviews/{test_id}", response_class=JSONResponse)
+async def get_interview_by_id(test_id: str):
+    """
+    Retrieve a specific interview document by test_id, excluding conversations and evaluation.
+    """
+    try:
+        result = test_manager.db_manager.interviews.find_one(
+            {"test_id": test_id},
+            {"_id": 0, "conversations": 0, "evaluation": 0}
+        )
+        if not result:
+            raise HTTPException(status_code=404, detail="Test not found")
+        return result
+    except Exception as e:
+        logger.error(f"Error fetching interview {test_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve interview")

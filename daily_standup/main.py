@@ -766,7 +766,7 @@ async def cleanup_resources():
         logger.error(f"Error during cleanup: {e}")
         raise HTTPException(status_code=500, detail=str(e))
  
-@app.get("/download_results/{test_id}")
+@app.get("/api/download_results/{test_id}")
 async def download_results_pdf(test_id: str):
     """
     Fetch the saved test document from MongoDB and stream it as a PDF.
@@ -901,3 +901,37 @@ async def download_results_pdf(test_id: str):
     except Exception as e:
         logger.error(f"Error while generating PDF for {test_id}: {e}")
         raise HTTPException(status_code=500, detail="Internal server error while generating PDF")
+
+
+@app.get("/api/tests", response_class=JSONResponse)
+async def get_all_tests():
+    """
+    Get all test documents from the MongoDB collection, excluding conversation_log and evaluation.
+    """
+    try:
+        results = list(db_manager.conversations.find(
+            {}, 
+            {"_id": 0, "conversation_log": 0, "evaluation": 0, "timestamp": 0}
+        ))
+        return {"tests": results}
+    except Exception as e:
+        logger.error(f"Error fetching all tests: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve tests")
+
+
+@app.get("/api/tests/{test_id}", response_class=JSONResponse)
+async def get_test_by_id(test_id: str):
+    """
+    Get a specific test document by test_id, excluding conversation_log and evaluation.
+    """
+    try:
+        result = db_manager.conversations.find_one(
+            {"test_id": test_id}, 
+            {"_id": 0, "conversation_log": 0, "evaluation": 0, "timestamp": 0}
+        )
+        if not result:
+            raise HTTPException(status_code=404, detail="Test not found")
+        return result
+    except Exception as e:
+        logger.error(f"Error fetching test {test_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve test")

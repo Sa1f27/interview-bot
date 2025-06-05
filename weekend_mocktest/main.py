@@ -691,3 +691,31 @@ def generate_analytics_from_db(doc):
         for i, qa in enumerate(qa_details)
     )
     return f"**Score: {correct}/{total}**\n\n{breakdown}"
+
+
+@app.get("/api/tests")
+async def get_all_tests():
+    try:
+        results = list(db_manager.test_results_collection.find(
+            {},
+            {"_id": 0, "timestamp": 0, "question_types": 0, "qa_details": 0}
+        ))
+        return JSONResponse(content={"count": len(results), "results": results})
+    except Exception as e:
+        logger.error(f"Error fetching test results: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch test results")
+
+@app.get("/api/tests/{test_id}")
+async def get_test_by_id(test_id: str):
+    try:
+        result = db_manager.test_results_collection.find_one(
+            {"test_id": test_id},
+            {"_id": 0, "timestamp": 0, "question_types": 0, "qa_details": 0}
+        )
+        if not result:
+            raise HTTPException(status_code=404, detail="Test result not found")
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.error(f"Error fetching test ID {test_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch test result")
+
