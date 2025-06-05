@@ -6,26 +6,310 @@
     <title>{% if page == 'start' %}Mock Test - Start{% elif page == 'test' %}Question {{ question_number }} of {{ total_questions }}{% elif page == 'results' %}Test Results{% else %}Mock Test{% endif %}</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
-        // Timer functionality for test page
-        
-        {% if page == 'test' %}
-        let timeLeft = {{ time_limit }};
+        // Global variables for API mode
+        let apiMode = false;
+        let currentTestId = null;
+        let currentQuestionNumber = 1;
+        let totalQuestions = 2;
+        let timeLeft = 0;
+        let timerInterval = null;
+
+        // API Functions
+        async function startTestAPI(userType) {
+            try {
+                const response = await fetch('/api/test/start', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ user_type: userType })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                currentTestId = data.test_id;
+                currentQuestionNumber = data.question_number;
+                totalQuestions = data.total_questions;
+                timeLeft = data.time_limit;
+                
+                showTestPage(data);
+                startTimer();
+            } catch (error) {
+                console.error('Error starting test:', error);
+                showError('Failed to start test. Please try again.');
+            }
+        }
+
+        async function submitAnswerAPI(answer) {
+            try {
+                const response = await fetch('/api/test/submit', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        test_id: currentTestId,
+                        question_number: currentQuestionNumber,
+                        answer: answer
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.test_completed) {
+                    showResultsPage(data);
+                } else {
+                    currentQuestionNumber = data.next_question.question_number;
+                    timeLeft = data.next_question.time_limit;
+                    showTestPage(data.next_question);
+                    startTimer();
+                }
+            } catch (error) {
+                console.error('Error submitting answer:', error);
+                showError('Failed to submit answer. Please try again.');
+            }
+        }
+
+        // UI Functions
+        function showTestPage(data) {
+            const body = document.body;
+            body.innerHTML = `
+                <div class="bg-gray-900 text-white min-h-screen flex items-center justify-center">
+                    <div class="bg-gray-800 p-8 rounded-lg shadow-lg max-w-4xl w-full mx-4">
+                        <div class="flex justify-between items-center mb-6">
+                            <h1 class="text-2xl font-bold text-blue-400">Question ${currentQuestionNumber} of ${totalQuestions}</h1>
+                            <div class="text-sm bg-gray-700 px-3 py-1 rounded">${data.user_type || 'Test'} Mode</div>
+                        </div>
+                        
+                        <div id="timer" class="text-center text-yellow-400 mb-4">Time left: ${timeLeft}s</div>
+                        
+                        <div class="bg-gray-700 p-6 rounded-lg mb-6">
+                            <div class="prose prose-invert max-w-none">
+                                ${data.question_html}
+                            </div>
+                        </div>
+                        
+                        <div id="answer-section" class="space-y-6">
+                            ${data.options ? createMultipleChoice(data.options) : createTextAnswer()}
+                            
+                            <div class="flex justify-center">
+                                <button onclick="submitAnswer()" class="bg-blue-600 text-white px-8 py-3 rounded-lg hover:bg-blue-700 transition font-medium">
+                                    Submit Answer
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function createMultipleChoice(options) {
+            return `
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-3">Select your answer:</label>
+                    <div class="space-y-2">
+                        ${options.map((option, index) => `
+                            <label class="flex items-start p-3 bg-gray-700 rounded-lg hover:bg-gray-600 cursor-pointer">
+                                <input type="radio" name="answer" value="${index}" required class="mt-1 mr-3 text-blue-500">
+                                <span class="text-gray-200">${String.fromCharCode(65 + index)}) ${option}</span>
+                            </label>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        function createTextAnswer() {
+            return `
+                <div>
+                    <label for="answer" class="block text-sm font-medium text-gray-300 mb-3">Your answer:</label>
+                    <textarea
+                        id="answer"
+                        required
+                        class="w-full p-4 bg-gray-700 text-gray-200 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        rows="6"
+                        placeholder="Enter your detailed answer here..."
+                    ></textarea>
+                </div>
+            `;
+        }
+
+        function showResultsPage(data) {
+            const body = document.body;
+            body.innerHTML = `
+                <div class="bg-gray-900 text-white min-h-screen flex items-center justify-center">
+                    <div class="bg-gray-800 p-8 rounded-lg shadow-lg max-w-4xl w-full mx-4">
+                        <div class="text-center mb-8">
+                            <h1 class="text-3xl font-bold mb-4 text-blue-400">Test Completed!</h1>
+                            <div class="text-6xl font-bold mb-4">
+                                <span class="${data.score >= 8 ? 'text-green-400' : data.score >= 5 ? 'text-yellow-400' : 'text-red-400'}">
+                                    ${data.score}/${data.total_questions}
+                                </span>
+                            </div>
+                            <p class="text-gray-300 text-lg">
+                                ${data.score >= 8 ? 'Excellent work! 🎉' : data.score >= 5 ? 'Good job! 👍' : 'Keep practicing! 💪'}
+                            </p>
+                        </div>
+                        
+                        <div class="bg-gray-700 p-6 rounded-lg mb-6">
+                            <h3 class="text-xl font-bold mb-4 text-blue-400">Detailed Results</h3>
+                            <div class="prose prose-invert max-w-none whitespace-pre-line">${data.analytics}</div>
+                        </div>
+                        
+                        <div class="flex flex-col sm:flex-row gap-4 justify-center">
+                            <button onclick="downloadPDF()" class="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 transition text-center font-medium">
+                                📄 Download PDF
+                            </button>
+                            <button onclick="location.reload()" class="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition text-center font-medium">
+                                🔄 Take New Test
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function showError(message) {
+            const body = document.body;
+            body.innerHTML = `
+                <div class="bg-gray-900 text-white min-h-screen flex items-center justify-center">
+                    <div class="bg-gray-800 p-8 rounded-lg shadow-lg max-w-md w-full text-center">
+                        <div class="text-red-400 text-6xl mb-4">⚠️</div>
+                        <h1 class="text-2xl font-bold text-red-400 mb-4">Error</h1>
+                        <p class="text-gray-300 mb-6">${message}</p>
+                        <button onclick="location.reload()" class="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition">
+                            Back to Home
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Timer functionality
         function startTimer() {
+            if (timerInterval) {
+                clearInterval(timerInterval);
+            }
+            
+            const timerElement = document.getElementById('timer');
+            if (!timerElement) return;
+            
+            timerInterval = setInterval(() => {
+                timeLeft--;
+                timerElement.textContent = `Time left: ${timeLeft}s`;
+                timerElement.className = timeLeft <= 30 ? 'text-center text-red-400 mb-4 font-bold' : 'text-center text-yellow-400 mb-4';
+                
+                if (timeLeft <= 0) {
+                    clearInterval(timerInterval);
+                    submitAnswer();
+                }
+            }, 1000);
+        }
+
+        // Answer submission
+        function submitAnswer() {
+            let answer = '';
+            
+            // Get answer based on question type
+            const radioButtons = document.querySelectorAll('input[name="answer"]:checked');
+            const textArea = document.getElementById('answer');
+            
+            if (radioButtons.length > 0) {
+                answer = radioButtons[0].value;
+            } else if (textArea) {
+                answer = textArea.value.trim();
+            }
+            
+            if (!answer) {
+                alert('Please provide an answer before submitting.');
+                return;
+            }
+            
+            if (apiMode) {
+                submitAnswerAPI(answer);
+            } else {
+                // Traditional form submission for non-API mode
+                const form = document.getElementById('answer-form');
+                if (form) {
+                    form.submit();
+                }
+            }
+        }
+
+        // PDF download
+        function downloadPDF() {
+            if (currentTestId) {
+                window.open(`/api/test/pdf/${currentTestId}`, '_blank');
+            }
+        }
+
+        // Toggle between API and traditional mode
+        function toggleAPIMode() {
+            apiMode = !apiMode;
+            const button = document.getElementById('api-toggle');
+            if (button) {
+                button.textContent = apiMode ? 'Switch to Traditional Mode' : 'Switch to API Mode';
+                button.className = apiMode ? 
+                    'mb-4 bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 transition text-sm' :
+                    'mb-4 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition text-sm';
+            }
+        }
+
+        // Handle API mode start test
+        function handleStartTest(event) {
+            event.preventDefault();
+            const userType = document.querySelector('input[name="user_type"]:checked')?.value;
+            
+            if (!userType) {
+                alert('Please select a user type');
+                return;
+            }
+            
+            if (apiMode) {
+                startTestAPI(userType);
+            } else {
+                // Submit traditional form
+                document.getElementById('traditional-form').submit();
+            }
+        }
+
+        // Original timer functionality for traditional mode
+        let originalTimeLeft = 0;
+        function startOriginalTimer() {
             const timerElement = document.getElementById('timer');
             if (!timerElement) return;
             const form = document.getElementById('answer-form');
             const timer = setInterval(() => {
-                timeLeft--;
-                timerElement.textContent = `Time left: ${timeLeft}s`;
-                timerElement.className = timeLeft <= 30 ? 'text-center text-red-400 mb-4 font-bold' : 'text-center text-yellow-400 mb-4';
-                if (timeLeft <= 0) {
+                originalTimeLeft--;
+                timerElement.textContent = `Time left: ${originalTimeLeft}s`;
+                timerElement.className = originalTimeLeft <= 30 ? 'text-center text-red-400 mb-4 font-bold' : 'text-center text-yellow-400 mb-4';
+                if (originalTimeLeft <= 0) {
                     clearInterval(timer);
                     form.submit();
                 }
             }, 1000);
         }
-        window.onload = startTimer;
-        {% endif %}
+        
+        window.onload = function() {
+            // Initialize timer for traditional mode if we're on the test page
+            const timerElement = document.getElementById('timer');
+            if (timerElement && !apiMode) {
+                // Extract time from the timer element
+                const timerText = timerElement.textContent;
+                const timeMatch = timerText.match(/(\d+)s/);
+                if (timeMatch) {
+                    originalTimeLeft = parseInt(timeMatch[1]);
+                    startOriginalTimer();
+                }
+            }
+        };
     </script>
 </head>
 <body class="bg-gray-900 text-white min-h-screen flex items-center justify-center">
@@ -33,9 +317,17 @@
     {% if page == 'start' %}
     <!-- Start Test Page -->
     <div class="bg-gray-800 p-8 rounded-lg shadow-lg max-w-md w-full">
+        <div class="text-center mb-4">
+            <button id="api-toggle" onclick="toggleAPIMode()" class="mb-4 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition text-sm">
+                Switch to API Mode
+            </button>
+        </div>
+        
         <h1 class="text-3xl font-bold mb-6 text-center text-blue-400">Mock Test</h1>
         <p class="text-gray-300 mb-6 text-center">Test your knowledge with AI-generated questions</p>
-        <form action="./start-test" method="post" class="space-y-6">
+        
+        <!-- Traditional Form (hidden when API mode is active) -->
+        <form id="traditional-form" action="./start-test" method="post" class="space-y-6" onsubmit="handleStartTest(event)">
             <div>
                 <label class="block text-sm font-medium text-gray-300 mb-3">Select your user type:</label>
                 <div class="space-y-3">
@@ -138,21 +430,20 @@
         </div>
         
         <div class="flex flex-col sm:flex-row gap-4 justify-center">
-                {% if pdf_url %}
-                <a href="{{ pdf_url }}" target="_blank"
-                class="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 transition text-center font-medium">
-                    📄 Download PDF
-                </a>
-                {% else %}
-                <span class="bg-gray-600 text-white px-6 py-3 rounded-lg text-center font-medium opacity-50">
-                    📄 PDF Not Available
-                </span>
-                {% endif %}
-                <a href="/" class="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition text-center font-medium">
-                    🔄 Take New Test
-                </a>
-            </div>
-
+            {% if pdf_url %}
+            <a href="{{ pdf_url }}" target="_blank"
+               class="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 transition text-center font-medium">
+                📄 Download PDF
+            </a>
+            {% else %}
+            <span class="bg-gray-600 text-white px-6 py-3 rounded-lg text-center font-medium opacity-50">
+                📄 PDF Not Available
+            </span>
+            {% endif %}
+            <a href="/" class="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition text-center font-medium">
+                🔄 Take New Test
+            </a>
+        </div>
     </div>
 
     {% elif page == 'error' %}

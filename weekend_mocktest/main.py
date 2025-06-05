@@ -1,8 +1,11 @@
-# Simplified FastAPI Mock Test Application
-from fastapi import FastAPI, Request, Form, HTTPException
-from fastapi.responses import HTMLResponse
+# REST API FastAPI Mock Test Application
+from fastapi import FastAPI, Request, HTTPException, Depends, Form
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+from typing import Optional, List, Dict, Any
 import markdown
 import uuid
 import random
@@ -18,11 +21,42 @@ from contextlib import asynccontextmanager
 import io
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import LETTER
-from fastapi.responses import StreamingResponse
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# --- Pydantic Models ---
+class StartTestRequest(BaseModel):
+    user_type: str  # "dev" or "non_dev"
+
+class SubmitAnswerRequest(BaseModel):
+    test_id: str
+    question_number: int
+    answer: str
+
+class TestResponse(BaseModel):
+    test_id: str
+    user_type: str
+    question_number: int
+    total_questions: int
+    question_html: str
+    options: Optional[List[str]] = None
+    time_limit: int
+
+class TestResultsResponse(BaseModel):
+    test_id: str
+    score: int
+    total_questions: int
+    analytics: str
+    pdf_available: bool
+
+class QuestionData(BaseModel):
+    question: str
+    answer: str
+    correct: bool
+    options: List[str]
+    feedback: str
 
 # --- Setup ---
 BASE_DIR = os.path.dirname(__file__)
@@ -37,10 +71,16 @@ async def lifespan(app: FastAPI):
     logger.info("Mock test application starting up...")
     yield
     # Shutdown
-    db_manager.close()
+    if db_manager:
+        db_manager.close()
     logger.info("Mock test application shut down")
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(
+    title="Weekend Mock Test API",
+    description="REST API for mock testing with AI-generated questions",
+    version="1.0.0",
+    lifespan=lifespan
+)
 
 # CORS setup
 app.add_middleware(
@@ -51,7 +91,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Jinja2 template directory
+# Mount static files and templates
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "frontend"))
 
 # Groq Client
@@ -92,7 +132,7 @@ def fetch_random_student_info():
     try:
         conn = get_db_connection()
         if not conn:
-            return None
+            return None, None, None, None
         
         cursor = conn.cursor()
         # Fetch all student records (ID, First_Name, Last_Name)
@@ -102,7 +142,7 @@ def fetch_random_student_info():
         
         if not student_records:
             logger.warning("No valid student data found in the database")
-            return None
+            return None, None, None, None
 
         # Fetch distinct Session_ID
         cursor.execute("SELECT DISTINCT Session_ID FROM tbl_Session WHERE Session_ID IS NOT NULL")
@@ -125,9 +165,8 @@ def fetch_random_student_info():
             random.choice(session_ids) if session_ids else None
         )
     except Exception as e:
-        logger.error(f"Error fetching student info: {e}") # Updated error message for clarity
-        return None
-
+        logger.error(f"Error fetching student info: {e}")
+        return None, None, None, None
 
 # MongoDB Manager Class
 class DatabaseManager:
@@ -159,7 +198,7 @@ class DatabaseManager:
             if student_id is None:
                 logger.warning("Could not fetch student ID from SQL Server")
                 
-            name = first_name + " " + last_name if first_name and last_name else "Unknown Student"
+            name = f"{first_name} {last_name}" if first_name and last_name else "Unknown Student"
             if not student_id:
                 student_id = "Unknown Student ID"
             
@@ -202,9 +241,10 @@ class DatabaseManager:
     
     def close(self):
         """Close the database connection"""
-        self.client.close()
+        if hasattr(self, 'client'):
+            self.client.close()
 
-# Initialize database manager early - will be properly set in lifespan
+# Initialize database manager
 db_manager = DatabaseManager(
     "mongodb://sa:L%40nc%5Eere%400012@192.168.48.200:27017/?authSource=admin", 
     "test"
@@ -218,32 +258,30 @@ def load_transcript():
 TESTS = {}
 ANSWERS = {}
 
-@app.get("/", response_class=HTMLResponse)
-async def home(request: Request):
-    return templates.TemplateResponse("index.html", {
-        "request": request, 
-        "page": "start"
-    })
+# ============= REST API ENDPOINTS =============
 
-@app.post("/start-test", response_class=HTMLResponse)
-async def start_test(request: Request, user_type: str = Form(...)):
-    if user_type not in ["dev", "non_dev"]:
-        return templates.TemplateResponse("index.html", {
-            "request": request, 
-            "page": "error",
-            "message": "Invalid user type"
-        })
+@app.get("/api/health")
+async def health_check():
+    """Health check endpoint"""
+    return {"status": "ok", "message": "Mock test API is running"}
+
+@app.post("/api/test/start", response_model=TestResponse)
+async def start_test_api(request: StartTestRequest):
+    """Start a new test - REST API endpoint"""
+    if request.user_type not in ["dev", "non_dev"]:
+        raise HTTPException(status_code=400, detail="Invalid user type. Must be 'dev' or 'non_dev'")
 
     test_id = str(uuid.uuid4())
     transcript_content = load_transcript()
     question_types = (
         ["code_writing"] * 4 + ["bug_fixing"] * 3 + ["scenario"] * 3
-        if user_type == "dev"
+        if request.user_type == "dev"
         else ["mcq"] * 5 + ["scenario_mcq"] * 5
     )
     random.shuffle(question_types)
+    
     TESTS[test_id] = {
-        "user_type": user_type, 
+        "user_type": request.user_type, 
         "score": 0, 
         "question_count": 1, 
         "question_types": question_types
@@ -251,7 +289,7 @@ async def start_test(request: Request, user_type: str = Form(...)):
     ANSWERS[test_id] = []
 
     q_type = question_types[0]
-    question, options = generate_question(user_type, q_type, transcript_content, difficulty=1, prev_answer=None)
+    question, options = generate_question(request.user_type, q_type, transcript_content, difficulty=1, prev_answer=None)
     ANSWERS[test_id].append({
         "question": question, 
         "answer": "", 
@@ -260,19 +298,279 @@ async def start_test(request: Request, user_type: str = Form(...)):
         "feedback": ""
     })
 
-    return templates.TemplateResponse("index.html", {
-        "request": request,
-        "page": "test",
-        "test_id": test_id,
-        "user_type": user_type,
-        "question_html": markdown.markdown(question),
-        "options": options,
-        "question_number": 1,
-        "total_questions": 2,
-        "time_limit": 300 if user_type == "dev" else 120
+    return TestResponse(
+        test_id=test_id,
+        user_type=request.user_type,
+        question_number=1,
+        total_questions=2,
+        question_html=markdown.markdown(question),
+        options=options,
+        time_limit=300 if request.user_type == "dev" else 120
+    )
+
+@app.post("/api/test/submit", response_model=Dict[str, Any])
+async def submit_answer_api(request: SubmitAnswerRequest):
+    """Submit an answer - REST API endpoint"""
+    test = TESTS.get(request.test_id)
+    if not test:
+        raise HTTPException(status_code=404, detail="Test not found")
+    
+    user_type = test["user_type"]
+    count = test["question_count"]
+    
+    if request.question_number != count:
+        raise HTTPException(status_code=400, detail="Invalid question number")
+
+    ans_data = ANSWERS[request.test_id][-1]
+    options = ans_data["options"]
+    full_answer = request.answer
+    
+    if user_type == "non_dev" and request.answer.isdigit() and int(request.answer) < len(options):
+        full_answer = options[int(request.answer)]
+
+    # Evaluate the answer
+    eval_prompt = f"Evaluate answer: {ans_data['question']}\nAnswer: {full_answer}\nReturn 'Correct', 'Incorrect', or 'Partial' with a concise comment."
+    try:
+        completion = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "system", "content": eval_prompt}],
+            temperature=1,
+            max_completion_tokens=100,
+            top_p=1,
+            stream=False
+        )
+        result = completion.choices[0].message.content
+        correct = "Correct" in result
+    except Exception as e:
+        result = f"Evaluation failed: {str(e)}"
+        correct = False
+
+    ans_data.update({"answer": full_answer, "correct": correct, "feedback": result})
+    if correct:
+        test["score"] += 1
+
+    # Check if test is completed
+    if count >= 2:
+        # Save test results to MongoDB
+        save_success = db_manager.save_test_results(
+            test_id=request.test_id,
+            test_data=test,
+            answers_data=ANSWERS[request.test_id]
+        )
+        
+        if not save_success:
+            logger.warning(f"Failed to save test results for test {request.test_id}")
+        
+        analytics = generate_analytics(request.test_id)
+        return {
+            "test_completed": True,
+            "score": test["score"],
+            "total_questions": 2,
+            "analytics": analytics,
+            "pdf_available": True
+        }
+
+    # Generate next question
+    test["question_count"] += 1
+    next_type = test["question_types"][count % len(test["question_types"])]
+    transcript = load_transcript()
+    q, opts = generate_question(user_type, next_type, transcript, test["score"] // 2 + 1, full_answer)
+    ANSWERS[request.test_id].append({
+        "question": q, 
+        "answer": "", 
+        "correct": False, 
+        "options": opts or [], 
+        "feedback": ""
     })
 
+    return {
+        "test_completed": False,
+        "next_question": {
+            "question_number": test["question_count"],
+            "total_questions": 2,
+            "question_html": markdown.markdown(q),
+            "options": opts,
+            "time_limit": 300 if user_type == "dev" else 120
+        }
+    }
+
+@app.get("/api/test/results/{test_id}", response_model=TestResultsResponse)
+async def get_test_results_api(test_id: str):
+    """Get test results - REST API endpoint"""
+    doc = db_manager.test_results_collection.find_one({"test_id": test_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Test results not found")
+    
+    analytics = generate_analytics_from_db(doc)
+    
+    return TestResultsResponse(
+        test_id=test_id,
+        score=doc.get("final_score", 0),
+        total_questions=doc.get("total_questions", 0),
+        analytics=analytics,
+        pdf_available=True
+    )
+
+@app.get("/api/test/pdf/{test_id}")
+async def download_results_pdf_api(test_id: str):
+    """Download test results as PDF - REST API endpoint"""
+    doc = db_manager.test_results_collection.find_one({"test_id": test_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Test ID not found in database")
+
+    buffer = io.BytesIO()
+    p = canvas.Canvas(buffer, pagesize=LETTER)
+    width, height = LETTER
+    margin = 50
+    y = height - margin
+
+    def write_line(label, value, indent=0):
+        nonlocal y
+        if y < margin + 50:
+            p.showPage()
+            y = height - margin
+            p.setFont("Helvetica", 12)
+        p.drawString(margin + indent, y, f"{label}: {value}")
+        y -= 20
+
+    p.setFont("Helvetica-Bold", 14)
+    p.drawString(margin, y, f"Mock Test Results - Test ID: {test_id}")
+    y -= 30
+
+    p.setFont("Helvetica", 12)
+    write_line("Name", doc.get("name", "N/A"))
+    write_line("Student_ID", str(doc.get("Student_ID", "N/A")))
+    write_line("Session_ID", str(doc.get("session_id", "N/A")))
+    try:
+        ts = float(doc.get("timestamp", time.time()))
+        timestr = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts))
+    except:
+        timestr = "N/A"
+    write_line("Saved At", timestr)
+    write_line("Score", f"{doc.get('final_score', 0)}/{doc.get('total_questions', 0)}")
+    write_line("Score %", doc.get("score_percentage", "N/A"))
+    write_line("User Type", doc.get("user_type", "N/A"))
+    y -= 10
+
+    p.setFont("Helvetica-Bold", 12)
+    if y < margin + 30:
+        p.showPage()
+        y = height - margin
+    p.drawString(margin, y, "Q&A Details:")
+    y -= 20
+
+    p.setFont("Helvetica", 11)
+    for idx, entry in enumerate(doc.get("qa_details", []), start=1):
+        if y < margin + 80:
+            p.showPage()
+            y = height - margin
+            p.setFont("Helvetica", 11)
+        write_line(f"{idx}. Question", entry.get("question", "N/A"))
+        write_line("   User Answer", entry.get("user_answer", "N/A"), indent=10)
+        write_line("   Correct", str(entry.get("correct", "N/A")), indent=10)
+        write_line("   Feedback", entry.get("feedback", "N/A"), indent=10)
+        options = entry.get("options", [])
+        if options:
+            write_line("   Options", ", ".join(options), indent=10)
+        y -= 5
+
+    p.showPage()
+    p.save()
+    buffer.seek(0)
+    filename = f"mock_test_results_{test_id}.pdf"
+
+    return StreamingResponse(
+        buffer,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+# ============= FRONTEND ROUTES (Original HTML endpoints) =============
+
+@app.get("/", response_class=HTMLResponse)
+async def home(request: Request):
+    """Frontend home page"""
+    return templates.TemplateResponse("index.html", {
+        "request": request, 
+        "page": "start"
+    })
+
+@app.post("/start-test", response_class=HTMLResponse)
+async def start_test_frontend(request: Request, user_type: str = Form(...)):
+    """Frontend start test endpoint"""
+    # Use the API endpoint internally
+    try:
+        start_request = StartTestRequest(user_type=user_type)
+        test_response = await start_test_api(start_request)
+        
+        return templates.TemplateResponse("index.html", {
+            "request": request,
+            "page": "test",
+            "test_id": test_response.test_id,
+            "user_type": test_response.user_type,
+            "question_html": test_response.question_html,
+            "options": test_response.options,
+            "question_number": test_response.question_number,
+            "total_questions": test_response.total_questions,
+            "time_limit": test_response.time_limit
+        })
+    except HTTPException as e:
+        return templates.TemplateResponse("index.html", {
+            "request": request, 
+            "page": "error",
+            "message": e.detail
+        })
+
+@app.post("/submit-answer", response_class=HTMLResponse)
+async def submit_answer_frontend(request: Request, test_id: str = Form(...), answer: str = Form(default=""), question_number: int = Form(...)):
+    """Frontend submit answer endpoint"""
+    try:
+        submit_request = SubmitAnswerRequest(
+            test_id=test_id,
+            question_number=question_number,
+            answer=answer
+        )
+        result = await submit_answer_api(submit_request)
+        
+        if result["test_completed"]:
+            return templates.TemplateResponse("index.html", {
+                "request": request,
+                "page": "results",
+                "score": result["score"],
+                "analytics": result["analytics"],
+                "test_id": test_id,
+                "pdf_url": f"./download_results/{test_id}"
+            })
+        else:
+            next_q = result["next_question"]
+            test = TESTS.get(test_id)
+            return templates.TemplateResponse("index.html", {
+                "request": request,
+                "page": "test",
+                "test_id": test_id,
+                "user_type": test["user_type"],
+                "question_html": next_q["question_html"],
+                "options": next_q["options"],
+                "question_number": next_q["question_number"],
+                "total_questions": next_q["total_questions"],
+                "time_limit": next_q["time_limit"]
+            })
+    except HTTPException as e:
+        return templates.TemplateResponse("index.html", {
+            "request": request, 
+            "page": "error",
+            "message": e.detail
+        })
+
+@app.get("/download_results/{test_id}")
+async def download_results_frontend(test_id: str):
+    """Frontend download results endpoint"""
+    return await download_results_pdf_api(test_id)
+
+# ============= HELPER FUNCTIONS =============
+
 def generate_question(user_type, question_type, transcript, difficulty, prev_answer):
+    """Generate a question using Groq AI"""
     prompt = (
         "You are a weekly mock test generator creating a single question based on the provided transcript. "
         "Act like an examiner. Generate only the question content. Use markdown: start with '## Question'. "
@@ -372,101 +670,8 @@ def generate_question(user_type, question_type, transcript, difficulty, prev_ans
     
     return question.strip(), options
 
-@app.post("/submit-answer", response_class=HTMLResponse)
-async def submit_answer(request: Request, test_id: str = Form(...), answer: str = Form(default=""), question_number: int = Form(...)):
-    test = TESTS.get(test_id)
-    if not test:
-        return templates.TemplateResponse("index.html", {
-            "request": request, 
-            "page": "error",
-            "message": "Test not found"
-        })
-    
-    user_type = test["user_type"]
-    score = test["score"]
-    count = test["question_count"]
-    if question_number != count:
-        return templates.TemplateResponse("index.html", {
-            "request": request, 
-            "page": "error",
-            "message": "Invalid question number"
-        })
-
-    ans_data = ANSWERS[test_id][-1]
-    options = ans_data["options"]
-    full_answer = answer
-    if user_type == "non_dev" and answer.isdigit() and int(answer) < len(options):
-        full_answer = options[int(answer)]
-
-    eval_prompt = f"Evaluate answer: {ans_data['question']}\nAnswer: {full_answer}\nReturn 'Correct', 'Incorrect', or 'Partial' with a concise comment."
-    try:
-        completion = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[{"role": "system", "content": eval_prompt}],
-            temperature=1,
-            max_completion_tokens=100,
-            top_p=1,
-            stream=False
-        )
-        result = completion.choices[0].message.content
-        correct = "Correct" in result
-    except Exception as e:
-        result = f"Evaluation failed: {str(e)}"
-        correct = False
-
-    ans_data.update({"answer": full_answer, "correct": correct, "feedback": result})
-    if correct:
-        test["score"] += 1
-
-    # Test completed
-    if count >= 2:
-        # Save test results to MongoDB
-        save_success = db_manager.save_test_results(
-            test_id=test_id,
-            test_data=test,
-            answers_data=ANSWERS[test_id]
-        )
-        
-        if not save_success:
-            logger.warning(f"Failed to save test results for test {test_id}")
-        
-        analytics = generate_analytics(test_id)
-        return templates.TemplateResponse("index.html", {
-            "request": request,
-            "page": "results",
-            "score": test["score"],
-            "analytics": analytics,
-            "test_id": test_id,
-            "pdf_url": f"./download_results/{test_id}"
-        })
-
-    # Next question
-    test["question_count"] += 1
-    next_type = test["question_types"][count % len(test["question_types"])]
-    transcript = load_transcript()
-    q, opts = generate_question(user_type, next_type, transcript, test["score"] // 2 + 1, full_answer)
-    ANSWERS[test_id].append({
-        "question": q, 
-        "answer": "", 
-        "correct": False, 
-        "options": opts or [], 
-        "feedback": ""
-    })
-
-    return templates.TemplateResponse("index.html", {
-        "request": request,
-        "page": "test",
-        "test_id": test_id,
-        "user_type": user_type,
-        "question_html": markdown.markdown(q),
-        "options": opts,
-        "question_number": test["question_count"],
-        "total_questions": 2,
-        "time_limit": 300 if user_type == "dev" else 120,
-        
-    })
-
 def generate_analytics(test_id):
+    """Generate analytics from in-memory test data"""
     answers = ANSWERS[test_id]
     total = len(answers)
     correct = sum(1 for a in answers if a["correct"])
@@ -476,75 +681,13 @@ def generate_analytics(test_id):
     )
     return f"**Score: {correct}/{total}**\n\n{breakdown}"
 
-@app.get("/download_results/{test_id}")
-async def download_results_pdf(test_id: str):
-    doc = db_manager.test_results_collection.find_one({"test_id": test_id}, {"_id": 0})
-    if not doc:
-        raise HTTPException(status_code=404, detail="Test ID not found in database")
-
-    buffer = io.BytesIO()
-    p = canvas.Canvas(buffer, pagesize=LETTER)
-    width, height = LETTER
-    margin = 50
-    y = height - margin
-
-    def write_line(label, value, indent=0):
-        nonlocal y
-        if y < margin + 50:
-            p.showPage()
-            y = height - margin
-            p.setFont("Helvetica", 12)
-        p.drawString(margin + indent, y, f"{label}: {value}")
-        y -= 20
-
-    p.setFont("Helvetica-Bold", 14)
-    p.drawString(margin, y, f"Mock Test Results - Test ID: {test_id}")
-    y -= 30
-
-    p.setFont("Helvetica", 12)
-    write_line("Name", doc.get("name", "N/A"))
-    write_line("Student_ID", str(doc.get("Student_ID", "N/A")))
-    write_line("Session_ID", str(doc.get("session_id", "N/A")))
-    try:
-        ts = float(doc.get("timestamp", time.time()))
-        timestr = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts))
-    except:
-        timestr = "N/A"
-    write_line("Saved At", timestr)
-    write_line("Score", f"{doc.get('final_score', 0)}/{doc.get('total_questions', 0)}")
-    write_line("Score %", doc.get("score_percentage", "N/A"))
-    write_line("User Type", doc.get("user_type", "N/A"))
-    y -= 10
-
-    p.setFont("Helvetica-Bold", 12)
-    if y < margin + 30:
-        p.showPage()
-        y = height - margin
-    p.drawString(margin, y, "Q&A Details:")
-    y -= 20
-
-    p.setFont("Helvetica", 11)
-    for idx, entry in enumerate(doc.get("qa_details", []), start=1):
-        if y < margin + 80:
-            p.showPage()
-            y = height - margin
-            p.setFont("Helvetica", 11)
-        write_line(f"{idx}. Question", entry.get("question", "N/A"))
-        write_line("   User Answer", entry.get("user_answer", "N/A"), indent=10)
-        write_line("   Correct", str(entry.get("correct", "N/A")), indent=10)
-        write_line("   Feedback", entry.get("feedback", "N/A"), indent=10)
-        options = entry.get("options", [])
-        if options:
-            write_line("   Options", ", ".join(options), indent=10)
-        y -= 5
-
-    p.showPage()
-    p.save()
-    buffer.seek(0)
-    filename = f"mock_test_results_{test_id}.pdf"
-
-    return StreamingResponse(
-        buffer,
-        media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
+def generate_analytics_from_db(doc):
+    """Generate analytics from database document"""
+    qa_details = doc.get("qa_details", [])
+    total = len(qa_details)
+    correct = sum(1 for qa in qa_details if qa.get("correct", False))
+    breakdown = "\n\n".join(
+        f"Q{qa.get('question_number', i+1)}: {'✅' if qa.get('correct', False) else '❌'}\nFeedback: {qa.get('feedback', 'No feedback')}"
+        for i, qa in enumerate(qa_details)
     )
+    return f"**Score: {correct}/{total}**\n\n{breakdown}"
