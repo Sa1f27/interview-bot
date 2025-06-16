@@ -28,6 +28,7 @@ from langchain.chains.combine_documents import create_stuff_documents_chain
 from contextlib import asynccontextmanager
 import io
 from reportlab.pdfgen import canvas
+from urllib.parse import quote_plus
 from reportlab.lib.pagesizes import LETTER
 from fastapi.responses import StreamingResponse
 
@@ -209,8 +210,8 @@ class DatabaseManager:
     def __init__(self, connection_string, db_name):
         self.client = pymongo.MongoClient(connection_string)
         self.db = self.client[db_name]
-        self.transcripts = self.db["drive"]
-        self.conversations = self.db["daily_standup_results"]
+        self.transcripts = self.db["original-1"]
+        self.conversations = self.db["daily_standup_results-1"]
     
     def get_latest_summary(self) -> str:
         """Fetch the latest lecture summary from the database"""
@@ -265,10 +266,16 @@ class DatabaseManager:
         """Close the database connection"""
         self.client.close()
 
-# Initialize database
+# MongoDB credentials (ensure these are securely managed, e.g., via environment variables)
+MONGO_USER = "LanTech"
+MONGO_PASS = "L@nc^ere@0012"
+MONGO_HOST = "192.168.48.201:27017"
+MONGO_DB_NAME = "Api-1"
+MONGO_AUTH_SOURCE = "admin"
+
 db_manager = DatabaseManager(
-    "mongodb://sa:L%40nc%5Eere%400012@192.168.48.200:27017/?authSource=admin", 
-    "test"
+    f"mongodb://{quote_plus(MONGO_USER)}:{quote_plus(MONGO_PASS)}@{MONGO_HOST}/{MONGO_DB_NAME}?authSource={MONGO_AUTH_SOURCE}",
+    MONGO_DB_NAME
 )
 
 # ========================
