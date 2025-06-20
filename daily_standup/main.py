@@ -14,9 +14,6 @@ from typing import Dict, List, Optional, Any
 from pydantic import BaseModel
 import pyodbc
 import random
-import numpy as np
-import sounddevice as sd
-import scipy.io.wavfile as wavfile
 import edge_tts
 import pymongo
 from langchain_core.prompts import PromptTemplate
@@ -37,20 +34,12 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Constants
-SAMPLE_RATE = 16000
-BLOCK_SIZE = 4096
-SILENCE_THRESHOLD = 0.01
-SILENCE_DURATION = 2.0
-MAX_RECORDING_DURATION = 10.0
 TEST_DURATION_SEC = 120
 INACTIVITY_TIMEOUT = 120
 TTS_SPEED = 1.2
 
 # ========================
 # Models and schemas
-# ========================
-# ========================
-# SQL Server setup
 # ========================
 
 # SQL Server connection parameters
@@ -78,7 +67,6 @@ def get_db_connection():
         logger.error(f"Database connection error: {e}")
         return None
 
-# Fetch a random ID and First_Name, Last_Name from tbl_Student SQL Server 
 def fetch_random_student_info():
     """Fetch a random ID, name from tbl_Student and session_id from session table from SQL Server"""
     try:
@@ -117,10 +105,9 @@ def fetch_random_student_info():
             random.choice(session_ids) if session_ids else None
         )
     except Exception as e:
-        logger.error(f"Error fetching student info: {e}") # Updated error message for clarity
+        logger.error(f"Error fetching student info: {e}")
         return None
 
-    
 class Session:
     """Session data model for a test session"""
     def __init__(self, summary: str, voice: str):
@@ -185,6 +172,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 AUDIO_DIR = os.path.join(BASE_DIR, "audio")
 TEMP_DIR = os.path.join(BASE_DIR, "temp")
 os.makedirs(TEMP_DIR, exist_ok=True)
+
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -226,6 +214,7 @@ class DatabaseManager:
             # Fetch random student ID from SQL Server
             student_id, first_name, last_name, session_id = fetch_random_student_info()
             name = first_name + " " + last_name if first_name and last_name else "Unknown Student"
+            
             # Extract score from evaluation text
             import re
             score_match = re.search(r'(\d+(?:\.\d+)?)\s*/\s*10', evaluation)
@@ -266,7 +255,7 @@ class DatabaseManager:
         """Close the database connection"""
         self.client.close()
 
-# MongoDB credentials (ensure these are securely managed, e.g., via environment variables)
+# MongoDB credentials
 MONGO_USER = "LanTech"
 MONGO_PASS = "L@nc^ere@0012"
 MONGO_HOST = "192.168.48.201:27017"
@@ -294,10 +283,7 @@ class TestManager:
         return test_id
     
     def get_truncated_conversation_history(self, test_id: str, window_size: int = 5) -> str:
-        """
-        Return a string of the last `window_size` Q&A pairs formatted,
-        or fewer if conversation is shorter.
-        """
+        """Return a string of the last `window_size` Q&A pairs formatted"""
         test = self.validate_test(test_id)
         last_entries = test.conversation_log[-window_size:]
         history = []
@@ -477,65 +463,11 @@ class LLMManager:
 llm_manager = LLMManager()
 
 # ========================
-# Audio utilities
+# Audio utilities (Simplified)
 # ========================
 
 class AudioManager:
-    """Manages audio recording, transcription and text-to-speech"""
-    
-    @staticmethod
-    def record_audio() -> Optional[str]:
-        """Record audio from the microphone and save to a file"""
-        logger.info("Recording audio...")
-        chunks, silence_start, recording = [], None, True
-        start_time = time.time()
-
-        def callback(indata, frames, time_info, status):
-            nonlocal silence_start, recording
-            if status:
-                logger.error(f"Audio recording error: {status}")
-                recording = False
-                return
-            
-            rms = np.sqrt(np.mean(indata**2))
-            chunks.append(indata.copy())
-            
-            # Check for silence
-            if rms < SILENCE_THRESHOLD:
-                silence_start = silence_start or time.time()
-                if (time.time() - silence_start) > SILENCE_DURATION:
-                    recording = False
-            else:
-                silence_start = None
-            
-            # Check for maximum duration
-            if (time.time() - start_time) > MAX_RECORDING_DURATION:
-                recording = False
-
-        try:
-            with sd.InputStream(
-                samplerate=SAMPLE_RATE, 
-                channels=1, 
-                blocksize=BLOCK_SIZE, 
-                callback=callback
-            ):
-                while recording:
-                    sd.sleep(100)
-        except Exception as e:
-            logger.error(f"Recording error: {e}")
-            return None
-
-        # Process recorded audio
-        if not chunks:
-            return None
-            
-        audio = np.concatenate(chunks)
-        if len(audio) / SAMPLE_RATE < 0.5:  # Too short
-            return None
-
-        filepath = os.path.join(AUDIO_DIR, f"temp_in_{int(time.time())}.wav")
-        wavfile.write(filepath, SAMPLE_RATE, (audio * 32767).astype(np.int16))
-        return filepath
+    """Manages audio transcription and text-to-speech (no longer handles recording)"""
     
     @staticmethod
     def clean_audio_folder():
@@ -647,7 +579,7 @@ async def record_and_respond(
     audio: UploadFile = File(...),
     test_id: str = Form(...)
 ):
-    """Record user's response and provide the next question"""
+    """Process user's uploaded audio response and provide the next question"""
     try:
         test = test_manager.validate_test(test_id)
 
@@ -658,12 +590,19 @@ async def record_and_respond(
             return {"ended": True, "response": closing_message, "audio_path": audio_path}
 
         # Save uploaded audio to file system
-        audio_filename = os.path.join(TEMP_DIR, audio.filename)
+        audio_filename = os.path.join(TEMP_DIR, f"user_audio_{int(time.time())}.webm")
         with open(audio_filename, "wb") as f:
             f.write(await audio.read())
 
         # Transcribe the uploaded audio
         user_response = AudioManager.transcribe(audio_filename)
+        logger.info(f"Transcribed user response: {user_response}")
+
+        # Clean up the temporary audio file
+        try:
+            os.remove(audio_filename)
+        except Exception as e:
+            logger.warning(f"Failed to clean up audio file: {e}")
 
         # Get last question + log response
         last_question = test.conversation_log[-1].question
@@ -699,7 +638,6 @@ async def record_and_respond(
     except Exception as e:
         logger.error(f"Error processing response: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
 
 @app.get("/summary", response_model=SummaryResponse)
 async def get_summary(test_id: str):
@@ -741,10 +679,8 @@ async def get_summary(test_id: str):
                 "concept_coverage": concept_coverage
             },
             "pdf_url": f"./download_results/{test_id}"
-            
         }
 
-    
     except Exception as e:
         logger.error(f"Error generating summary: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -775,42 +711,36 @@ async def cleanup_resources():
  
 @app.get("/api/download_results/{test_id}")
 async def download_results_pdf(test_id: str):
-    """
-    Fetch the saved test document from MongoDB and stream it as a PDF.
-    """
+    """Fetch the saved test document from MongoDB and stream it as a PDF."""
     try:
-        # 1) Query MongoDB (same collection used in save_test_data)
+        # Query MongoDB
         doc = db_manager.conversations.find_one({"test_id": test_id}, {"_id": 0})
         if not doc:
             raise HTTPException(status_code=404, detail="Test ID not found")
 
-        # 2) Create PDF in memory
+        # Create PDF in memory
         buffer = io.BytesIO()
         p = canvas.Canvas(buffer, pagesize=LETTER)
         width, height = LETTER
         margin = 50
         y = height - margin
 
-        # A helper that writes one line and returns the updated y.
-        # If we run out of vertical space, it will showPage() and reset y.
         def write_line(canvas_obj, current_y, label: str, value: str, indent: int = 0):
-            # If we’re too close to the bottom, start a new page
             if current_y < margin + 50:
                 canvas_obj.showPage()
                 canvas_obj.setFont("Helvetica", 12)
-                return height - margin  # reset y
-            # Draw the text
+                return height - margin
             canvas_obj.drawString(margin + indent, current_y, f"{label}: {value}")
             return current_y - 20
 
-        # 3) Header
+        # Header
         p.setFont("Helvetica-Bold", 14)
         p.drawString(margin, y, f"Daily Standup Results – Test ID: {test_id}")
         y -= 30
 
-        # Prepare to write fields
+        # Write document fields
         p.setFont("Helvetica", 12)
-
+        
         name_val = doc.get("name", "N/A")
         y = write_line(p, y, "Name", str(name_val))
 
@@ -820,7 +750,6 @@ async def download_results_pdf(test_id: str):
         session_val = doc.get("session_id", "N/A")
         y = write_line(p, y, "Session_ID", str(session_val))
 
-        # Format saved timestamp
         try:
             ts = float(doc.get("timestamp", time.time()))
             timestr = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts))
@@ -832,8 +761,6 @@ async def download_results_pdf(test_id: str):
         y = write_line(p, y, "Score", str(score_val))
 
         eval_val = doc.get("evaluation", "N/A")
-        # If evaluation might be long, wrap it at ~80 chars
-        # and write each wrapped line as its own “write_line”
         wrapped_eval = textwrap.wrap(str(eval_val), 80)
         p.setFont("Helvetica-Bold", 12)
         if y < margin + 50:
@@ -846,10 +773,9 @@ async def download_results_pdf(test_id: str):
         for line in wrapped_eval:
             y = write_line(p, y, "", line)
 
-        # Add a little gap before Conversation Log
         y -= 10
 
-        # 4) Conversation Log header
+        # Conversation Log
         p.setFont("Helvetica-Bold", 12)
         if y < margin + 30:
             p.showPage()
@@ -858,28 +784,22 @@ async def download_results_pdf(test_id: str):
         p.drawString(margin, y, "Conversation Log:")
         y -= 20
 
-        # 5) For each Q&A entry, indent appropriately
         p.setFont("Helvetica", 11)
         for idx, entry in enumerate(doc.get("conversation_log", []), start=1):
-            # If we’re too close to the bottom, start a new page
             if y < margin + 80:
                 p.showPage()
                 p.setFont("Helvetica", 11)
                 y = height - margin
 
-            # Write “1. Concept: <concept>”
             concept_val = entry.get("concept", "N/A")
             y = write_line(p, y, f"{idx}. Concept", concept_val)
 
-            # Write “    Question: <question>”
             question_val = entry.get("question", "N/A")
             y = write_line(p, y, "    Question", question_val, indent=15)
 
-            # Write “    Answer: <answer>”
             answer_val = entry.get("answer", "N/A")
             y = write_line(p, y, "    Answer", answer_val, indent=15)
 
-            # Write timestamp for that entry
             try:
                 ets = float(entry.get("timestamp", time.time()))
                 etimestr = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ets))
@@ -887,10 +807,8 @@ async def download_results_pdf(test_id: str):
                 etimestr = "N/A"
             y = write_line(p, y, "    Asked/Answered At", etimestr, indent=15)
 
-            # Extra spacing between entries
             y -= 10
 
-        # 6) Finalize and stream
         p.showPage()
         p.save()
         buffer.seek(0)
@@ -903,18 +821,14 @@ async def download_results_pdf(test_id: str):
         )
 
     except HTTPException:
-        # Re-raise 404 if doc not found
         raise
     except Exception as e:
         logger.error(f"Error while generating PDF for {test_id}: {e}")
         raise HTTPException(status_code=500, detail="Internal server error while generating PDF")
 
-
 @app.get("/api/tests", response_class=JSONResponse)
 async def get_all_tests():
-    """
-    Get all test documents from the MongoDB collection, excluding conversation_log and evaluation.
-    """
+    """Get all test documents from the MongoDB collection"""
     try:
         results = list(db_manager.conversations.find(
             {}, 
@@ -925,12 +839,9 @@ async def get_all_tests():
         logger.error(f"Error fetching all tests: {e}")
         raise HTTPException(status_code=500, detail="Failed to retrieve tests")
 
-
 @app.get("/api/tests/{test_id}", response_class=JSONResponse)
 async def get_test_by_id(test_id: str):
-    """
-    Get a specific test document by test_id, excluding conversation_log and evaluation.
-    """
+    """Get a specific test document by test_id"""
     try:
         result = db_manager.conversations.find_one(
             {"test_id": test_id}, 

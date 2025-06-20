@@ -107,6 +107,26 @@
       font-style: italic;
       color: #aaa;
     }
+    .recording-indicator {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      margin: 20px auto;
+      color: #ff6b6b;
+      font-weight: bold;
+    }
+    .recording-dot {
+      width: 12px;
+      height: 12px;
+      background-color: #ff6b6b;
+      border-radius: 50%;
+      animation: recordingPulse 1s infinite;
+    }
+    @keyframes recordingPulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
   </style>
 </head>
 <body>
@@ -124,7 +144,12 @@
     </div>
   </div>
 
-  <div id="status">Click Start to begin the Python test...</div>
+  <div id="status">Click Start to begin the test...</div>
+
+  <div id="recordingIndicator" class="recording-indicator" style="display: none;">
+    <div class="recording-dot"></div>
+    <span>Recording... (speak now or pause to continue)</span>
+  </div>
 
   <div class="controls">
     <button id="startBtn">▶️ Start Test</button>
@@ -136,7 +161,6 @@
     <div id="analytics"></div>
     <button id="retakeBtn">🔄 Retake Interview</button>
     <button id="downloadPdfBtn" style="display:none;">⬇️ Download Results as PDF</button>
-
   </div>
 
   <script>
@@ -153,9 +177,23 @@
   const aiIcon = document.getElementById("aiIcon");
   const userIcon = document.getElementById("userIcon");
   const downloadPdfBtn = document.getElementById("downloadPdfBtn");
+  const recordingIndicator = document.getElementById("recordingIndicator");
 
+  // Audio recording variables
   let mediaRecorder;
   let audioChunks = [];
+  let audioContext;
+  let analyser;
+  let microphone;
+  let dataArray;
+  let silenceStart = null;
+  let hasSpoken = false;
+
+  // Silence detection configuration
+  const SILENCE_THRESHOLD = 0.01;
+  const SILENCE_DURATION = 2000; // 2 seconds in milliseconds
+  const MAX_RECORDING_DURATION = 15000; // 15 seconds max
+  const MIN_SPEAKING_DURATION = 1000; // Must speak for at least 1 second
 
   function log(message) {
     console.log(`[Client] ${message}`);
@@ -196,58 +234,198 @@
     }
   }
 
-  async function recordAndRespond() {
+  function calculateRMS(buffer) {
+    let sum = 0;
+    for (let i = 0; i < buffer.length; i++) {
+      sum += buffer[i] * buffer[i];
+    }
+    return Math.sqrt(sum / buffer.length);
+  }
+
+  function detectSilence() {
+    if (!isRecording || !analyser) return;
+
+    analyser.getFloatTimeDomainData(dataArray);
+    const rms = calculateRMS(dataArray);
+    const isSilent = rms < SILENCE_THRESHOLD;
+    const now = Date.now();
+
+    if (isSilent) {
+      if (silenceStart === null) {
+        silenceStart = now;
+      } else if (hasSpoken && (now - silenceStart) > SILENCE_DURATION) {
+        log(`Silence detected for ${SILENCE_DURATION}ms, stopping recording`);
+        stopRecording();
+        return;
+      }
+    } else {
+      // Speaking detected
+      silenceStart = null;
+      if (!hasSpoken && rms > SILENCE_THRESHOLD * 3) { // Slightly higher threshold to confirm speaking
+        hasSpoken = true;
+        log("User started speaking");
+      }
+    }
+
+    // Continue monitoring if still recording
+    if (isRecording) {
+      requestAnimationFrame(detectSilence);
+    }
+  }
+
+  async function startRecording() {
     if (isRecording || !testActive) return;
-    isRecording = true;
-    blink("user");
-    setStatus("Listening to your response...");
-
+    
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      log("Starting recording with silence detection");
+      isRecording = true;
+      hasSpoken = false;
+      silenceStart = null;
       audioChunks = [];
-      mediaRecorder = new MediaRecorder(stream);
-      mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
-      mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-        const formData = new FormData();
-        formData.append("audio", audioBlob, "response.webm");
-        formData.append("test_id", testId);
+      
+      blink("user");
+      setStatus("Listening to your response...");
+      recordingIndicator.style.display = "flex";
 
-        const response = await fetch("./record_and_respond", {
-          method: "POST",
-          body: formData,
-        });
+      // Get user media
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          sampleRate: 16000
+        } 
+      });
 
-        const data = await response.json();
+      // Set up audio analysis for silence detection
+      audioContext = new AudioContext({ sampleRate: 16000 });
+      analyser = audioContext.createAnalyser();
+      microphone = audioContext.createMediaStreamSource(stream);
+      
+      analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0.8;
+      dataArray = new Float32Array(analyser.frequencyBinCount);
+      
+      microphone.connect(analyser);
 
-        if (!response.ok) throw new Error(data.error || "Recording failed");
+      // Set up MediaRecorder
+      mediaRecorder = new MediaRecorder(stream, {
+        mimeType: 'audio/webm;codecs=opus'
+      });
 
-        log(`Response: ended=${data.ended}, response=${data.response}`);
-        setStatus(cleanText(data.response));
-        blink("ai");
-        await playAudio(data.audio_path);
-
-        if (data.ended) {
-          await showSummary();
-          endTest("Test ended.");
-        } else if (testActive) {
-          setStatus("Please respond...");
-          isRecording = false;
-          recordAndRespond();
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunks.push(event.data);
         }
       };
 
-      mediaRecorder.start();
-      setTimeout(() => {
-        if (mediaRecorder.state !== "inactive") {
-          mediaRecorder.stop();
-          stream.getTracks().forEach(track => track.stop());
+      mediaRecorder.onstop = async () => {
+        log("MediaRecorder stopped, processing audio");
+        
+        // Clean up audio resources
+        if (microphone) {
+          microphone.disconnect();
         }
-      }, 10000); // Max 10s recording
-    } catch (e) {
-      log(`Record error: ${e}`);
-      setStatus(`Error: ${e.message}`);
-      endTest(`Error: ${e.message}`);
+        if (audioContext) {
+          await audioContext.close();
+        }
+        stream.getTracks().forEach(track => track.stop());
+
+        // Process the recorded audio
+        if (audioChunks.length > 0) {
+          await processRecordedAudio();
+        } else {
+          log("No audio data recorded");
+          if (testActive) {
+            setStatus("No audio detected. Please try again...");
+            setTimeout(() => startRecording(), 1000);
+          }
+        }
+      };
+
+      // Start recording
+      mediaRecorder.start(100); // Collect data every 100ms
+
+      // Start silence detection
+      detectSilence();
+
+      // Failsafe: stop recording after max duration
+      setTimeout(() => {
+        if (isRecording) {
+          log("Max recording duration reached, stopping");
+          stopRecording();
+        }
+      }, MAX_RECORDING_DURATION);
+
+    } catch (error) {
+      log(`Recording error: ${error.message}`);
+      setStatus(`Recording error: ${error.message}`);
+      endTest(`Recording error: ${error.message}`);
+    }
+  }
+
+  function stopRecording() {
+    if (!isRecording) return;
+    
+    log("Stopping recording");
+    isRecording = false;
+    recordingIndicator.style.display = "none";
+    
+    if (mediaRecorder && mediaRecorder.state !== "inactive") {
+      mediaRecorder.stop();
+    }
+  }
+
+  async function processRecordedAudio() {
+    try {
+      setStatus("Processing your response...");
+      
+      // Create blob from recorded chunks
+      const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+      
+      // Check if we have sufficient audio data
+      if (audioBlob.size < 1000) { // Less than 1KB indicates very short recording
+        log("Recording too short, requesting user to speak again");
+        setStatus("Recording was too short. Please speak your answer...");
+        setTimeout(() => startRecording(), 1000);
+        return;
+      }
+
+      // Send to backend for processing
+      const formData = new FormData();
+      formData.append("audio", audioBlob, "response.webm");
+      formData.append("test_id", testId);
+
+      const response = await fetch("./record_and_respond", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Recording processing failed");
+      }
+
+      log(`Response received: ended=${data.ended}, response=${data.response}`);
+      setStatus(cleanText(data.response));
+      blink("ai");
+      
+      // Play AI response audio
+      await playAudio(data.audio_path);
+
+      if (data.ended) {
+        await showSummary();
+        endTest("Test ended.");
+      } else if (testActive) {
+        // Continue with next question cycle
+        setStatus("Please respond...");
+        setTimeout(() => startRecording(), 1000); // Brief pause before next recording
+      }
+
+    } catch (error) {
+      log(`Error processing audio: ${error.message}`);
+      setStatus(`Error: ${error.message}`);
+      endTest(`Error: ${error.message}`);
     }
   }
 
@@ -271,8 +449,8 @@
     }
   }
 
-  function setStatus(t) {
-    status.innerText = t;
+  function setStatus(text) {
+    status.innerText = text;
   }
 
   function endTest(reason) {
@@ -281,8 +459,17 @@
     startBtn.disabled = false;
     startBtn.innerText = "▶️ Start Test";
     retakeBtn.disabled = false;
+    recordingIndicator.style.display = "none";
     blink(null);
     setStatus(`Test ended: ${reason}`);
+    
+    // Clean up any active audio resources
+    if (mediaRecorder && mediaRecorder.state !== "inactive") {
+      mediaRecorder.stop();
+    }
+    if (audioContext) {
+      audioContext.close();
+    }
   }
 
   async function startTest() {
@@ -302,10 +489,11 @@
       testId = data.test_id;
       setStatus(cleanText(data.question));
       await playAudio(data.audio_path);
+      
       if (testActive) {
         setStatus("Please respond...");
-        countdown(Date.now() + 300000);
-        recordAndRespond();
+        countdown(Date.now() + 300000); // 5 minute countdown
+        setTimeout(() => startRecording(), 500); // Brief delay before starting recording
       }
     } catch (e) {
       setStatus(`Failed to start: ${e.message}`);
@@ -317,6 +505,13 @@
 
   startBtn.onclick = startTest;
   retakeBtn.onclick = startTest;
+
+  // Clean up on page unload
+  window.addEventListener('beforeunload', () => {
+    if (audioContext) {
+      audioContext.close();
+    }
+  });
 </script>
 
 </body>
