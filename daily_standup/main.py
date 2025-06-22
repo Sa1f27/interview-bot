@@ -202,11 +202,28 @@ class DatabaseManager:
         self.conversations = self.db["daily_standup_results-1"]
     
     def get_latest_summary(self) -> str:
-        """Fetch the latest lecture summary from the database"""
-        doc = self.transcripts.find_one({}, {"_id": 0, "summary": 1}, sort=[("timestamp", -1)])
-        if not doc or "summary" not in doc:
+        """Fetch the latest lecture summary - simple and safe"""
+        try:
+            # Simple query: get any document with summary, sorted by timestamp desc
+            doc = self.transcripts.find_one(
+                {"summary": {"$exists": True, "$ne": None, "$ne": ""}},
+                sort=[("timestamp", -1)]
+            )
+            
+            if doc and doc.get("summary"):
+                return doc["summary"]
+            
+            # If timestamp sorting fails, try without sorting
+            doc = self.transcripts.find_one({"summary": {"$exists": True, "$ne": None, "$ne": ""}})
+            
+            if doc and doc.get("summary"):
+                return doc["summary"]
+                
             raise ValueError("No summary found in the database")
-        return doc["summary"]
+            
+        except Exception as e:
+            logger.error(f"Error fetching summary: {e}")
+            raise ValueError("No summary found in the database")
     
     def save_test_data(self, test_id: str, conversation_log: List[ConversationEntry], evaluation: str) -> bool:
         """Save test data to the conversation collection"""
@@ -403,13 +420,14 @@ class LLMManager:
         Full Q&A log:
         {conversation}
 
-        Generate a concise evaluation with:
+        Generate a concise strict evaluation with:
         1. Key strengths (2-3 points)
         2. Areas for improvement (1-2 points)
         3. How well they covered the core concepts
         4. One specific recommendation for further study
 
-        Be constructive and specific. Give numeric scores too out of 10.
+        Be too much strict, constructive and specific. Give numeric scores too out of 10,
+        if the user is giving multiple irrelevant answers then give 0 out of 10.
         Keep your evaluation under 200 words.
         """)
     

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mock Test API - Testing Interface</title>
+    <title>Weekend Mock Test - Test Interface</title>
     <style>
         * {
             margin: 0;
@@ -20,407 +20,599 @@
         }
 
         .container {
-            max-width: 1000px;
+            max-width: 900px;
             margin: 0 auto;
             background: white;
             border-radius: 15px;
-            padding: 30px;
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            padding: 40px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
         }
 
         .header {
             text-align: center;
-            margin-bottom: 30px;
+            margin-bottom: 40px;
         }
 
         .header h1 {
             color: #667eea;
-            margin-bottom: 10px;
+            margin-bottom: 15px;
+            font-size: 2.5em;
         }
 
-        .path-info {
-            background: #e8f4fd;
-            padding: 10px;
-            border-radius: 8px;
+        .header p {
+            color: #666;
+            font-size: 1.1em;
             margin-bottom: 20px;
-            font-size: 12px;
-            color: #1565c0;
         }
 
-        .api-section {
+        .system-info {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
             margin-bottom: 30px;
-            padding: 20px;
-            border: 1px solid #e0e0e0;
-            border-radius: 10px;
-            background: #f9f9f9;
-        }
-
-        .api-section h3 {
-            color: #764ba2;
-            margin-bottom: 15px;
-        }
-
-        .form-group {
-            margin-bottom: 15px;
-        }
-
-        .form-group label {
-            display: block;
-            margin-bottom: 5px;
-            font-weight: 600;
-        }
-
-        .form-group input, .form-group select, .form-group textarea {
-            width: 100%;
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 5px;
             font-size: 14px;
+            color: #495057;
+            border-left: 4px solid #667eea;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .status-online { background: #28a745; }
+        .status-offline { background: #dc3545; }
+        .status-warning { background: #ffc107; }
+
+        .main-section {
+            background: #f8f9fa;
+            padding: 30px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+            border: 1px solid #e9ecef;
+        }
+
+        .section-title {
+            color: #495057;
+            margin-bottom: 25px;
+            font-size: 1.4em;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+        }
+
+        .section-title .emoji {
+            font-size: 1.2em;
+            margin-right: 10px;
+        }
+
+        .test-card {
+            background: white;
+            border-radius: 10px;
+            padding: 25px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+            border: 1px solid #e9ecef;
+        }
+
+        .test-type-selector {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .test-type-card {
+            background: white;
+            border: 2px solid #e9ecef;
+            border-radius: 12px;
+            padding: 25px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .test-type-card:hover {
+            border-color: #667eea;
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.15);
+        }
+
+        .test-type-card.selected {
+            border-color: #667eea;
+            background: #f8f9ff;
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.2);
+        }
+
+        .test-type-card h3 {
+            color: #495057;
+            margin-bottom: 10px;
+            font-size: 1.2em;
+        }
+
+        .test-type-card p {
+            color: #6c757d;
+            font-size: 0.9em;
+            line-height: 1.4;
         }
 
         .btn {
             background: #667eea;
             color: white;
-            padding: 12px 24px;
+            padding: 15px 30px;
             border: none;
-            border-radius: 6px;
+            border-radius: 8px;
             cursor: pointer;
-            font-size: 14px;
+            font-size: 16px;
             font-weight: 600;
-            margin-right: 10px;
-            margin-bottom: 10px;
+            transition: all 0.3s ease;
+            width: 100%;
+            margin-bottom: 15px;
         }
 
         .btn:hover {
             background: #5a6fd8;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.3);
         }
 
-        .btn.danger {
-            background: #e74c3c;
+        .btn:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
         }
 
-        .btn.danger:hover {
-            background: #c0392b;
+        .btn.secondary {
+            background: #6c757d;
         }
 
-        .response-area {
-            background: #2c3e50;
-            color: #ecf0f1;
+        .btn.secondary:hover {
+            background: #5a6268;
+        }
+
+        .btn.success {
+            background: #28a745;
+        }
+
+        .btn.success:hover {
+            background: #218838;
+        }
+
+        .question-display {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 10px;
+            padding: 25px;
+            margin: 20px 0;
+            display: none;
+        }
+
+        .question-content {
+            font-size: 1.1em;
+            line-height: 1.6;
+            margin-bottom: 20px;
+            color: #495057;
+        }
+
+        .options-grid {
+            display: grid;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .option-card {
+            background: white;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            padding: 15px 20px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+        }
+
+        .option-card:hover {
+            border-color: #667eea;
+            background: #f8f9ff;
+        }
+
+        .option-card.selected {
+            border-color: #667eea;
+            background: #667eea;
+            color: white;
+        }
+
+        .option-letter {
+            font-weight: bold;
+            margin-right: 15px;
+            font-size: 1.1em;
+            min-width: 25px;
+        }
+
+        .text-input-area {
+            display: none;
+        }
+
+        .answer-textarea {
+            width: 100%;
+            min-height: 120px;
+            padding: 15px;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            font-size: 14px;
+            resize: vertical;
+            font-family: 'Consolas', 'Monaco', monospace;
+        }
+
+        .answer-textarea:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .progress-bar {
+            background: #e9ecef;
+            border-radius: 10px;
+            height: 8px;
+            margin-bottom: 20px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            height: 100%;
+            transition: width 0.3s ease;
+        }
+
+        .test-info {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .info-item {
+            text-align: center;
+            background: white;
             padding: 15px;
             border-radius: 8px;
-            font-family: 'Courier New', monospace;
-            font-size: 12px;
-            max-height: 300px;
-            overflow-y: auto;
-            white-space: pre-wrap;
-            margin-top: 15px;
+            border: 1px solid #e9ecef;
         }
 
-        .status {
-            padding: 10px;
-            border-radius: 5px;
-            margin-bottom: 15px;
+        .info-value {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #667eea;
+            display: block;
+        }
+
+        .info-label {
+            font-size: 0.9em;
+            color: #6c757d;
+            margin-top: 5px;
+        }
+
+        .results-section {
+            display: none;
+            text-align: center;
+        }
+
+        .score-display {
+            font-size: 3em;
+            font-weight: bold;
+            color: #667eea;
+            margin: 20px 0;
+        }
+
+        .results-details {
+            background: white;
+            border-radius: 10px;
+            padding: 25px;
+            text-align: left;
+            margin-top: 20px;
+        }
+
+        .system-status {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
             font-weight: 600;
+            text-align: center;
         }
 
-        .status.success {
+        .system-status.online {
             background: #d4edda;
             color: #155724;
             border: 1px solid #c3e6cb;
         }
 
-        .status.error {
+        .system-status.offline {
             background: #f8d7da;
             color: #721c24;
             border: 1px solid #f5c6cb;
         }
 
-        .status.info {
-            background: #d1ecf1;
-            color: #0c5460;
-            border: 1px solid #bee5eb;
+        .debug-panel {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 30px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
         }
 
-        .grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
+        .hidden {
+            display: none;
         }
 
         @media (max-width: 768px) {
-            .grid {
+            .container {
+                padding: 20px;
+                margin: 10px;
+            }
+            
+            .test-type-selector {
                 grid-template-columns: 1fr;
+            }
+            
+            .test-info {
+                grid-template-columns: 1fr 1fr;
             }
         }
 
-        .test-flow {
-            background: #e8f5e8;
-            padding: 15px;
-            border-radius: 8px;
-            margin-bottom: 20px;
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
         }
 
-        .question-area {
-            background: #fff3cd;
-            padding: 15px;
-            border-radius: 8px;
-            margin: 15px 0;
-        }
-
-        .options-container {
-            display: none;
-            margin-top: 10px;
-        }
-
-        .option-item {
-            margin: 5px 0;
-            padding: 8px;
-            background: white;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            cursor: pointer;
-        }
-
-        .option-item:hover {
-            background: #f0f0f0;
-        }
-
-        .option-item.selected {
-            background: #667eea;
-            color: white;
-        }
-
-        .endpoint-list {
-            background: #f5f5f5;
-            padding: 10px;
-            border-radius: 5px;
-            font-family: monospace;
-            font-size: 12px;
-            margin: 10px 0;
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
         }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>Weekend Mock Test API - Testing Interface</h1>
-            <p>Testing interface for the Weekend Mock Test sub-application</p>
+            <h1>🎯 Weekend Mock Test</h1>
+            <p>Test your knowledge with AI-powered questions from comprehensive learning materials</p>
             
-            <div class="path-info">
-                <strong>API Base URL:</strong> <span id="api-base-url"></span><br>
-                <strong>Current Location:</strong> <span id="current-location"></span><br>
-                <strong>Sub-app Path:</strong> /weekend_mocktest/
+            <div class="system-info">
+                <div><span class="status-indicator" id="api-status"></span><strong>API Status:</strong> <span id="api-status-text">Checking...</span></div>
+                <div><span class="status-indicator" id="rag-status"></span><strong>RAG System:</strong> <span id="rag-status-text">Checking...</span></div>
             </div>
             
-            <div id="health-status" class="status info">
-                Checking API health...
+            <div id="system-status" class="system-status">
+                <div class="loading"></div>Initializing system...
             </div>
         </div>
 
-        <!-- Available Endpoints -->
-        <div class="api-section">
-            <h3>📋 Available API Endpoints</h3>
-            <div class="endpoint-list">
-                GET /api/health - Health check<br>
-                POST /api/test/start - Start new test<br>
-                POST /api/test/submit - Submit answer<br>
-                GET /api/test/results/{test_id} - Get results<br>
-                GET /api/test/pdf/{test_id} - Download PDF<br>
-                GET /api/tests - Get all tests<br>
-                GET /api/tests/{test_id} - Get specific test<br>
-                DELETE /api/cleanup - Cleanup resources<br>
-                GET /api/debug/status - Debug information
+        <!-- Test Selection -->
+        <div id="test-selection" class="main-section">
+            <div class="section-title">
+                <span class="emoji">📚</span>
+                Choose Your Test Type
+            </div>
+            
+            <div class="test-type-selector">
+                <div class="test-type-card" data-type="dev" onclick="selectTestType('dev')">
+                    <h3>👩‍💻 Developer Test</h3>
+                    <p>Coding challenges, debugging tasks, and technical scenarios. Includes code writing and problem-solving questions.</p>
+                </div>
+                
+                <div class="test-type-card" data-type="non_dev" onclick="selectTestType('non_dev')">
+                    <h3>📖 Conceptual Test</h3>
+                    <p>Multiple-choice questions covering concepts, principles, and theoretical understanding of the material.</p>
+                </div>
+            </div>
+            
+            <button id="start-test-btn" class="btn" onclick="startTest()" disabled>
+                Start Test
+            </button>
+        </div>
+
+        <!-- Test Progress -->
+        <div id="test-progress" class="main-section hidden">
+            <div class="section-title">
+                <span class="emoji">⚡</span>
+                Test in Progress
+            </div>
+            
+            <div class="progress-bar">
+                <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
+            </div>
+            
+            <div class="test-info">
+                <div class="info-item">
+                    <span class="info-value" id="current-question">1</span>
+                    <div class="info-label">Current Question</div>
+                </div>
+                <div class="info-item">
+                    <span class="info-value" id="total-questions">2</span>
+                    <div class="info-label">Total Questions</div>
+                </div>
+                <div class="info-item">
+                    <span class="info-value" id="time-limit">120</span>
+                    <div class="info-label">Time Limit (sec)</div>
+                </div>
+            </div>
+            
+            <div class="question-display" id="question-display">
+                <div class="question-content" id="question-content"></div>
+                
+                <!-- Multiple Choice Options -->
+                <div id="options-container">
+                    <div class="options-grid" id="options-grid"></div>
+                </div>
+                
+                <!-- Text Input for Developer Questions -->
+                <div id="text-input-container" class="text-input-area">
+                    <textarea id="answer-textarea" class="answer-textarea" 
+                              placeholder="Enter your code or answer here..."></textarea>
+                </div>
+                
+                <button id="submit-answer-btn" class="btn" onclick="submitAnswer()">
+                    Submit Answer
+                </button>
             </div>
         </div>
 
-        <!-- Test Flow Section -->
-        <div class="test-flow">
-            <h3>🚀 Quick Test Flow</h3>
-            <p>1. Check API Health → 2. Start Test → 3. Submit Answers → 4. View Results → 5. Download PDF</p>
+        <!-- Test Results -->
+        <div id="test-results" class="main-section results-section hidden">
+            <div class="section-title">
+                <span class="emoji">🎉</span>
+                Test Complete!
+            </div>
+            
+            <div class="score-display" id="score-display">
+                0/2
+            </div>
+            
+            <div class="test-info">
+                <div class="info-item">
+                    <span class="info-value" id="final-score">0</span>
+                    <div class="info-label">Correct Answers</div>
+                </div>
+                <div class="info-item">
+                    <span class="info-value" id="final-percentage">0%</span>
+                    <div class="info-label">Score Percentage</div>
+                </div>
+                <div class="info-item">
+                    <span class="info-value" id="test-type-display">-</span>
+                    <div class="info-label">Test Type</div>
+                </div>
+            </div>
+            
+            <div class="results-details" id="results-details">
+                <h4>📊 Detailed Results</h4>
+                <div id="analytics-content"></div>
+            </div>
+            
+            <button class="btn success" onclick="downloadPDF()">
+                📄 Download PDF Report
+            </button>
+            
+            <button class="btn secondary" onclick="startNewTest()">
+                🔄 Take Another Test
+            </button>
         </div>
 
-        <div class="grid">
-            <!-- Left Column -->
-            <div>
-                <!-- Health Check -->
-                <div class="api-section">
-                    <h3>1. Health Check</h3>
-                    <button class="btn" onclick="checkHealth()">Check API Health</button>
-                    <button class="btn" onclick="debugStatus()">Debug Status</button>
-                    <div id="health-response" class="response-area" style="display: none;"></div>
-                </div>
-
-                <!-- Start Test -->
-                <div class="api-section">
-                    <h3>2. Start Test</h3>
-                    <div class="form-group">
-                        <label>User Type:</label>
-                        <select id="userType">
-                            <option value="dev">Developer</option>
-                            <option value="non_dev">Non-Developer</option>
-                        </select>
-                    </div>
-                    <button class="btn" onclick="startTest()">Start Test</button>
-                    <div id="start-response" class="response-area" style="display: none;"></div>
-                </div>
-
-                <!-- Current Question Display -->
-                <div class="question-area" id="question-area" style="display: none;">
-                    <h4>Current Question:</h4>
-                    <div id="question-content"></div>
-                    <div id="options-container" class="options-container">
-                        <h5>Select an option:</h5>
-                        <div id="options-list"></div>
-                    </div>
-                    <div id="text-answer-container" style="display: none;">
-                        <label>Your Answer:</label>
-                        <textarea id="text-answer" rows="4" placeholder="Enter your answer here..."></textarea>
-                    </div>
-                    <button class="btn" onclick="submitCurrentAnswer()">Submit Answer</button>
-                </div>
-            </div>
-
-            <!-- Right Column -->
-            <div>
-                <!-- Submit Answer -->
-                <div class="api-section">
-                    <h3>3. Submit Answer (Manual)</h3>
-                    <div class="form-group">
-                        <label>Test ID:</label>
-                        <input type="text" id="testId" placeholder="Enter test ID">
-                    </div>
-                    <div class="form-group">
-                        <label>Question Number:</label>
-                        <input type="number" id="questionNumber" value="1" min="1">
-                    </div>
-                    <div class="form-group">
-                        <label>Answer:</label>
-                        <textarea id="answer" rows="3" placeholder="Enter answer or option index (0-3 for MCQ)"></textarea>
-                    </div>
-                    <button class="btn" onclick="submitAnswer()">Submit Answer</button>
-                    <div id="submit-response" class="response-area" style="display: none;"></div>
-                </div>
-
-                <!-- Get Results -->
-                <div class="api-section">
-                    <h3>4. Get Results</h3>
-                    <div class="form-group">
-                        <label>Test ID:</label>
-                        <input type="text" id="resultsTestId" placeholder="Enter test ID">
-                    </div>
-                    <button class="btn" onclick="getResults()">Get Results</button>
-                    <button class="btn" onclick="downloadPDF()">Download PDF</button>
-                    <div id="results-response" class="response-area" style="display: none;"></div>
-                </div>
-
-                <!-- Get All Tests -->
-                <div class="api-section">
-                    <h3>5. Get All Tests</h3>
-                    <button class="btn" onclick="getAllTests()">Get All Tests</button>
-                    <button class="btn danger" onclick="cleanup()">Cleanup Resources</button>
-                    <div id="all-tests-response" class="response-area" style="display: none;"></div>
-                </div>
-            </div>
+        <!-- Debug Panel (Hidden by default) -->
+        <div id="debug-panel" class="debug-panel hidden">
+            <strong>Debug Information:</strong>
+            <div id="debug-content"></div>
         </div>
     </div>
 
     <script>
-        // Configuration - Automatically detect correct API base
-        function getApiBase() {
-            const currentPath = window.location.pathname;
-            const origin = window.location.origin;
-            
-            // Check if we're in the sub-app context
-            if (currentPath.startsWith('/weekend_mocktest')) {
-                return origin + '/weekend_mocktest/api';
-            } else {
-                // Fallback - assume we're testing directly
-                return origin + '/weekend_mocktest/api';
-            }
-        }
-        
-        const API_BASE = getApiBase();
-        
-        // Display current configuration
-        document.getElementById('api-base-url').textContent = API_BASE;
-        document.getElementById('current-location').textContent = window.location.href;
-        
-        // Global variables for test flow
+        // Global variables
+        let selectedTestType = null;
         let currentTestId = null;
         let currentQuestionNumber = 1;
-        let currentUserType = null;
+        let totalQuestions = 2;
         let selectedOption = null;
-
-        // Utility functions
-        function showResponse(elementId, data, isError = false) {
-            const element = document.getElementById(elementId);
-            element.style.display = 'block';
-            element.textContent = JSON.stringify(data, null, 2);
-            element.style.background = isError ? '#e74c3c' : '#2c3e50';
-        }
-
-        function updateStatus(message, type = 'info') {
-            const statusEl = document.getElementById('health-status');
-            statusEl.textContent = message;
-            statusEl.className = `status ${type}`;
-        }
-
-        function makeRequest(url, options = {}) {
-            const fullUrl = API_BASE + url;
-            console.log('Making request to:', fullUrl);
-            
-            return fetch(fullUrl, {
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...options.headers
-                },
-                ...options
-            });
-        }
-
-        // API Functions
-        async function checkHealth() {
+        
+        // API configuration
+        const API_BASE = window.location.origin + '/weekend_mocktest/api';
+        
+        // Initialize the application
+        window.onload = function() {
+            checkSystemHealth();
+        };
+        
+        async function checkSystemHealth() {
             try {
-                const response = await makeRequest('/health');
+                const response = await fetch(`${API_BASE}/health`);
                 const data = await response.json();
                 
                 if (response.ok) {
-                    updateStatus('API is healthy ✅', 'success');
-                    showResponse('health-response', data);
+                    updateSystemStatus('online', 'System Ready', data.rag_enabled);
+                    enableTestSelection();
                 } else {
-                    updateStatus('API health check failed ❌', 'error');
-                    showResponse('health-response', data, true);
+                    updateSystemStatus('offline', 'System Error');
                 }
             } catch (error) {
-                updateStatus('API connection failed ❌', 'error');
-                showResponse('health-response', { 
-                    error: error.message,
-                    attempted_url: API_BASE + '/health'
-                }, true);
+                updateSystemStatus('offline', 'Connection Failed');
+                console.error('Health check failed:', error);
             }
         }
-
-        async function debugStatus() {
-            try {
-                const response = await makeRequest('/debug/status');
-                const data = await response.json();
-                showResponse('health-response', data, !response.ok);
-            } catch (error) {
-                showResponse('health-response', { 
-                    error: error.message,
-                    attempted_url: API_BASE + '/debug/status'
-                }, true);
-            }
-        }
-
-        async function startTest() {
-            try {
-                const userType = document.getElementById('userType').value;
-                currentUserType = userType;
+        
+        function updateSystemStatus(status, message, ragEnabled = false) {
+            const statusEl = document.getElementById('system-status');
+            const apiStatusEl = document.getElementById('api-status');
+            const apiStatusTextEl = document.getElementById('api-status-text');
+            const ragStatusEl = document.getElementById('rag-status');
+            const ragStatusTextEl = document.getElementById('rag-status-text');
+            
+            if (status === 'online') {
+                statusEl.className = 'system-status online';
+                statusEl.innerHTML = '✅ ' + message;
+                apiStatusEl.className = 'status-indicator status-online';
+                apiStatusTextEl.textContent = 'Connected';
                 
-                const response = await makeRequest('/test/start', {
+                if (ragEnabled) {
+                    ragStatusEl.className = 'status-indicator status-online';
+                    ragStatusTextEl.textContent = 'Active (Using all summaries)';
+                } else {
+                    ragStatusEl.className = 'status-indicator status-warning';
+                    ragStatusTextEl.textContent = 'Fallback mode (Latest summary only)';
+                }
+            } else {
+                statusEl.className = 'system-status offline';
+                statusEl.innerHTML = '❌ ' + message;
+                apiStatusEl.className = 'status-indicator status-offline';
+                apiStatusTextEl.textContent = 'Disconnected';
+                ragStatusEl.className = 'status-indicator status-offline';
+                ragStatusTextEl.textContent = 'Unavailable';
+            }
+        }
+        
+        function enableTestSelection() {
+            document.getElementById('test-selection').style.display = 'block';
+        }
+        
+        function selectTestType(type) {
+            selectedTestType = type;
+            
+            // Update UI
+            document.querySelectorAll('.test-type-card').forEach(card => {
+                card.classList.remove('selected');
+            });
+            document.querySelector(`[data-type="${type}"]`).classList.add('selected');
+            
+            // Enable start button
+            document.getElementById('start-test-btn').disabled = false;
+        }
+        
+        async function startTest() {
+            if (!selectedTestType) {
+                alert('Please select a test type first.');
+                return;
+            }
+            
+            const startBtn = document.getElementById('start-test-btn');
+            startBtn.innerHTML = '<div class="loading"></div>Starting Test...';
+            startBtn.disabled = true;
+            
+            try {
+                const response = await fetch(`${API_BASE}/test/start`, {
                     method: 'POST',
-                    body: JSON.stringify({ user_type: userType })
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ user_type: selectedTestType })
                 });
                 
                 const data = await response.json();
@@ -428,225 +620,277 @@
                 if (response.ok) {
                     currentTestId = data.test_id;
                     currentQuestionNumber = data.question_number;
+                    totalQuestions = data.total_questions;
                     
-                    // Auto-fill test ID in other sections
-                    document.getElementById('testId').value = currentTestId;
-                    document.getElementById('resultsTestId').value = currentTestId;
-                    document.getElementById('questionNumber').value = currentQuestionNumber;
+                    // Update UI
+                    document.getElementById('test-selection').classList.add('hidden');
+                    document.getElementById('test-progress').classList.remove('hidden');
                     
-                    // Display question
                     displayQuestion(data);
-                    
-                    updateStatus(`Test started successfully! ID: ${currentTestId.substring(0, 8)}...`, 'success');
-                    showResponse('start-response', data);
+                    updateProgress();
                 } else {
-                    updateStatus('Failed to start test ❌', 'error');
-                    showResponse('start-response', data, true);
+                    alert('Failed to start test: ' + (data.detail || 'Unknown error'));
+                    startBtn.innerHTML = 'Start Test';
+                    startBtn.disabled = false;
                 }
             } catch (error) {
-                updateStatus('Test start failed ❌', 'error');
-                showResponse('start-response', { error: error.message }, true);
+                alert('Network error: ' + error.message);
+                startBtn.innerHTML = 'Start Test';
+                startBtn.disabled = false;
             }
         }
-
+        
         function displayQuestion(questionData) {
-            const questionArea = document.getElementById('question-area');
+            console.log('Displaying question:', questionData);
+            
+            const questionDisplay = document.getElementById('question-display');
             const questionContent = document.getElementById('question-content');
             const optionsContainer = document.getElementById('options-container');
-            const textAnswerContainer = document.getElementById('text-answer-container');
+            const textInputContainer = document.getElementById('text-input-container');
             
-            questionArea.style.display = 'block';
+            questionDisplay.style.display = 'block';
             questionContent.innerHTML = questionData.question_html;
             
-            if (questionData.options) {
+            // Update question info
+            document.getElementById('current-question').textContent = questionData.question_number;
+            document.getElementById('total-questions').textContent = questionData.total_questions;
+            document.getElementById('time-limit').textContent = questionData.time_limit;
+            
+            // Reset selections
+            selectedOption = null;
+            
+            if (questionData.options && questionData.options.length > 0) {
                 // Multiple choice question
                 optionsContainer.style.display = 'block';
-                textAnswerContainer.style.display = 'none';
+                textInputContainer.style.display = 'none';
                 
-                const optionsList = document.getElementById('options-list');
-                optionsList.innerHTML = '';
+                const optionsGrid = document.getElementById('options-grid');
+                optionsGrid.innerHTML = '';
                 
                 questionData.options.forEach((option, index) => {
-                    const optionDiv = document.createElement('div');
-                    optionDiv.className = 'option-item';
-                    optionDiv.textContent = `${String.fromCharCode(65 + index)}) ${option}`;
-                    optionDiv.onclick = () => selectOption(index, optionDiv);
-                    optionsList.appendChild(optionDiv);
+                    const optionCard = document.createElement('div');
+                    optionCard.className = 'option-card';
+                    optionCard.onclick = () => selectOption(index, optionCard);
+                    
+                    optionCard.innerHTML = `
+                        <span class="option-letter">${String.fromCharCode(65 + index)}</span>
+                        <span>${option}</span>
+                    `;
+                    
+                    optionsGrid.appendChild(optionCard);
                 });
             } else {
-                // Text answer question
+                // Text input question
                 optionsContainer.style.display = 'none';
-                textAnswerContainer.style.display = 'block';
+                textInputContainer.style.display = 'block';
+                document.getElementById('answer-textarea').value = '';
             }
+            
+            // Reset submit button
+            const submitBtn = document.getElementById('submit-answer-btn');
+            submitBtn.innerHTML = 'Submit Answer';
+            submitBtn.disabled = false;
+            
+            console.log('Question displayed');
         }
-
+        
         function selectOption(index, element) {
             // Remove previous selection
-            document.querySelectorAll('.option-item').forEach(el => el.classList.remove('selected'));
+            document.querySelectorAll('.option-card').forEach(card => {
+                card.classList.remove('selected');
+            });
+            
             // Add selection to current
             element.classList.add('selected');
             selectedOption = index;
         }
-
-        async function submitCurrentAnswer() {
-            if (!currentTestId) {
-                alert('No active test. Please start a test first.');
-                return;
-            }
-
+        
+        async function submitAnswer() {
             let answer;
+            
             if (selectedOption !== null) {
                 answer = selectedOption.toString();
             } else {
-                answer = document.getElementById('text-answer').value.trim();
+                answer = document.getElementById('answer-textarea').value.trim();
             }
-
+            
             if (!answer) {
-                alert('Please provide an answer.');
+                alert('Please provide an answer before submitting.');
                 return;
             }
-
+            
+            const submitBtn = document.getElementById('submit-answer-btn');
+            submitBtn.innerHTML = '<div class="loading"></div>Submitting...';
+            submitBtn.disabled = true;
+            
             try {
-                const response = await makeRequest('/test/submit', {
+                const response = await fetch(`${API_BASE}/test/submit`, {
                     method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
                     body: JSON.stringify({
                         test_id: currentTestId,
                         question_number: currentQuestionNumber,
                         answer: answer
                     })
                 });
-
+                
                 const data = await response.json();
-
+                console.log('Submit response:', data);
+                
                 if (response.ok) {
+                    // Check if test is completed
                     if (data.test_completed) {
-                        // Test completed
-                        document.getElementById('question-area').style.display = 'none';
-                        updateStatus(`Test completed! Score: ${data.score}/${data.total_questions}`, 'success');
-                        showResponse('submit-response', data);
-                    } else if (data.next_question) {
-                        // Next question
-                        currentQuestionNumber = data.next_question.question_number;
-                        document.getElementById('questionNumber').value = currentQuestionNumber;
-                        displayQuestion(data.next_question);
-                        selectedOption = null; // Reset selection
-                        document.getElementById('text-answer').value = ''; // Reset text answer
-                        updateStatus(`Answer submitted. Next question loaded.`, 'info');
-                        showResponse('submit-response', data);
+                        console.log('Test completed - showing results');
+                        showResults(data);
+                        return; // Exit here - no more questions
                     }
+                    
+                    // Continue to next question
+                    if (data.next_question) {
+                        console.log('Next question available');
+                        currentQuestionNumber = data.next_question.question_number;
+                        displayQuestion(data.next_question);
+                        updateProgress();
+                        return; // Exit here - next question loaded
+                    }
+                    
+                    // If we get here, something is wrong
+                    console.error('Unexpected response - no test_completed or next_question');
+                    alert('Unexpected response from server');
+                    
                 } else {
-                    updateStatus('Failed to submit answer ❌', 'error');
-                    showResponse('submit-response', data, true);
+                    console.error('Submit failed:', data);
+                    alert('Failed to submit answer: ' + (data.detail || 'Unknown error'));
                 }
+                
             } catch (error) {
-                updateStatus('Answer submission failed ❌', 'error');
-                showResponse('submit-response', { error: error.message }, true);
+                console.error('Network error:', error);
+                alert('Network error: ' + error.message);
             }
+            
+            // Reset button (only if we didn't exit above)
+            submitBtn.innerHTML = 'Submit Answer';
+            submitBtn.disabled = false;
         }
-
-        async function submitAnswer() {
-            try {
-                const testId = document.getElementById('testId').value;
-                const questionNumber = parseInt(document.getElementById('questionNumber').value);
-                const answer = document.getElementById('answer').value;
-
-                if (!testId || !answer) {
-                    alert('Please fill in all fields.');
-                    return;
-                }
-
-                const response = await makeRequest('/test/submit', {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        test_id: testId,
-                        question_number: questionNumber,
-                        answer: answer
-                    })
-                });
-
-                const data = await response.json();
-                showResponse('submit-response', data, !response.ok);
-            } catch (error) {
-                showResponse('submit-response', { error: error.message }, true);
+        
+        function updateProgress() {
+            const progress = (currentQuestionNumber / totalQuestions) * 100;
+            document.getElementById('progress-fill').style.width = progress + '%';
+        }
+        
+        function showResults(data) {
+            console.log('Showing results:', data);
+            
+            // Hide test progress immediately
+            document.getElementById('test-progress').style.display = 'none';
+            
+            // Show results section
+            const resultsSection = document.getElementById('test-results');
+            resultsSection.style.display = 'block';
+            resultsSection.classList.remove('hidden');
+            
+            const score = data.score || 0;
+            const total = data.total_questions || 3;
+            const percentage = Math.round((score / total) * 100);
+            
+            // Update score display
+            document.getElementById('score-display').textContent = `${score}/${total}`;
+            document.getElementById('final-score').textContent = score;
+            document.getElementById('final-percentage').textContent = percentage + '%';
+            document.getElementById('test-type-display').textContent = 
+                selectedTestType === 'dev' ? 'Developer' : 'Conceptual';
+            
+            // Display analytics
+            const analyticsContent = document.getElementById('analytics-content');
+            if (data.analytics) {
+                // Simple formatting - convert markdown-style to HTML
+                let formattedAnalytics = data.analytics
+                    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') // Bold
+                    .replace(/### (.*)/g, '<h4>$1</h4>') // Headers
+                    .replace(/## (.*)/g, '<h3>$1</h3>') // Main headers
+                    .replace(/\n\n/g, '</p><p>') // Paragraphs
+                    .replace(/\n/g, '<br>'); // Line breaks
+                
+                analyticsContent.innerHTML = `<div>${formattedAnalytics}</div>`;
+            } else {
+                analyticsContent.innerHTML = '<p>Evaluation completed successfully. Detailed analysis is being processed.</p>';
             }
+            
+            console.log('Results displayed successfully');
         }
-
-        async function getResults() {
-            try {
-                const testId = document.getElementById('resultsTestId').value;
-                if (!testId) {
-                    alert('Please enter a test ID.');
-                    return;
-                }
-
-                const response = await makeRequest(`/test/results/${testId}`);
-                const data = await response.json();
-                showResponse('results-response', data, !response.ok);
-            } catch (error) {
-                showResponse('results-response', { error: error.message }, true);
-            }
-        }
-
+        
         async function downloadPDF() {
+            if (!currentTestId) {
+                alert('No test results available for download.');
+                return;
+            }
+            
             try {
-                const testId = document.getElementById('resultsTestId').value;
-                if (!testId) {
-                    alert('Please enter a test ID.');
-                    return;
-                }
-
-                const response = await makeRequest(`/test/pdf/${testId}`);
+                const response = await fetch(`${API_BASE}/test/pdf/${currentTestId}`);
                 
                 if (response.ok) {
                     const blob = await response.blob();
                     const url = window.URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.href = url;
-                    a.download = `mock_test_results_${testId}.pdf`;
+                    a.download = `mock_test_results_${currentTestId}.pdf`;
                     document.body.appendChild(a);
                     a.click();
                     window.URL.revokeObjectURL(url);
                     document.body.removeChild(a);
-                    
-                    updateStatus('PDF downloaded successfully ✅', 'success');
                 } else {
-                    const data = await response.json();
-                    showResponse('results-response', data, true);
+                    alert('Failed to download PDF. Please try again.');
                 }
             } catch (error) {
-                showResponse('results-response', { error: error.message }, true);
+                alert('Error downloading PDF: ' + error.message);
             }
         }
-
-        async function getAllTests() {
-            try {
-                const response = await makeRequest('/tests');
-                const data = await response.json();
-                showResponse('all-tests-response', data, !response.ok);
-            } catch (error) {
-                showResponse('all-tests-response', { error: error.message }, true);
-            }
+        
+        function startNewTest() {
+            // Reset variables
+            selectedTestType = null;
+            currentTestId = null;
+            currentQuestionNumber = 1;
+            selectedOption = null;
+            
+            // Reset UI
+            document.getElementById('test-results').classList.add('hidden');
+            document.getElementById('test-selection').classList.remove('hidden');
+            document.getElementById('start-test-btn').disabled = true;
+            document.getElementById('start-test-btn').innerHTML = 'Start Test';
+            
+            // Clear selections
+            document.querySelectorAll('.test-type-card').forEach(card => {
+                card.classList.remove('selected');
+            });
         }
-
-        async function cleanup() {
-            try {
-                const response = await makeRequest('/cleanup', { method: 'DELETE' });
-                const data = await response.json();
-                showResponse('all-tests-response', data, !response.ok);
+        
+        // Toggle debug panel and enable console logging
+        document.addEventListener('keydown', function(e) {
+            if (e.ctrlKey && e.shiftKey && e.key === 'D') {
+                const debugPanel = document.getElementById('debug-panel');
+                debugPanel.classList.toggle('hidden');
                 
-                if (response.ok) {
-                    updateStatus('Resources cleaned up ✅', 'success');
+                if (!debugPanel.classList.contains('hidden')) {
+                    updateDebugInfo();
                 }
+            }
+        });
+        
+        async function updateDebugInfo() {
+            try {
+                const response = await fetch(`${API_BASE}/debug/status`);
+                const data = await response.json();
+                document.getElementById('debug-content').textContent = JSON.stringify(data, null, 2);
             } catch (error) {
-                showResponse('all-tests-response', { error: error.message }, true);
+                document.getElementById('debug-content').textContent = 'Debug info unavailable: ' + error.message;
             }
         }
-
-        // Initialize page
-        window.onload = function() {
-            console.log('Initializing with API base:', API_BASE);
-            checkHealth();
-        };
+        
+        // Enable console logging for debugging
+        console.log('Mock Test Interface loaded with API base:', API_BASE);
     </script>
 </body>
 </html>
