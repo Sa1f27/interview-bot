@@ -1,4 +1,4 @@
-# weekend_mocktest/main.py - Complete Optimized Version with Batch LLM Evaluation
+# weekend_mocktest/main.py - Pure RAG-Based System with Strict Error Handling
 import logging
 import os
 import time
@@ -31,6 +31,7 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain.schema import Document
 from urllib.parse import quote_plus
+
 # ——— Configuration ———
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -52,11 +53,20 @@ CONNECTION_STRING = (
     f"PWD={DB_CONFIG['PWD']}"
 )
 
-# ——— Optimized Database Manager ———
-class DatabaseManager:
+# MongoDB credentials
+MONGO_USER = "LanTech"
+MONGO_PASS = "L@nc^ere@0012"
+MONGO_HOST = "192.168.48.201:27017"
+MONGO_DB_NAME = "Api-1"
+MONGO_AUTH_SOURCE = "admin"
+
+# ——— Pure RAG Database Manager (No Fallbacks) ———
+class PureRAGDatabaseManager:
     def __init__(self, connection_string, db_name):
+        logger.info("🚀 Initializing Pure RAG Database Manager")
+        
+        # MongoDB connection - fail fast if unavailable
         try:
-            # Optimized MongoDB connection
             self.client = pymongo.MongoClient(
                 connection_string,
                 serverSelectionTimeoutMS=5000,
@@ -65,6 +75,10 @@ class DatabaseManager:
                 maxIdleTimeMS=30000,
                 waitQueueTimeoutMS=5000
             )
+            
+            # Test connection immediately
+            self.client.server_info()
+            
             self.db = self.client[db_name]
             self.transcripts_collection = self.db["original-1"]
             self.test_results_collection = self.db["mock_test_results"]
@@ -73,75 +87,98 @@ class DatabaseManager:
             try:
                 self.test_results_collection.create_index("test_id")
                 self.test_results_collection.create_index("timestamp")
-                logger.info("Database indexes created")
-            except:
-                pass
+                logger.info("✅ Database indexes created")
+            except Exception as idx_error:
+                logger.warning(f"⚠️ Index creation failed: {idx_error}")
             
-            # RAG initialization
-            self.vector_store = None
-            self.embeddings = None
-            self.rag_enabled = False
-            self._init_rag_optimized()
+            logger.info("✅ MongoDB connection established")
             
-            logger.info("Optimized MongoDB connection established")
         except Exception as e:
-            logger.error(f"MongoDB connection failed: {e}")
-            self.client = None
+            logger.error(f"❌ MongoDB connection failed: {e}")
+            raise Exception(f"MongoDB connection failure: {e}")
+        
+        # RAG initialization - mandatory for operation
+        self.vector_store = None
+        self.embeddings = None
+        self.rag_enabled = False
+        
+        try:
+            self._init_rag_strict()
+            if not self.rag_enabled:
+                raise Exception("RAG system failed to initialize")
+            logger.info("✅ Pure RAG system initialized successfully")
+        except Exception as e:
+            logger.error(f"❌ RAG initialization failed: {e}")
+            raise Exception(f"RAG system initialization failure: {e}")
     
-    def _init_rag_optimized(self):
-        """Optimized RAG initialization with caching"""
+    def _init_rag_strict(self):
+        """Strict RAG initialization - fail if unable to build proper system"""
         try:
             vector_path = BASE_DIR / "vector_store"
             cache_file = vector_path / "cache.txt"
             
-            # Use cache if recent (< 12 hours)
+            # Load from cache if recent and valid
             if (cache_file.exists() and 
                 (time.time() - cache_file.stat().st_mtime) < 43200):
                 
-                self.embeddings = HuggingFaceEmbeddings(
-                    model_name="sentence-transformers/all-MiniLM-L6-v2",
-                    model_kwargs={'device': 'cpu'},
-                    encode_kwargs={'batch_size': 16}
-                )
-                
-                self.vector_store = FAISS.load_local(
-                    str(vector_path), 
-                    self.embeddings,
-                    allow_dangerous_deserialization=True
-                )
-                
-                self.rag_enabled = True
-                logger.info("✅ RAG loaded from cache")
-                return
+                try:
+                    self.embeddings = HuggingFaceEmbeddings(
+                        model_name="sentence-transformers/all-MiniLM-L6-v2",
+                        model_kwargs={'device': 'cpu'},
+                        encode_kwargs={'batch_size': 16}
+                    )
+                    
+                    self.vector_store = FAISS.load_local(
+                        str(vector_path), 
+                        self.embeddings,
+                        allow_dangerous_deserialization=True
+                    )
+                    
+                    # Validate vector store has content
+                    if self.vector_store.index.ntotal == 0:
+                        raise Exception("Vector store is empty")
+                    
+                    self.rag_enabled = True
+                    logger.info(f"✅ RAG loaded from cache with {self.vector_store.index.ntotal} vectors")
+                    return
+                    
+                except Exception as cache_error:
+                    logger.warning(f"⚠️ Cache load failed: {cache_error}, rebuilding...")
             
-            # Build fresh
-            self._build_rag_optimized()
+            # Build fresh RAG system
+            self._build_rag_strict()
             
         except Exception as e:
-            logger.error(f"RAG initialization failed: {e}")
+            logger.error(f"❌ RAG initialization failed: {e}")
             self.rag_enabled = False
+            raise Exception(f"RAG system cannot be initialized: {e}")
     
-    def _build_rag_optimized(self):
-        """Build RAG with performance optimizations"""
+    def _build_rag_strict(self):
+        """Build RAG system with strict validation - fail if insufficient data"""
         try:
+            logger.info("🔨 Building RAG system from scratch")
+            
             self.embeddings = HuggingFaceEmbeddings(
                 model_name="sentence-transformers/all-MiniLM-L6-v2",
                 model_kwargs={'device': 'cpu'},
                 encode_kwargs={'batch_size': 32, 'normalize_embeddings': True}
             )
             
-            # Get summaries efficiently
+            # Get summaries with strict validation
             cursor = self.transcripts_collection.find(
                 {"summary": {"$exists": True, "$ne": ""}},
                 {"summary": 1, "timestamp": 1, "date": 1, "session_id": 1}
-            ).limit(50)
+            ).limit(100)
             
             summaries = list(cursor)
-            if not summaries:
-                logger.warning("No summaries found for RAG")
-                return
             
-            # Create documents efficiently
+            if not summaries:
+                raise Exception("No summaries found in database for RAG construction")
+            
+            if len(summaries) < 5:
+                raise Exception(f"Insufficient summaries for quality RAG: found {len(summaries)}, need at least 5")
+            
+            # Create documents with quality validation
             documents = []
             text_splitter = RecursiveCharacterTextSplitter(
                 chunk_size=384,
@@ -149,117 +186,195 @@ class DatabaseManager:
                 separators=["\n\n", "\n", ". "]
             )
             
+            total_content_length = 0
+            
             for doc in summaries:
-                summary_text = doc.get("summary", "")
-                if len(summary_text) > 200:
-                    chunks = text_splitter.split_text(summary_text)
-                    
-                    for chunk in chunks[:3]:
+                summary_text = doc.get("summary", "").strip()
+                
+                if len(summary_text) < 100:  # Skip very short summaries
+                    continue
+                
+                chunks = text_splitter.split_text(summary_text)
+                
+                for chunk in chunks[:5]:  # Limit chunks per document
+                    if len(chunk.strip()) > 50:  # Quality threshold
                         documents.append(Document(
-                            page_content=chunk,
+                            page_content=chunk.strip(),
                             metadata={
                                 "source_id": str(doc["_id"]),
-                                "date": str(doc.get("date", "unknown"))
+                                "date": str(doc.get("date", "unknown")),
+                                "session_id": str(doc.get("session_id", "unknown"))
                             }
                         ))
+                        total_content_length += len(chunk)
             
-            if documents:
-                self.vector_store = FAISS.from_documents(documents, self.embeddings)
-                
-                vector_path = BASE_DIR / "vector_store"
-                vector_path.mkdir(exist_ok=True)
-                self.vector_store.save_local(str(vector_path))
-                
-                with open(vector_path / "cache.txt", "w") as f:
-                    f.write(f"Optimized build: {time.time()}")
-                
-                self.rag_enabled = True
-                logger.info(f"✅ RAG built: {len(documents)} chunks")
+            if not documents:
+                raise Exception("No valid documents created from summaries")
+            
+            if len(documents) < 10:
+                raise Exception(f"Insufficient quality chunks: created {len(documents)}, need at least 10")
+            
+            if total_content_length < 5000:
+                raise Exception(f"Insufficient content for quality RAG: {total_content_length} chars, need at least 5000")
+            
+            # Build vector store
+            self.vector_store = FAISS.from_documents(documents, self.embeddings)
+            
+            # Validate vector store
+            if self.vector_store.index.ntotal == 0:
+                raise Exception("Vector store creation failed - no vectors generated")
+            
+            # Save to cache
+            vector_path = BASE_DIR / "vector_store"
+            vector_path.mkdir(exist_ok=True)
+            self.vector_store.save_local(str(vector_path))
+            
+            with open(vector_path / "cache.txt", "w") as f:
+                f.write(f"Quality build: {time.time()}, vectors: {self.vector_store.index.ntotal}")
+            
+            self.rag_enabled = True
+            logger.info(f"✅ RAG built successfully: {len(documents)} chunks, {self.vector_store.index.ntotal} vectors")
             
         except Exception as e:
-            logger.error(f"RAG build failed: {e}")
+            logger.error(f"❌ RAG build failed: {e}")
             self.rag_enabled = False
+            raise Exception(f"RAG construction failed: {e}")
     
-    def load_transcript(self):
-        """Optimized transcript loading"""
-        if self.rag_enabled and self.vector_store:
-            try:
-                docs = self.vector_store.similarity_search(
-                    "programming development concepts algorithms", 
-                    k=3
-                )
-                
-                context_parts = [doc.page_content for doc in docs]
-                combined_context = "\n\n".join(context_parts)
-                
-                logger.info(f"RAG context retrieved: {len(combined_context)} chars")
-                return combined_context
-                
-            except Exception as e:
-                logger.error(f"RAG retrieval failed: {e}")
-        
-        # Fallback
-        if not self.client:
-            return "Programming and software development concepts"
+    def load_transcript_strict(self, query_context: str = "programming development concepts algorithms"):
+        """Pure RAG-based transcript loading - no fallbacks"""
+        if not self.rag_enabled or not self.vector_store:
+            raise Exception("RAG system not available - cannot generate authentic content")
         
         try:
-            doc = self.transcripts_collection.find_one(
-                {}, 
-                sort=[("_id", -1)], 
-                projection={"summary": 1}
-            )
-            return doc["summary"] if doc and "summary" in doc else "Programming concepts"
-        except:
-            return "General programming concepts"
+            # Retrieve relevant documents
+            docs = self.vector_store.similarity_search(query_context, k=5)
+            
+            if not docs:
+                raise Exception("No relevant content found in RAG vector store")
+            
+            # Combine and validate context
+            context_parts = []
+            for doc in docs:
+                content = doc.page_content.strip()
+                if len(content) > 30:  # Quality threshold
+                    context_parts.append(content)
+            
+            if not context_parts:
+                raise Exception("No quality content retrieved from RAG")
+            
+            combined_context = "\n\n".join(context_parts)
+            
+            if len(combined_context) < 200:
+                raise Exception(f"Insufficient context retrieved: {len(combined_context)} chars, need at least 200")
+            
+            logger.info(f"✅ RAG context retrieved: {len(combined_context)} chars from {len(context_parts)} chunks")
+            return combined_context
+            
+        except Exception as e:
+            logger.error(f"❌ RAG retrieval failed: {e}")
+            raise Exception(f"RAG content retrieval failed: {e}")
     
     def get_rag_stats(self):
-        """Get RAG statistics"""
+        """Get comprehensive RAG statistics"""
         if self.rag_enabled and self.vector_store:
             try:
                 total_vectors = self.vector_store.index.ntotal
                 return {
-                    "status": "initialized",
+                    "status": "active",
                     "total_vectors": total_vectors,
-                    "embedding_model": "sentence-transformers/all-MiniLM-L6-v2"
+                    "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+                    "quality_threshold": "strict",
+                    "min_content_length": 200,
+                    "vector_store_path": str(BASE_DIR / "vector_store")
                 }
-            except:
-                return {"status": "error"}
+            except Exception as e:
+                return {"status": "error", "error": str(e)}
         else:
             return {"status": "not_initialized"}
+    
+    def validate_system_health(self):
+        """Comprehensive system health validation"""
+        health_status = {
+            "mongodb": False,
+            "rag_system": False,
+            "vector_store": False,
+            "content_quality": False,
+            "overall": False
+        }
+        
+        try:
+            # Test MongoDB
+            self.client.server_info()
+            health_status["mongodb"] = True
+            
+            # Test RAG system
+            if self.rag_enabled and self.vector_store:
+                health_status["rag_system"] = True
+                
+                # Test vector store
+                if self.vector_store.index.ntotal > 0:
+                    health_status["vector_store"] = True
+                    
+                    # Test content quality
+                    test_docs = self.vector_store.similarity_search("test", k=1)
+                    if test_docs and len(test_docs[0].page_content) > 50:
+                        health_status["content_quality"] = True
+            
+            health_status["overall"] = all([
+                health_status["mongodb"],
+                health_status["rag_system"], 
+                health_status["vector_store"],
+                health_status["content_quality"]
+            ])
+            
+        except Exception as e:
+            logger.error(f"Health validation failed: {e}")
+        
+        return health_status
     
     def close(self):
         if hasattr(self, 'client') and self.client:
             self.client.close()
 
-# MongoDB credentials
-MONGO_USER = "LanTech"
-MONGO_PASS = "L@nc^ere@0012"
-MONGO_HOST = "192.168.48.201:27017"
-MONGO_DB_NAME = "Api-1"
-MONGO_AUTH_SOURCE = "admin"
+# Initialize database manager with strict validation
+try:
+    db_manager = PureRAGDatabaseManager(
+        f"mongodb://{quote_plus(MONGO_USER)}:{quote_plus(MONGO_PASS)}@{MONGO_HOST}/{MONGO_DB_NAME}?authSource={MONGO_AUTH_SOURCE}",
+        MONGO_DB_NAME
+    )
+    logger.info("✅ Pure RAG Database Manager initialized successfully")
+except Exception as e:
+    logger.error(f"❌ Database Manager initialization failed: {e}")
+    db_manager = None
 
-db_manager = DatabaseManager(
-    f"mongodb://{quote_plus(MONGO_USER)}:{quote_plus(MONGO_PASS)}@{MONGO_HOST}/{MONGO_DB_NAME}?authSource={MONGO_AUTH_SOURCE}",
-    MONGO_DB_NAME
-)
-
-# Optimized Groq client
+# Initialize Groq client with strict validation
 try:
     groq_client = Groq(timeout=30)
-    logger.info("Optimized Groq client initialized")
+    
+    # Test Groq connection
+    test_completion = groq_client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[{"role": "user", "content": "test"}],
+        max_completion_tokens=10
+    )
+    
+    if not test_completion.choices:
+        raise Exception("Groq test call failed")
+    
+    logger.info("✅ Groq client initialized and tested successfully")
 except Exception as e:
-    logger.error(f"Groq client initialization failed: {e}")
+    logger.error(f"❌ Groq client initialization failed: {e}")
     groq_client = None
 
 # In-memory storage
 TESTS = {}
 ANSWERS = {}
 
-# ——— Optimized SQL Server Functions ———
-def fetch_random_student_info():
-    """Optimized student info fetch with timeout"""
+# ——— Strict SQL Server Functions ———
+def fetch_student_info_strict():
+    """Strict student info fetch - fail if unavailable"""
     try:
-        conn = pyodbc.connect(CONNECTION_STRING, timeout=5)
+        conn = pyodbc.connect(CONNECTION_STRING, timeout=10)
         cursor = conn.cursor()
         
         cursor.execute("""
@@ -274,43 +389,58 @@ def fetch_random_student_info():
         cursor.close()
         conn.close()
         
-        if result:
-            return result[0], result[1], result[2], result[3]
+        if not result:
+            raise Exception("No valid student data found in database")
+        
+        student_id, first_name, last_name, session_id = result
+        
+        # Validate data quality
+        if not all([student_id, first_name, last_name, session_id]):
+            raise Exception("Incomplete student data retrieved")
+        
+        logger.info(f"✅ Student info retrieved: {student_id}")
+        return student_id, first_name, last_name, session_id
         
     except Exception as e:
-        logger.error(f"Student fetch failed: {e}")
-    
-    # Fast fallback
-    return f"STU_{int(time.time()) % 10000}", "Test", "Student", f"SES_{int(time.time()) % 1000}"
+        logger.error(f"❌ Student info fetch failed: {e}")
+        raise Exception(f"Student data unavailable: {e}")
 
-# ——— Optimized Question Generation ———
-def generate_question_fast(user_type: str, question_type: str, context: str, difficulty: int = 1):
-    """Optimized question generation with single LLM call"""
+# ——— Strict Question Generation ———
+def generate_question_strict(user_type: str, question_type: str, context: str, difficulty: int = 1):
+    """Strict question generation - no fallbacks"""
     if not groq_client:
-        raise Exception("LLM service unavailable")
+        raise Exception("LLM service unavailable - cannot generate questions")
+    
+    if not context or len(context.strip()) < 100:
+        raise Exception("Insufficient context for question generation")
+    
+    # Validate context quality
+    context_preview = context[:1500]
     
     if user_type == "dev":
         prompt = f"""Generate a {question_type} programming question (difficulty {difficulty}/3) using this context:
 
-CONTEXT: {context[:1500]}
+CONTEXT: {context_preview}
 
 Requirements:
-- Create a practical coding challenge
-- Include clear problem statement
-- Specify expected solution approach
+- Create a practical coding challenge based on the context
+- Include clear problem statement with specific requirements
+- Specify expected solution approach and constraints
 - Start with "## Question"
-- Keep concise but comprehensive"""
+- Make it challenging but solvable
+- Use real-world scenarios from the context"""
     else:
         prompt = f"""Generate a {question_type} multiple-choice question (difficulty {difficulty}/3) using this context:
 
-CONTEXT: {context[:1500]}
+CONTEXT: {context_preview}
 
 Requirements:
-- Test conceptual understanding
-- 4 options with 1 correct answer
-- Format: 
+- Test deep conceptual understanding from the context
+- 4 options with exactly 1 correct answer
+- Include nuanced distractors based on common misconceptions
+- Format strictly as:
 ## Question
-[Your question]
+[Your question based on the context]
 
 ## Options
 A) [Option A]
@@ -323,243 +453,209 @@ D) [Option D]"""
             model="llama-3.3-70b-versatile",
             messages=[{"role": "system", "content": prompt}],
             temperature=0.7,
-            max_completion_tokens=800,
+            max_completion_tokens=1000,
             top_p=0.9
         )
         
+        if not completion.choices:
+            raise Exception("LLM returned no response")
+        
         response = completion.choices[0].message.content.strip()
         
+        if not response or len(response) < 50:
+            raise Exception("LLM returned insufficient content")
+        
         if user_type == "non_dev":
-            return parse_mcq_fast(response)
+            question, options = parse_mcq_strict(response)
+            if not options or len(options) != 4:
+                raise Exception("Failed to parse valid MCQ with 4 options")
+            return question, options
         else:
+            if "## Question" not in response:
+                raise Exception("Invalid question format returned")
             return response, None
             
     except Exception as e:
-        logger.error(f"Question generation failed: {e}")
-        raise Exception("Question generation failed")
+        logger.error(f"❌ Question generation failed: {e}")
+        raise Exception(f"Question generation failed: {e}")
 
-def parse_mcq_fast(response: str):
-    """Fast MCQ parsing"""
+def parse_mcq_strict(response: str):
+    """Strict MCQ parsing with validation"""
     try:
-        if "## Options" in response:
-            q_part, opt_part = response.split("## Options", 1)
-            question = q_part.replace("## Question", "").strip()
-            
-            lines = [line.strip() for line in opt_part.split('\n') if line.strip()]
-            options = []
-            
-            for line in lines:
-                if re.match(r'^[A-D]\)', line):
-                    options.append(line[3:].strip())
-                    if len(options) == 4:
-                        break
-            
-            return question, options if len(options) == 4 else None
+        if "## Options" not in response:
+            raise Exception("No options section found in response")
         
-        return response, None
+        q_part, opt_part = response.split("## Options", 1)
+        question = q_part.replace("## Question", "").strip()
         
-    except:
-        return response, None
+        if not question or len(question) < 20:
+            raise Exception("Question too short or invalid")
+        
+        lines = [line.strip() for line in opt_part.split('\n') if line.strip()]
+        options = []
+        
+        for line in lines:
+            if re.match(r'^[A-D]\)', line):
+                option_text = line[3:].strip()
+                if len(option_text) > 5:  # Quality threshold
+                    options.append(option_text)
+        
+        if len(options) != 4:
+            raise Exception(f"Invalid number of options: found {len(options)}, need exactly 4")
+        
+        return question, options
+        
+    except Exception as e:
+        raise Exception(f"MCQ parsing failed: {e}")
 
-# ——— Batch Evaluation Functions ———
-def batch_evaluate_test_sync(test_id: str, test_data: dict, answers_data: list) -> dict:
-    """Synchronous batch evaluation with timeout and fallbacks"""
-    logger.info(f"🧠 Starting batch evaluation: {test_id}")
+# ——— Strict Batch Evaluation ———
+def batch_evaluate_test_strict(test_id: str, test_data: dict, answers_data: list) -> dict:
+    """Strict batch evaluation - no fallbacks"""
+    logger.info(f"🧠 Starting strict evaluation: {test_id}")
     
     if not groq_client:
-        logger.error("❌ Groq client not available")
-        return create_fallback_evaluation(answers_data)
+        raise Exception("LLM service unavailable for evaluation")
+    
+    if not answers_data:
+        raise Exception("No answers provided for evaluation")
     
     try:
-        # Prepare Q&A pairs efficiently
+        # Prepare Q&A pairs with validation
         qa_pairs = []
         for i, answer in enumerate(answers_data, 1):
-            # Truncate long questions for efficiency
-            question_preview = answer['question'][:150] + "..." if len(answer['question']) > 150 else answer['question']
-            answer_preview = answer['answer'][:100] + "..." if len(answer['answer']) > 100 else answer['answer']
+            if not answer.get('question') or not answer.get('answer'):
+                raise Exception(f"Invalid answer data for question {i}")
+            
+            question_preview = answer['question'][:200] + "..." if len(answer['question']) > 200 else answer['question']
+            answer_preview = answer['answer'][:150] + "..." if len(answer['answer']) > 150 else answer['answer']
             
             qa_pairs.append(f"Q{i}: {question_preview}\nAnswer: {answer_preview}")
         
-        # Concise evaluation prompt
-        batch_prompt = f"""Evaluate this {test_data['user_type']} test quickly:
+        # Comprehensive evaluation prompt
+        batch_prompt = f"""Evaluate this {test_data['user_type']} test comprehensively and provide detailed analysis:
 
 {chr(10).join(qa_pairs)}
 
-Respond EXACTLY like this:
-SCORES: 1,0,1
-FEEDBACK: Good solution|Wrong approach|Correct concept
-OVERALL_SCORE: 7
-PERFORMANCE_LEVEL: Good
-STRENGTHS: Problem solving, clean code
-IMPROVEMENTS: Algorithm optimization, error handling
-RECOMMENDATIONS: Practice data structures, study algorithms, review debugging
+Provide evaluation in this EXACT format:
+SCORES: [comma-separated 1s and 0s for each question]
+FEEDBACK: [detailed feedback for each question separated by |]
+OVERALL_SCORE: [score out of 10]
+PERFORMANCE_LEVEL: [Excellent/Good/Average/Needs Improvement]
+STRENGTHS: [specific strengths observed]
+IMPROVEMENTS: [specific areas needing improvement]
+RECOMMENDATIONS: [actionable recommendations for learning]
 
-Be concise and direct."""
+Be thorough, specific, and constructive in your evaluation."""
 
         logger.info(f"📤 Sending evaluation request: {test_id}")
         
-        # Make LLM call with timeout
         completion = groq_client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[{"role": "user", "content": batch_prompt}],
             temperature=0.3,
-            max_completion_tokens=500,  # Reduced for speed
+            max_completion_tokens=1500,
             top_p=0.9
         )
         
+        if not completion.choices:
+            raise Exception("LLM evaluation returned no response")
+        
         result = completion.choices[0].message.content.strip()
+        
+        if not result or len(result) < 100:
+            raise Exception("LLM returned insufficient evaluation content")
+        
         logger.info(f"📥 Evaluation response received: {test_id}")
         
-        return parse_evaluation_result_fast(result, answers_data)
+        return parse_evaluation_result_strict(result, answers_data)
         
     except Exception as e:
-        logger.error(f"❌ Batch evaluation failed: {e}")
-        return create_fallback_evaluation(answers_data)
+        logger.error(f"❌ Strict evaluation failed: {e}")
+        raise Exception(f"Evaluation failed: {e}")
 
-def parse_evaluation_result_fast(result: str, answers_data: list) -> dict:
-    """Fast evaluation parsing with fallbacks"""
+def parse_evaluation_result_strict(result: str, answers_data: list) -> dict:
+    """Simplified evaluation parsing - store detailed report as-is"""
     logger.info("🔍 Parsing evaluation result")
     
     try:
-        parsed = {
-            'total_correct': 0,
-            'overall_score': '5',
-            'performance_level': 'Average',
-            'strengths': 'Analysis in progress',
-            'improvements': 'Review needed',
-            'recommendations': 'Study more'
-        }
-        
+        parsed = {}
         lines = [line.strip() for line in result.split('\n') if line.strip()]
+        
+        # Extract only scores and feedbacks for conversation pairs
+        scores_found = False
+        feedback_found = False
         
         for line in lines:
             if line.startswith('SCORES:'):
-                try:
-                    scores_str = line.replace('SCORES:', '').strip()
-                    scores = [int(x.strip()) for x in scores_str.split(',') if x.strip().isdigit()]
-                    if len(scores) == len(answers_data):
-                        parsed['scores'] = scores
-                        parsed['total_correct'] = sum(scores)
-                except:
-                    pass
-                    
+                scores_str = line.replace('SCORES:', '').strip()
+                scores = [int(x.strip()) for x in scores_str.split(',') if x.strip().isdigit()]
+                
+                if len(scores) != len(answers_data):
+                    raise Exception(f"Score count mismatch: got {len(scores)}, expected {len(answers_data)}")
+                
+                parsed['scores'] = scores
+                parsed['total_correct'] = sum(scores)
+                scores_found = True
+                
             elif line.startswith('FEEDBACK:'):
-                try:
-                    feedback_str = line.replace('FEEDBACK:', '').strip()
-                    feedbacks = [f.strip() for f in feedback_str.split('|')]
-                    parsed['feedbacks'] = feedbacks
-                except:
-                    pass
-                    
-            elif line.startswith('OVERALL_SCORE:'):
-                parsed['overall_score'] = line.replace('OVERALL_SCORE:', '').strip()
+                feedback_str = line.replace('FEEDBACK:', '').strip()
+                feedbacks = [f.strip() for f in feedback_str.split('|')]
                 
-            elif line.startswith('PERFORMANCE_LEVEL:'):
-                parsed['performance_level'] = line.replace('PERFORMANCE_LEVEL:', '').strip()
+                if len(feedbacks) != len(answers_data):
+                    raise Exception(f"Feedback count mismatch: got {len(feedbacks)}, expected {len(answers_data)}")
                 
-            elif line.startswith('STRENGTHS:'):
-                parsed['strengths'] = line.replace('STRENGTHS:', '').strip()
-                
-            elif line.startswith('IMPROVEMENTS:'):
-                parsed['improvements'] = line.replace('IMPROVEMENTS:', '').strip()
-                
-            elif line.startswith('RECOMMENDATIONS:'):
-                parsed['recommendations'] = line.replace('RECOMMENDATIONS:', '').strip()
+                parsed['feedbacks'] = feedbacks
+                feedback_found = True
         
-        # Update answers with evaluation
-        scores = parsed.get('scores', [0] * len(answers_data))
-        feedbacks = parsed.get('feedbacks', ['No feedback'] * len(answers_data))
+        # Validate required components
+        if not scores_found:
+            raise Exception("No scores found in evaluation")
         
+        if not feedback_found:
+            raise Exception("No feedback found in evaluation")
+        
+        # Update answers with evaluation for conversation pairs
         for i, answer in enumerate(answers_data):
-            if i < len(scores):
-                answer['correct'] = bool(scores[i])
-            if i < len(feedbacks):
-                answer['feedback'] = feedbacks[i]
+            answer['correct'] = bool(parsed['scores'][i])
+            answer['feedback'] = parsed['feedbacks'][i]
         
-        # Generate report
-        report_parts = [
-            f"## 🎯 Final Evaluation Report",
-            f"**Overall Score: {parsed.get('overall_score', '5')}/10**",
-            f"**Performance: {parsed.get('performance_level', 'Average')}**",
-            f"**Correct: {parsed.get('total_correct', 0)}/{len(answers_data)}**",
-            "",
-            "### 📊 Results"
-        ]
+        # Store the complete LLM response as evaluation report
+        parsed['evaluation_report'] = result
         
-        for i, answer in enumerate(answers_data, 1):
-            status = "✅" if answer.get('correct', False) else "❌"
-            feedback = answer.get('feedback', 'No feedback')
-            report_parts.append(f"**Q{i}:** {status} - {feedback}")
-        
-        report_parts.extend([
-            "",
-            f"### 💪 Strengths",
-            parsed.get('strengths', 'Good effort'),
-            "",
-            f"### 📈 Areas to Improve", 
-            parsed.get('improvements', 'Keep practicing'),
-            "",
-            f"### 🎯 Recommendations",
-            parsed.get('recommendations', 'Continue learning')
-        ])
-        
-        parsed['detailed_report'] = '\n'.join(report_parts)
-        
-        logger.info(f"✅ Evaluation parsed successfully")
+        logger.info(f"✅ Evaluation parsed: {parsed['total_correct']}/{len(answers_data)}")
         return parsed
         
     except Exception as e:
         logger.error(f"❌ Evaluation parsing failed: {e}")
-        return create_fallback_evaluation(answers_data)
+        raise Exception(f"Evaluation parsing failed: {e}")
 
-def create_fallback_evaluation(answers_data: list) -> dict:
-    """Create fallback evaluation when LLM fails"""
-    logger.info("🔄 Creating fallback evaluation")
-    
-    # Simple scoring - assume 50% correct
-    total_questions = len(answers_data)
-    assumed_correct = max(1, total_questions // 2)
-    
-    for i, answer in enumerate(answers_data):
-        answer['correct'] = i < assumed_correct
-        answer['feedback'] = "Evaluation in progress - detailed feedback coming soon"
-    
-    return {
-        'total_correct': assumed_correct,
-        'overall_score': '5',
-        'detailed_report': f"""## 🎯 Test Completed
-
-**Score: {assumed_correct}/{total_questions}**
-
-Your test has been submitted successfully. Detailed evaluation is being processed and will be available shortly.
-
-### Next Steps
-- Download your PDF report
-- Review your answers
-- Practice more questions
-
-Thank you for taking the test!"""
-    }
-
-def save_test_results_sync(test_id: str, test_data: dict, evaluation_result: dict) -> bool:
-    """Synchronous save operation with timeout"""
+def save_test_results_strict(test_id: str, test_data: dict, evaluation_result: dict) -> bool:
+    """Simplified save operation with clean document structure"""
     logger.info(f"💾 Saving test results: {test_id}")
     
+    if not db_manager or not db_manager.client:
+        raise Exception("Database not available for saving results")
+    
     try:
-        if not db_manager or not db_manager.client:
-            logger.error("❌ Database not available")
-            return False
+        # Get authentic student info
+        student_id, first_name, last_name, session_id = fetch_student_info_strict()
+        name = f"{first_name} {last_name}"
         
-        # Quick student info
-        try:
-            student_id, first_name, last_name, session_id = fetch_random_student_info()
-            name = f"{first_name} {last_name}" if first_name and last_name else f"Student_{test_id[:8]}"
-        except:
-            student_id = f"STU_{test_id[:8]}"
-            name = f"Student_{test_id[:8]}"
-            session_id = f"SES_{test_id[:8]}"
+        # Create conversation pairs from answers
+        conversation_pairs = []
+        for i, answer_data in enumerate(ANSWERS.get(test_id, []), 1):
+            conversation_pairs.append({
+                "question_number": i,
+                "question": answer_data.get("question", ""),
+                "answer": answer_data.get("answer", ""),
+                "correct": answer_data.get("correct", False),
+                "feedback": answer_data.get("feedback", "")
+            })
         
-        # Minimal document for fast save
+        # Calculate score percentage
+        score_percentage = round((evaluation_result["total_correct"] / test_data["total_questions"]) * 100, 1)
+        
+        # Clean document structure
         document = {
             "test_id": test_id,
             "timestamp": time.time(),
@@ -569,20 +665,24 @@ def save_test_results_sync(test_id: str, test_data: dict, evaluation_result: dic
             "user_type": test_data["user_type"],
             "score": evaluation_result["total_correct"],
             "total_questions": test_data["total_questions"],
-            "overall_score_10": evaluation_result.get("overall_score", "5"),
-            "evaluation_report": evaluation_result["detailed_report"],
-            "test_completed": True,
-            "rag_enabled": db_manager.rag_enabled
+            "score_percentage": score_percentage,
+            "evaluation_report": evaluation_result["evaluation_report"],
+            "conversation_pairs": conversation_pairs,
+            "test_completed": True
         }
         
-        # Fast insert with timeout
+        # Save with validation
         result = db_manager.test_results_collection.insert_one(document)
+        
+        if not result.inserted_id:
+            raise Exception("Database save operation failed")
+        
         logger.info(f"✅ Test saved successfully: {test_id}")
         return True
         
     except Exception as e:
         logger.error(f"❌ Save failed: {e}")
-        return False
+        raise Exception(f"Results save failed: {e}")
 
 # ——— Memory Management ———
 def cleanup_memory():
@@ -648,27 +748,41 @@ class SubmitAnswerResponse(BaseModel):
     total_questions: Optional[int] = None
     analytics: Optional[str] = None
 
+# ——— Remove redundant system validation models and endpoints ———
+
 class HealthResponse(BaseModel):
     status: str
     message: str
     timestamp: float
     active_tests: int
-    rag_enabled: bool
 
 # ——— FastAPI Application ———
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan management"""
-    logger.info("🚀 Optimized Weekend Mock Test API starting...")
+    """Simplified application lifespan management"""
+    logger.info("🚀 Mock Test API starting...")
+    
+    # Basic validation only
+    if not db_manager:
+        logger.error("❌ Database manager not initialized")
+        raise Exception("Database manager initialization failed")
+    
+    if not groq_client:
+        logger.error("❌ Groq client not initialized")
+        raise Exception("Groq client initialization failed")
+    
+    logger.info("✅ Core systems ready")
+    
     yield
+    
     logger.info("👋 Shutting down...")
     if db_manager:
         db_manager.close()
 
 app = FastAPI(
-    title="Optimized Weekend Mock Test API",
-    description="High-performance AI mock testing with batch evaluation",
-    version="3.0.0",
+    title="Clean Mock Test API",
+    description="Streamlined RAG-based mock testing system",
+    version="4.0.0-clean",
     lifespan=lifespan
 )
 
@@ -685,172 +799,205 @@ frontend_dir = BASE_DIR / "frontend"
 if frontend_dir.exists():
     app.mount("/static", StaticFiles(directory=str(frontend_dir)), name="static")
 
-# ——— API Routes ———
+# ——— Remove system validation endpoint completely ———
+
 @app.get("/")
 async def home():
-    """Home endpoint"""
+    """Home endpoint with basic status"""
     html_path = frontend_dir / "index.html"
     if html_path.exists():
         return FileResponse(str(html_path))
     
     return {
-        "service": "Optimized Weekend Mock Test API",
-        "version": "3.0.0",
-        "rag_enabled": db_manager.rag_enabled if db_manager else False,
+        "service": "Clean Mock Test API",
+        "version": "4.0.0-clean",
+        "system_ready": bool(db_manager and groq_client),
         "timestamp": time.time()
     }
 
 @app.get("/api/health", response_model=HealthResponse)
 async def health_check():
-    """Health check"""
-    return HealthResponse(
-        status="ok",
-        message="Optimized API running",
-        timestamp=time.time(),
-        active_tests=len(TESTS),
-        rag_enabled=db_manager.rag_enabled if db_manager else False
-    )
+    """Simple health check"""
+    try:
+        if not db_manager:
+            raise HTTPException(status_code=503, detail="Database manager not available")
+        
+        return HealthResponse(
+            status="ok",
+            message="System operational",
+            timestamp=time.time(),
+            active_tests=len(TESTS)
+        )
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        raise HTTPException(status_code=503, detail=f"Health check failed: {str(e)}")
 
 @app.post("/api/test/start", response_model=TestResponse)
 def start_test(request: StartTestRequest):
-    """Start test - optimized"""
+    """Start test with strict validation"""
+    logger.info(f"🚀 Starting test: {request.user_type}")
+    
+    # Validate request
     if request.user_type not in ["dev", "non_dev"]:
-        raise HTTPException(status_code=400, detail="Invalid user type")
+        raise HTTPException(status_code=400, detail="Invalid user type - must be 'dev' or 'non_dev'")
+    
+    # Validate system readiness
+    if not db_manager or not groq_client:
+        raise HTTPException(status_code=503, detail="System not ready - missing core components")
+    
+    if not db_manager.rag_enabled:
+        raise HTTPException(status_code=503, detail="RAG system not available - cannot generate authentic content")
+    
+    try:
+        # Generate unique test ID
+        test_id = str(uuid.uuid4())
+        total_questions = 3
+        
+        # Load authentic context from RAG
+        transcript_content = db_manager.load_transcript_strict(
+            f"{request.user_type} programming development concepts algorithms"
+        )
+        
+        question_types = ["practical", "conceptual", "analytical"]
+        
+        # Initialize test data
+        TESTS[test_id] = {
+            "user_type": request.user_type, 
+            "score": 0, 
+            "question_count": 1, 
+            "total_questions": total_questions,
+            "question_types": question_types,
+            "created_at": time.time(),
+            "transcript_context": transcript_content
+        }
+        ANSWERS[test_id] = []
 
-    test_id = str(uuid.uuid4())
-    total_questions = 3
-    
-    # Load context once
-    transcript_content = db_manager.load_transcript()
-    
-    question_types = ["practical", "conceptual", "analytical"]
-    
-    TESTS[test_id] = {
-        "user_type": request.user_type, 
-        "score": 0, 
-        "question_count": 1, 
-        "total_questions": total_questions,
-        "question_types": question_types,
-        "created_at": time.time(),
-        "transcript_context": transcript_content
-    }
-    ANSWERS[test_id] = []
+        # Generate first question using RAG context
+        question, options = generate_question_strict(
+            request.user_type, 
+            question_types[0], 
+            transcript_content,
+            difficulty=1
+        )
+        
+        # Store question and answer structure
+        ANSWERS[test_id].append({
+            "question": question, 
+            "answer": "", 
+            "options": options or []
+        })
 
-    # Generate first question
-    question, options = generate_question_fast(
-        request.user_type, 
-        question_types[0], 
-        transcript_content
-    )
-    
-    ANSWERS[test_id].append({
-        "question": question, 
-        "answer": "", 
-        "options": options or []
-    })
-
-    logger.info(f"Test started: {test_id}")
-    
-    return TestResponse(
-        test_id=test_id,
-        user_type=request.user_type,
-        question_number=1,
-        total_questions=total_questions,
-        question_html=markdown.markdown(question),
-        options=options,
-        time_limit=300 if request.user_type == "dev" else 120
-    )
+        logger.info(f"✅ Test started successfully: {test_id}")
+        
+        return TestResponse(
+            test_id=test_id,
+            user_type=request.user_type,
+            question_number=1,
+            total_questions=total_questions,
+            question_html=markdown.markdown(question),
+            options=options,
+            time_limit=300 if request.user_type == "dev" else 120
+        )
+        
+    except Exception as e:
+        logger.error(f"❌ Test start failed: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "Test initialization failed",
+                "component": "RAG/LLM/Database",
+                "message": str(e),
+                "action": "Verify system health and retry"
+            }
+        )
 
 @app.post("/api/test/submit", response_model=SubmitAnswerResponse)
 def submit_answer(request: SubmitAnswerRequest):
-    """Fixed submit answer - no infinite loading"""
-    logger.info(f"🔄 Submit request received: {request.test_id}, Q{request.question_number}")
+    """Submit answer with strict validation and no fallbacks"""
+    logger.info(f"📝 Submit request: {request.test_id}, Q{request.question_number}")
     
+    # Validate test exists
     test = TESTS.get(request.test_id)
     if not test:
         logger.error(f"❌ Test not found: {request.test_id}")
-        raise HTTPException(status_code=404, detail="Test not found")
+        raise HTTPException(status_code=404, detail="Test not found or expired")
     
+    # Validate question number
     if request.question_number != test["question_count"]:
         logger.error(f"❌ Invalid question number: {request.question_number} != {test['question_count']}")
         raise HTTPException(status_code=400, detail="Invalid question number")
-
-    # Process answer without evaluation
-    ans_data = ANSWERS[request.test_id][-1]
-    full_answer = request.answer
     
-    # Convert option index for MCQ
-    if test["user_type"] == "non_dev" and request.answer.isdigit():
-        try:
-            option_index = int(request.answer)
-            options = ans_data["options"]
-            if 0 <= option_index < len(options):
-                full_answer = options[option_index]
-                logger.info(f"📝 MCQ answer converted: {option_index} -> {full_answer}")
-        except (ValueError, IndexError):
-            logger.warning(f"⚠️ Invalid option index: {request.answer}")
-            pass
+    # Validate answer
+    if not request.answer or not request.answer.strip():
+        raise HTTPException(status_code=400, detail="Answer cannot be empty")
 
-    # Store answer
-    ans_data["answer"] = full_answer
-    logger.info(f"✅ Answer stored: {request.test_id}, Q{request.question_number}")
-
-    # Check if test completed
-    if test["question_count"] >= test["total_questions"]:
-        logger.info(f"🏁 Test completed - starting evaluation: {request.test_id}")
+    try:
+        # Process answer
+        ans_data = ANSWERS[request.test_id][-1]
+        full_answer = request.answer.strip()
         
-        try:
-            # Batch evaluate with proper error handling
-            evaluation_result = batch_evaluate_test_sync(request.test_id, test, ANSWERS[request.test_id])
+        # Convert option index for MCQ
+        if test["user_type"] == "non_dev" and request.answer.isdigit():
+            try:
+                option_index = int(request.answer)
+                options = ans_data["options"]
+                if 0 <= option_index < len(options):
+                    full_answer = options[option_index]
+                    logger.info(f"✅ MCQ answer converted: {option_index} -> {full_answer}")
+                else:
+                    raise HTTPException(status_code=400, detail="Invalid option index")
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid option format")
+
+        # Store answer
+        ans_data["answer"] = full_answer
+        logger.info(f"✅ Answer stored: {request.test_id}, Q{request.question_number}")
+
+        # Check if test completed
+        if test["question_count"] >= test["total_questions"]:
+            logger.info(f"🏁 Test completed - starting evaluation: {request.test_id}")
+            
+            # Strict batch evaluation
+            evaluation_result = batch_evaluate_test_strict(
+                request.test_id, 
+                test, 
+                ANSWERS[request.test_id]
+            )
             logger.info(f"✅ Evaluation completed: {request.test_id}")
             
-            # Save to database (non-blocking)
-            try:
-                save_success = save_test_results_sync(
-                    test_id=request.test_id,
-                    test_data=test,
-                    evaluation_result=evaluation_result
-                )
-                logger.info(f"💾 Save completed: {request.test_id}, success: {save_success}")
-            except Exception as save_error:
-                logger.error(f"💾 Save failed: {save_error}")
-                # Continue anyway - don't block response
+            # Save to database with strict validation
+            save_success = save_test_results_strict(
+                test_id=request.test_id,
+                test_data=test,
+                evaluation_result=evaluation_result
+            )
+            
+            if not save_success:
+                logger.warning(f"⚠️ Save may have failed: {request.test_id}")
             
             # Clean up memory
             TESTS.pop(request.test_id, None)
             ANSWERS.pop(request.test_id, None)
             
-            logger.info(f"🎉 Test flow completed: {request.test_id}")
+            logger.info(f"🎉 Test completed successfully: {request.test_id}")
             
             return SubmitAnswerResponse(
                 test_completed=True,
                 score=evaluation_result["total_correct"],
                 total_questions=test["total_questions"],
-                analytics=evaluation_result["detailed_report"]
-            )
-            
-        except Exception as eval_error:
-            logger.error(f"❌ Evaluation failed: {eval_error}")
-            
-            # Fallback response - don't hang
-            return SubmitAnswerResponse(
-                test_completed=True,
-                score=0,
-                total_questions=test["total_questions"],
-                analytics="## Evaluation Error\n\nTest completed but evaluation failed. Please try again or contact support."
+                analytics=evaluation_result["evaluation_report"]
             )
 
-    # Generate next question
-    logger.info(f"➡️ Generating next question: {request.test_id}")
-    
-    test["question_count"] += 1
-    next_q_num = test["question_count"]
-    
-    try:
+        # Generate next question
+        logger.info(f"➡️ Generating next question: {request.test_id}")
+        
+        test["question_count"] += 1
+        next_q_num = test["question_count"]
+        
         next_type_index = (test["question_count"] - 1) % len(test["question_types"])
         next_type = test["question_types"][next_type_index]
         
-        next_question, next_options = generate_question_fast(
+        next_question, next_options = generate_question_strict(
             test["user_type"], 
             next_type, 
             test["transcript_context"],
@@ -876,14 +1023,28 @@ def submit_answer(request: SubmitAnswerRequest):
             )
         )
         
-    except Exception as question_error:
-        logger.error(f"❌ Next question generation failed: {question_error}")
-        raise HTTPException(status_code=500, detail="Failed to generate next question")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Submit answer failed: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "Answer processing failed",
+                "component": "LLM/RAG",
+                "message": str(e),
+                "test_id": request.test_id,
+                "action": "Retry submission or check system health"
+            }
+        )
 
 @app.get("/api/test/results/{test_id}")
 async def get_test_results(test_id: str):
-    """Get test results"""
+    """Get test results with strict validation"""
     try:
+        if not db_manager:
+            raise HTTPException(status_code=503, detail="Database not available")
+        
         doc = db_manager.test_results_collection.find_one({"test_id": test_id}, {"_id": 0})
         if not doc:
             raise HTTPException(status_code=404, detail="Test results not found")
@@ -892,17 +1053,24 @@ async def get_test_results(test_id: str):
             "test_id": test_id,
             "score": doc.get("score", 0),
             "total_questions": doc.get("total_questions", 0),
+            "score_percentage": doc.get("score_percentage", 0),
             "analytics": doc.get("evaluation_report", "Report not available"),
+            "timestamp": doc.get("timestamp", 0),
             "pdf_available": True
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error fetching results: {e}")
-        raise HTTPException(status_code=500, detail="Failed to fetch results")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch results: {str(e)}")
 
 @app.get("/api/test/pdf/{test_id}")
 async def download_pdf(test_id: str):
-    """Generate PDF"""
+    """Generate comprehensive PDF report"""
     try:
+        if not db_manager:
+            raise HTTPException(status_code=503, detail="Database not available")
+        
         doc = db_manager.test_results_collection.find_one({"test_id": test_id}, {"_id": 0})
         if not doc:
             raise HTTPException(status_code=404, detail="Test not found")
@@ -910,16 +1078,22 @@ async def download_pdf(test_id: str):
         buffer = io.BytesIO()
         p = canvas.Canvas(buffer, pagesize=LETTER)
         
-        # Simple PDF generation
-        p.setFont("Helvetica-Bold", 16)
-        p.drawString(50, 750, f"Test Results - {test_id}")
+        # Enhanced PDF generation
+        p.setFont("Helvetica-Bold", 18)
+        p.drawString(50, 750, f"Mock Test Results")
         
         p.setFont("Helvetica", 12)
         y = 700
-        p.drawString(50, y, f"Name: {doc.get('name', 'N/A')}")
-        p.drawString(50, y-20, f"Score: {doc.get('score', 0)}/{doc.get('total_questions', 0)}")
-        p.drawString(50, y-40, f"Overall Score: {doc.get('overall_score_10', 'N/A')}/10")
-        p.drawString(50, y-60, f"Performance: {doc.get('performance_level', 'N/A')}")
+        p.drawString(50, y, f"Test ID: {test_id}")
+        p.drawString(50, y-20, f"Student: {doc.get('name', 'N/A')}")
+        p.drawString(50, y-40, f"Type: {doc.get('user_type', 'N/A').title()}")
+        p.drawString(50, y-60, f"Score: {doc.get('score', 0)}/{doc.get('total_questions', 0)} ({doc.get('score_percentage', 0)}%)")
+        
+        # Add timestamp
+        import datetime
+        timestamp = doc.get('timestamp', time.time())
+        date_str = datetime.datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
+        p.drawString(50, y-80, f"Completed: {date_str}")
         
         p.save()
         buffer.seek(0)
@@ -930,93 +1104,59 @@ async def download_pdf(test_id: str):
             headers={"Content-Disposition": f"attachment; filename=test_results_{test_id}.pdf"}
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"PDF generation failed: {e}")
-        raise HTTPException(status_code=500, detail="PDF generation failed")
+        raise HTTPException(status_code=500, detail=f"PDF generation failed: {str(e)}")
+
+# ——— Remove redundant debug and validation endpoints ———
+
+# Keep only essential endpoints - remove system/validate, rag/refresh, and complex debug
 
 @app.get("/api/debug/status")
 async def debug_status():
-    """Debug endpoint"""
-    return {
-        "api_status": "running",
-        "timestamp": time.time(),
-        "active_tests": len(TESTS),
-        "groq_available": groq_client is not None,
-        "mongodb_available": db_manager.client is not None if db_manager else False,
-        "rag_enabled": db_manager.rag_enabled if db_manager else False,
-        "rag_stats": db_manager.get_rag_stats() if db_manager else {"status": "not_initialized"},
-        "environment": "optimized_production",
-        "base_dir": str(BASE_DIR),
-        "vector_store_path": str(BASE_DIR / "vector_store"),
-        "embedding_model": "sentence-transformers/all-MiniLM-L6-v2"
-    }
-
-@app.get("/api/rag/stats")
-async def get_rag_statistics():
-    """Get RAG system statistics"""
+    """Essential debug information only"""
     try:
-        if db_manager:
-            stats = db_manager.get_rag_stats()
-            return {
-                "rag_statistics": stats,
-                "timestamp": time.time(),
-                "system_health": "ok" if stats.get("status") == "initialized" else "degraded"
-            }
-        else:
-            return {
-                "rag_statistics": {"status": "not_initialized"},
-                "timestamp": time.time(),
-                "system_health": "error"
-            }
+        return {
+            "api_status": "running",
+            "timestamp": time.time(),
+            "active_tests": len(TESTS),
+            "groq_available": groq_client is not None,
+            "mongodb_available": db_manager.client is not None if db_manager else False,
+            "version": "4.0.0-clean"
+        }
     except Exception as e:
-        logger.error(f"Error getting RAG stats: {e}")
-        raise HTTPException(status_code=500, detail="Failed to get RAG statistics")
-
-@app.post("/api/rag/refresh")
-async def refresh_rag_system():
-    """Force refresh of RAG system"""
-    try:
-        if db_manager:
-            # Force rebuild
-            db_manager.rag_enabled = False
-            db_manager.vector_store = None
-            db_manager._build_rag_optimized()
-            
-            stats = db_manager.get_rag_stats()
-            return {
-                "message": "RAG system refreshed",
-                "success": db_manager.rag_enabled,
-                "timestamp": time.time(),
-                "new_stats": stats
-            }
-        else:
-            raise HTTPException(status_code=500, detail="Database manager not available")
-            
-    except Exception as e:
-        logger.error(f"Error refreshing RAG: {e}")
-        raise HTTPException(status_code=500, detail=f"RAG refresh failed: {str(e)}")
+        logger.error(f"Debug status failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Debug status failed: {str(e)}")
 
 @app.get("/api/tests")
 async def get_all_tests():
-    """Get all tests"""
+    """Get all tests with proper error handling"""
     try:
+        if not db_manager:
+            raise HTTPException(status_code=503, detail="Database not available")
+        
         results = list(db_manager.test_results_collection.find(
             {},
             {"_id": 0, "test_id": 1, "name": 1, "score": 1, "total_questions": 1, 
-             "score_percentage": 1, "performance_level": 1, "timestamp": 1}
+             "score_percentage": 1, "timestamp": 1, "user_type": 1}
         ).sort("timestamp", -1).limit(50))
         
         return {
             "count": len(results),
-            "results": results
+            "results": results,
+            "timestamp": time.time()
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error fetching tests: {e}")
-        raise HTTPException(status_code=500, detail="Failed to fetch tests")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch tests: {str(e)}")
 
 @app.delete("/api/cleanup")
 async def cleanup_resources():
-    """Clean up resources"""
+    """Clean up resources with validation"""
     try:
         current_time = time.time()
         expired_tests = []
@@ -1030,34 +1170,38 @@ async def cleanup_resources():
         # Force garbage collection
         gc.collect()
         
-        logger.info(f"Cleanup completed: {len(expired_tests)} tests removed")
+        logger.info(f"🧹 Cleanup completed: {len(expired_tests)} tests removed")
         
         return {
-            "message": "Cleanup completed",
+            "message": "Cleanup completed successfully",
             "tests_cleaned": len(expired_tests),
             "active_tests": len(TESTS),
-            "rag_enabled": db_manager.rag_enabled if db_manager else False
+            "timestamp": time.time()
         }
     except Exception as e:
         logger.error(f"Cleanup error: {e}")
-        raise HTTPException(status_code=500, detail="Cleanup failed")
+        raise HTTPException(status_code=500, detail=f"Cleanup failed: {str(e)}")
 
 @app.get("/test")
 async def test_endpoint():
-    """Simple test endpoint"""
-    return {
-        "message": "Optimized Weekend Mock Test API is working",
-        "rag_enabled": db_manager.rag_enabled if db_manager else False,
-        "timestamp": time.time(),
-        "version": "3.0.0-optimized"
-    }
-
-# ——— Additional Helper Functions ———
-def generate_analytics_from_db(doc):
-    """Return stored evaluation report"""
-    return doc.get("evaluation_report", "Evaluation report not available")
+    """Simple test endpoint with system validation"""
+    try:
+        system_ready = bool(db_manager and groq_client and db_manager.rag_enabled)
+        
+        return {
+            "message": "Pure RAG Mock Test API is operational",
+            "system_ready": system_ready,
+            "timestamp": time.time(),
+            "version": "4.0.0-clean"
+        }
+    except Exception as e:
+        logger.error(f"Test endpoint failed: {e}")
+        raise HTTPException(status_code=500, detail=f"System test failed: {str(e)}")
 
 # ——— Startup Message ———
-logger.info("🚀 Optimized Weekend Mock Test API loaded successfully")
-logger.info(f"📊 Features: Batch evaluation, RAG-enhanced, Memory management")
-logger.info(f"⚡ Performance: 60% faster, 70% cost reduction")
+if db_manager and groq_client:
+    logger.info("🚀 Clean Mock Test API loaded successfully")
+    logger.info(f"✅ Features: RAG-based content, Clean data structure")
+    logger.info(f"⚡ Status: Core systems operational")
+else:
+    logger.error("❌ System initialization incomplete - some components failed")
