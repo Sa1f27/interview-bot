@@ -34,9 +34,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Constants
-TEST_DURATION_SEC = 900  # 15 minutes
 INACTIVITY_TIMEOUT = 300
-TTS_SPEED = 1.2
+TTS_SPEED = 1.5
 
 # ========================
 # Models and schemas
@@ -112,9 +111,8 @@ class Session:
     """Session data model for a test session"""
     def __init__(self, summary: str, voice: str):
         self.summary = summary
-        self.voice = voice
+        self.voice = voice        
         self.conversation_log = []
-        self.deadline = time.time() + TEST_DURATION_SEC
         self.last_activity = time.time()
         self.question_index = 0
         self.current_concept = None
@@ -339,11 +337,6 @@ class TestManager:
         if test.conversation_log:
             test.conversation_log[-1].answer = answer
     
-    def is_test_ended(self, test_id: str) -> bool:
-        """Check if the test has ended"""
-        test = self.validate_test(test_id)
-        return time.time() > test.deadline
-
 # Initialize test manager
 test_manager = TestManager()
 
@@ -355,7 +348,7 @@ class LLMManager:
     """Manages LLM interactions for question generation and evaluation"""
     def __init__(self):
         # Initialize LLM
-        self.llm = ChatOpenAI(model="gpt-4.1-mini", temperature=0.2)
+        self.llm = ChatOpenAI(model="gpt-4o", temperature=0.2)
         self.parser = StrOutputParser()
         
         # Define prompts
@@ -397,6 +390,7 @@ class LLMManager:
 
         Previous question: {previous_question}
         User's response: {user_response}
+        This is  the current question :{current_question_number} out of {total_questions}. Ask the next follow-up question
 
         Evaluate whether the user's response demonstrates understanding of the concept.
         
@@ -417,6 +411,8 @@ class LLMManager:
         CONCEPT: [same concept or new concept]
         QUESTION: [your follow-up question]
         FEEDBACK: [brief constructive feedback - 1-2 sentences max]
+
+
         """)
         
         self.evaluation_prompt = PromptTemplate.from_template("""
@@ -463,7 +459,8 @@ class LLMManager:
                               history: str, 
                               previous_question: str, 
                               user_response: str,
-                              concept: str) -> Dict[str, str]:
+                              concept: str,
+                              current_question_number: int, total_questions: int) -> Dict[str, str]:
         """Generate a follow-up question based on the user's response"""
         chain = self.followup_prompt | self.llm | self.parser
         response = await chain.ainvoke({
@@ -471,7 +468,9 @@ class LLMManager:
             "history": history,
             "previous_question": previous_question,
             "user_response": user_response,
-            "concept": concept
+            "concept": concept,
+            "current_question_number": current_question_number,
+            "total_questions": total_questions
         })
         return self._parse_llm_response(
             response, 
@@ -592,7 +591,11 @@ async def start_test():
         # Generate audio for the question
         audio_path = await AudioManager.text_to_speech(question, voice)
         
-        return {"test_id": test_id, "question": question, "audio_path": audio_path}
+        return {
+            "test_id": test_id, 
+            "question": question, 
+            "audio_path": audio_path,
+        }
     
     except Exception as e:
         logger.error(f"Error starting test: {e}")
@@ -606,15 +609,10 @@ async def record_and_respond(
     audio: UploadFile = File(...),
     test_id: str = Form(...)
 ):
+    total_questions = 5 # Configurable total questions
     """Process user's uploaded audio response and provide the next question"""
     try:
         test = test_manager.validate_test(test_id)
-
-        # Check if test has ended
-        if test_manager.is_test_ended(test_id):
-            closing_message = "The test has ended. Thank you for your participation."
-            audio_path = await AudioManager.text_to_speech(closing_message, test.voice)
-            return {"ended": True, "response": closing_message, "audio_path": audio_path}
 
         # Save uploaded audio to file system
         audio_filename = os.path.join(TEMP_DIR, f"user_audio_{int(time.time())}.webm")
@@ -631,20 +629,28 @@ async def record_and_respond(
         except Exception as e:
             logger.warning(f"Failed to clean up audio file: {e}")
 
-        # Get last question + log response
-        last_question = test.conversation_log[-1].question
-        last_concept = test.conversation_log[-1].concept
+        # Log the user's answer
         test_manager.add_answer(test_id, user_response)
+
+        # Check if the test is now complete (i.e., user has answered the last question)
+        if test.question_index >= total_questions:
+            closing_message = "The test has ended. Thank you for your participation."
+            audio_path = await AudioManager.text_to_speech(closing_message, test.voice)
+            return {"ended": True, "response": closing_message, "audio_path": audio_path, "feedback": "Test complete."}
 
         # Generate follow-up question using LLM
         history = test_manager.get_truncated_conversation_history(test_id)
+        last_question = test.conversation_log[-1].question
+        last_concept = test.current_concept or test.conversation_log[-1].concept
         followup_data = await llm_manager.generate_followup(
             test.summary,
             history,
             last_question,
             user_response,
-            last_concept
-        )
+            last_concept,
+            # Pass the number for the *next* question to be generated
+            test.question_index + 1, 
+            total_questions)
 
         # Extract next question and other info
         next_question = followup_data.get("question", "Can you elaborate more on that?")

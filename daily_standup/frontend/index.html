@@ -140,7 +140,7 @@
 <body>
   <div class="header">
     <h1>Stand-up Calls</h1>
-    <h2 id="timerLabel">Time Left: 5:00</h2>
+    <h2 id="timerLabel">Time Left: --:--</h2>
   </div>
 
   <div class="main-container">
@@ -551,8 +551,13 @@
       
       if (testActive) {
         setStatus("Please respond...");
-        countdown(Date.now() + 300000); // 5 minute countdown
-        setTimeout(() => startRecording(), 500); // Brief delay before starting recording
+        const duration = data.duration_sec || 900; // Fallback to 15 mins
+        const minutes = String(Math.floor(duration / 60)).padStart(1, "0");
+        const seconds = String(duration % 60).padStart(2, "0");
+        timerLabel.innerText = `Time Left: ${minutes}:${seconds}`;
+
+        countdown(Date.now() + duration * 1000);
+        setTimeout(() => startRecording(), 500); 
       }
     } catch (e) {
       log(`Start test error: ${e.message}`);
