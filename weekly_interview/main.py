@@ -1224,3 +1224,41 @@ async def get_interview_by_id(test_id: str):
     except Exception as e:
         logger.error(f"Error fetching interview {test_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to retrieve interview")
+
+
+@app.get("/api/interview-students", response_class=JSONResponse)
+async def get_unique_interview_students():
+    """
+    Return distinct Student_ID and name from interview records.
+    """
+    try:
+        pipeline = [
+            {"$group": {"_id": "$Student_ID", "name": {"$first": "$name"}}},
+            {"$project": {"_id": 0, "Student_ID": "$_id", "name": 1}}
+        ]
+        students = list(test_manager.db_manager.interviews.aggregate(pipeline))
+        return {"count": len(students), "students": students}
+    except Exception as e:
+        logger.error(f"Error fetching unique interview students: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve interview students")
+
+
+@app.get("/api/interview-students/{student_id}/interviews", response_class=JSONResponse)
+async def get_interviews_for_student(student_id: str):
+    """
+    Get all interview summaries for a given Student_ID.
+    """
+    try:
+        student_id_int = int(student_id)
+        results = list(test_manager.db_manager.interviews.find(
+            {"Student_ID": student_id_int},
+            {"_id": 0, "conversations": 0, "evaluation": 0}
+        ))
+        if not results:
+            raise HTTPException(status_code=404, detail="No interviews found for this student")
+        return {"count": len(results), "interviews": results}
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid student ID format")
+    except Exception as e:
+        logger.error(f"Error fetching interviews for student ID {student_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve interviews")

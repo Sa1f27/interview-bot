@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 # Constants
 INACTIVITY_TIMEOUT = 300
-TTS_SPEED = 1.5
+TTS_SPEED = 1.0
 
 # ========================
 # Models and schemas
@@ -140,7 +140,6 @@ class ConversationResponse(BaseModel):
     ended: bool
     response: str
     audio_path: str
-    feedback: Optional[str] = None
 
 class SummaryResponse(BaseModel):
     """Response model for test summary"""
@@ -353,10 +352,10 @@ class LLMManager:
         
         # Define prompts
         self.question_prompt = PromptTemplate.from_template("""
-        You are conducting a comprehensive voice-based test designed to last 15-20 minutes.
+        You are conducting a comprehensive voice-based test designed to last for at least 15 minutes.
         Your goal is to assess the student's deep understanding of the topic.
 
-        Start by using the provided Lecture Summary to form questions. As the test progresses,
+        Start by greeting the user and using the provided Lecture Summary to form questions. As the test progresses,
         you should broaden the scope and ask follow-up questions and related questions based on your general knowledge
         of the subject and. This will help evaluate their understanding beyond the summary.
 
@@ -378,40 +377,43 @@ class LLMManager:
         """)
         
         self.followup_prompt = PromptTemplate.from_template("""
-        You are conducting a comprehensive voice-based test (15-20 minutes).
+        You are an engaging and friendly interviewer. Your goal is to have a natural, flowing conversation with a student to understand their knowledge, not just to conduct a rigid test. Make the student feel comfortable. Use conversational language, show empathy, and react naturally to their answers.
 
-        Lecture Summary:
-        {summary}
+        **Your Persona:**
+        - **Curious and Encouraging:** Act genuinely interested in what they have to say. Use phrases like "That's interesting, can you tell me more about...", "Oh, that's a great point.", or "I see, so how does that connect to...".
+        - **Conversational, not Robotic:** Avoid stiff, formal language. Your questions should feel like a natural part of a conversation.
+        - **Empathetic:** If the user is struggling, be encouraging. You might say, "No worries, that's a tricky concept. Let's try looking at it from another angle." or "That's a common point of confusion."
+        - **Avoids Repetition:** Do not ask a question that is identical to one you've already asked in the 'Recent Conversation' history. You can re-approach a concept, but you must phrase the question differently.
 
-        Current concept being tested: {concept}
-
-        Conversation so far:
+        **Context of the Conversation:**
+        - **Topic:** Based on the Lecture Summary.
+        - **Lecture Summary:** {summary}
+        - **Current Concept:** {concept}
+        - **Recent Conversation:**
         {history}
+        - **Your Last Question:** {previous_question}
+        - **Their Response:** {user_response}
+        - **Progress:** This is question {current_question_number} out of {total_questions}.
 
-        Previous question: {previous_question}
-        User's response: {user_response}
-        This is  the current question :{current_question_number} out of {total_questions}. Ask the next follow-up question
+        **Your Task:**
+        Based on their response, decide how to continue the conversation.
 
-        Evaluate whether the user's response demonstrates understanding of the concept.
-        
-        If their response shows understanding:
-            - Extract a new key concept from the lecture that hasn't been covered.
-            - Formulate a follow-up question about that concept if the user is giving unique response.
-            - If all summary concepts are covered, introduce a related concept from your broader knowledge.
-            - Create a new question about the chosen concept.
-        
-        If their response does NOT show understanding:
-            - Ask a simpler follow-up question about the SAME concept to clarify their knowledge.
+        1.  **If they seem to understand:**
+            - Acknowledge their answer positively ("Great explanation!", "That makes sense.").
+            - Smoothly transition to a new, related concept from the summary or your own knowledge.
+            - Ask your next question conversationally.
 
-        if their response is totally off-topic:
-            - Gently guide them back to the topic and ask a new question.
+        2.  **If they seem to be struggling or are incorrect:**
+            - Be gentle and supportive. Don't say "You're wrong."
+            - Try to rephrase the question with simple english words or ask a simpler one about the **same concept** to help them. For example: "Okay, let's break that down a bit. What's the first step in that process?"
 
-        Format your response as:
+        3.  **If their response is off-topic:**
+            - Gently steer them back. For example: "That's an interesting thought. Let's bring it back to [the topic] for a moment."
+
+        **Output Format (Strictly follow this):**
         UNDERSTANDING: [YES or NO]
-        CONCEPT: [same concept or new concept]
-        QUESTION: [your follow-up question]
-        FEEDBACK: [brief constructive feedback - 1-2 sentences max]
-
+        CONCEPT: [The concept for your next question. Can be the same or new.]
+        QUESTION: [Your natural, conversational follow-up question. Do NOT include any preamble like "My question is...". Just the question itself.]
 
         """)
         
@@ -474,7 +476,7 @@ class LLMManager:
         })
         return self._parse_llm_response(
             response, 
-            ["UNDERSTANDING", "CONCEPT", "QUESTION", "FEEDBACK"]
+            ["UNDERSTANDING", "CONCEPT", "QUESTION"]
         )
     
     async def generate_evaluation(self, summary: str, conversation: str) -> str:
@@ -636,7 +638,7 @@ async def record_and_respond(
         if test.question_index >= total_questions:
             closing_message = "The test has ended. Thank you for your participation."
             audio_path = await AudioManager.text_to_speech(closing_message, test.voice)
-            return {"ended": True, "response": closing_message, "audio_path": audio_path, "feedback": "Test complete."}
+            return {"ended": True, "response": closing_message, "audio_path": audio_path}
 
         # Generate follow-up question using LLM
         history = test_manager.get_truncated_conversation_history(test_id)
@@ -655,7 +657,6 @@ async def record_and_respond(
         # Extract next question and other info
         next_question = followup_data.get("question", "Can you elaborate more on that?")
         next_concept = followup_data.get("concept", last_concept)
-        feedback = followup_data.get("feedback", "")
 
         # Update test log and synthesize speech
         test_manager.add_question(test_id, next_question, next_concept)
@@ -665,7 +666,6 @@ async def record_and_respond(
             "ended": False,
             "response": next_question,
             "audio_path": audio_path,
-            "feedback": feedback
         }
 
     except Exception as e:
@@ -886,3 +886,40 @@ async def get_test_by_id(test_id: str):
     except Exception as e:
         logger.error(f"Error fetching test {test_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to retrieve test")
+    
+    
+@app.get("/api/standup-students", response_class=JSONResponse)
+async def get_unique_standup_students():
+    """
+    Return distinct Student_ID and name from daily standup results.
+    """
+    try:
+        pipeline = [
+            {"$group": {"_id": "$Student_ID", "name": {"$first": "$name"}}},
+            {"$project": {"_id": 0, "Student_ID": "$_id", "name": 1}}
+        ]
+        students = list(db_manager.conversations.aggregate(pipeline))
+        return {"count": len(students), "students": students}
+    except Exception as e:
+        logger.error(f"Error fetching standup students: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve students")
+
+@app.get("/api/standup-students/{student_id}/tests", response_class=JSONResponse)
+async def get_tests_for_standup_student(student_id: str):
+    """
+    Get all test documents for a specific student, excluding conversation and evaluation.
+    """
+    try:
+        student_id_int = int(student_id)
+        results = list(db_manager.conversations.find(
+            {"Student_ID": student_id_int},
+            {"_id": 0, "conversation_log": 0, "evaluation": 0, "timestamp": 0}
+        ))
+        if not results:
+            raise HTTPException(status_code=404, detail="No tests found for this student")
+        return {"count": len(results), "tests": results}
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid student ID format")
+    except Exception as e:
+        logger.error(f"Error fetching tests for student ID {student_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve tests for student")

@@ -1205,3 +1205,32 @@ if db_manager and groq_client:
     logger.info(f"⚡ Status: Core systems operational")
 else:
     logger.error("❌ System initialization incomplete - some components failed")
+    
+
+@app.get("/api/students")
+async def get_unique_students():
+    try:
+        pipeline = [
+            {"$group": {"_id": "$Student_ID", "name": {"$first": "$name"}}},
+            {"$project": {"_id": 0, "Student_ID": "$_id", "name": 1}}
+        ]
+        students = list(db_manager.test_results_collection.aggregate(pipeline))
+        return JSONResponse(content={"count": len(students), "students": students})
+    except Exception as e:
+        logger.error(f"Error fetching student list: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch student list")
+
+
+@app.get("/api/students/{student_id}/tests")
+async def get_tests_for_student(student_id: str):
+    try:
+        results = list(db_manager.test_results_collection.find(
+            {"Student_ID": int(student_id)},
+            {"_id": 0, "qa_details": 0, "question_types": 0}
+        ))
+        if not results:
+            raise HTTPException(status_code=404, detail="No tests found for this student")
+        return JSONResponse(content={"count": len(results), "tests": results})
+    except Exception as e:
+        logger.error(f"Error fetching tests for student ID {student_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch tests for student: {str(e)}")
