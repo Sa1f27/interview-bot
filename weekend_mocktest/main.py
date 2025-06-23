@@ -851,7 +851,7 @@ def start_test(request: StartTestRequest):
     try:
         # Generate unique test ID
         test_id = str(uuid.uuid4())
-        total_questions = 3
+        total_questions = 10
         
         # Load authentic context from RAG
         transcript_content = db_manager.load_transcript_strict(

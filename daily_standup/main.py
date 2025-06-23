@@ -34,8 +34,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Constants
-TEST_DURATION_SEC = 120
-INACTIVITY_TIMEOUT = 120
+TEST_DURATION_SEC = 900  # 15 minutes
+INACTIVITY_TIMEOUT = 300
 TTS_SPEED = 1.2
 
 # ========================
@@ -360,8 +360,12 @@ class LLMManager:
         
         # Define prompts
         self.question_prompt = PromptTemplate.from_template("""
-        You are conducting a voice-based test. Analyze the lecture summary below to ask the next 
-        most important question to test the student's understanding of a key concept.
+        You are conducting a comprehensive voice-based test designed to last 15-20 minutes.
+        Your goal is to assess the student's deep understanding of the topic.
+
+        Start by using the provided Lecture Summary to form questions. As the test progresses,
+        you should broaden the scope and ask follow-up questions and related questions based on your general knowledge
+        of the subject and. This will help evaluate their understanding beyond the summary.
 
         Lecture Summary:
         {summary}
@@ -369,8 +373,10 @@ class LLMManager:
         Conversation so far:
         {history}
 
-        Extract one key concept from the lecture that hasn't been covered yet.
-        Then formulate a clear, concise question about that concept.
+        Instructions:
+        1. Extract a key concept from the lecture that hasn't been covered yet.
+        2. Formulate a clear, concise question about that concept.
+        3. If most concepts from the summary are covered, ask a more general or advanced question on the topic.
 
         First identify the concept, then ask one question about it.
         Format your response as:
@@ -379,7 +385,7 @@ class LLMManager:
         """)
         
         self.followup_prompt = PromptTemplate.from_template("""
-        You are conducting a voice-based test.
+        You are conducting a comprehensive voice-based test (15-20 minutes).
 
         Lecture Summary:
         {summary}
@@ -395,14 +401,16 @@ class LLMManager:
         Evaluate whether the user's response demonstrates understanding of the concept.
         
         If their response shows understanding:
-            - Extract a new key concept from the lecture that hasn't been covered
-            - Create a new question about that concept
+            - Extract a new key concept from the lecture that hasn't been covered.
+            - Formulate a follow-up question about that concept if the user is giving unique response.
+            - If all summary concepts are covered, introduce a related concept from your broader knowledge.
+            - Create a new question about the chosen concept.
         
         If their response does NOT show understanding:
-            - Ask a simpler follow-up question about the SAME concept
+            - Ask a simpler follow-up question about the SAME concept to clarify their knowledge.
 
         if their response is totally off-topic:
-            - Ask them to stay on topic and provide a new question
+            - Gently guide them back to the topic and ask a new question.
 
         Format your response as:
         UNDERSTANDING: [YES or NO]
@@ -412,7 +420,8 @@ class LLMManager:
         """)
         
         self.evaluation_prompt = PromptTemplate.from_template("""
-        You are evaluating a student's voice-based test on the topic below:
+        You are evaluating a student's performance in a comprehensive voice-based test on the topic below.
+        The test assessed understanding of both the provided summary and broader related knowledge.
 
         Lecture Summary:
         {summary}
@@ -420,15 +429,15 @@ class LLMManager:
         Full Q&A log:
         {conversation}
 
-        Generate a concise strict evaluation with:
-        1. Key strengths (2-3 points)
-        2. Areas for improvement (1-2 points)
-        3. How well they covered the core concepts
-        4. One specific recommendation for further study
+        Generate a concise, strict evaluation. Your response must include the following sections:
+        1. Key Strengths: (2-3 bullet points)
+        2. Areas for Improvement: (1-2 bullet points)
+        3. Concept Coverage: (Brief summary of how well they covered concepts from the summary and beyond)
+        4. Recommendation: (One specific recommendation for further study)
+        5. Final Score: A numeric score on a separate line, in the format 'Final Score: X/10'.
 
-        Be too much strict, constructive and specific. Give numeric scores too out of 10,
-        if the user is giving multiple irrelevant answers then give 0 out of 10.
-        Keep your evaluation under 200 words.
+        Be very strict with the score. If the user gave multiple irrelevant or off-topic answers, give a score of 0/10.
+        Keep the total evaluation under 200 words.
         """)
     
     def _parse_llm_response(self, response: str, keys: List[str]) -> Dict[str, str]:

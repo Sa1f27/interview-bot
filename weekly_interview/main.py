@@ -344,7 +344,7 @@ class LLMManager:
         } 
 
         self.evaluation_prompt = PromptTemplate.from_template("""
-        Evaluate this interview performance across all rounds. Provide specific scores and constructive feedback.
+        Evaluate this interview performance strictly across all rounds. Provide specific scores and constructive feedback.
         
         Technical Round Conversations:
         {technical_conversation}
@@ -361,7 +361,7 @@ class LLMManager:
         3. HR round - Score: X/10
         4. Overall recommendation and areas for improvement (2-3 sentences) - Overall Score: X/10
         
-        Keep the evaluation professional, constructive, and under 250 words.
+        Keep the evaluation professional, constructive, strict and under 250 words.
         """)
     
     async def generate_question(self, round_type: RoundType, history: str, 
