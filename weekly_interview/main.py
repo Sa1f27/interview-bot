@@ -224,7 +224,7 @@ class DatabaseManager:
 class LLMManager:
     def __init__(self):
         # Fixed model name and increased max_tokens for longer responses
-        self.llm = ChatOpenAI(model="gpt-4.1-mini", temperature=0.7, max_tokens=200)
+        self.llm = ChatOpenAI(model="gpt-4.1", temperature=0.8)
         self.parser = StrOutputParser()
         
         # prompts for each round in longer interviews

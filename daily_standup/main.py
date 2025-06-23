@@ -347,7 +347,7 @@ class LLMManager:
     """Manages LLM interactions for question generation and evaluation"""
     def __init__(self):
         # Initialize LLM
-        self.llm = ChatOpenAI(model="gpt-4o", temperature=0.2)
+        self.llm = ChatOpenAI(model="gpt-4.1", temperature=0.8)
         self.parser = StrOutputParser()
         
         # Define prompts
