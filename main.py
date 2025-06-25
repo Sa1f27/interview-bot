@@ -45,7 +45,7 @@ async def test():
 # Add entries here as "prefix": "module.path:app_variable"
 sub_apps = {
     "daily_standup":    "daily_standup.main:app",
-    "weekend_mocktest": "weekend_mocktest.main:app",
+    # "weekend_mocktest": "weekend_mocktest.main:app",
     "weekly_interview": "weekly_interview.main:app",
 }
 

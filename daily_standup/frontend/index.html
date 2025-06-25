@@ -145,10 +145,10 @@
 
   <div class="main-container">
     <div class="column">
-      <img src="./static/icons/ai.png" id="aiIcon" class="icon" />
+      <img src="https://192.168.48.31:8060/static/icons/ai.png" id="aiIcon" class="icon" />
     </div>
     <div class="column">
-      <img src="./static/icons/user.png" id="userIcon" class="icon" />
+      <img src="https://192.168.48.31:8060/static/icons/user.png" id="userIcon" class="icon" />
     </div>
   </div>
 
@@ -172,6 +172,7 @@
   </div>
 
   <script>
+  const API_BASE_URL = "https://192.168.48.31:8060";
   let testActive = false;
   let isRecording = false;
   let testId = null;
@@ -422,7 +423,7 @@
       formData.append("test_id", testId);
 
       log("Sending audio to backend...");
-      const response = await fetch("./record_and_respond", {
+      const response = await fetch(`${API_BASE_URL}/record_and_respond`, {
         method: "POST",
         body: formData,
       });
@@ -443,7 +444,7 @@
       
       // Play AI response audio
       if (data.audio_path) {
-        await playAudio(data.audio_path);
+        await playAudio(`${API_BASE_URL}${data.audio_path}`);
       }
 
       if (data.ended) {
@@ -465,7 +466,7 @@
   async function showSummary() {
     try {
       log("Fetching test summary...");
-      const response = await fetch(`./summary?test_id=${testId}`);
+      const response = await fetch(`${API_BASE_URL}/summary?test_id=${testId}`);
       const data = await response.json();
       
       log("Summary data received:", data);
@@ -485,7 +486,7 @@
       if (data.pdf_url) {
         downloadPdfBtn.style.display = "inline-block";
         downloadPdfBtn.onclick = () => {
-          window.location.href = data.pdf_url;
+          window.location.href = `${API_BASE_URL}${data.pdf_url}`;
         };
       }
     } catch (e) {
@@ -526,7 +527,7 @@
 
     try {
       log("Starting test...");
-      const response = await fetch("./start_test");
+      const response = await fetch(`${API_BASE_URL}/start_test`);
       
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -546,7 +547,9 @@
       setStatus(questionText);
       
       if (data.audio_path) {
-        await playAudio(data.audio_path);
+        await playAudio(`${API_BASE_URL}${data.audio_path}`);
+      } else {
+        log("No audio path provided for the question.");
       }
       
       if (testActive) {

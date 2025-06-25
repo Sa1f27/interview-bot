@@ -173,6 +173,8 @@ os.makedirs(TEMP_DIR, exist_ok=True)
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
+    # Allow all origins for development. For production, you should restrict
+    # this to your frontend's actual domain.
     allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
@@ -347,7 +349,7 @@ class LLMManager:
     """Manages LLM interactions for question generation and evaluation"""
     def __init__(self):
         # Initialize LLM
-        self.llm = ChatOpenAI(model="gpt-4.1", temperature=0.8)
+        self.llm = ChatOpenAI(model="gpt-4.1-mini", temperature=0.8)
         self.parser = StrOutputParser()
         
         # Define prompts
@@ -393,7 +395,7 @@ class LLMManager:
         The user has answered a test question.
         1.  **If they seem to understand:** Acknowledge their answer positively ("Great explanation!") and ask a follow-up question on a new, related concept.
         2.  **If they seem to be struggling or are incorrect:** Be gentle and supportive. Rephrase the question or ask a simpler one about the **same concept**.
-        3.  **If their response is off-topic or inappropriate:** Gently steer them back to the topic.
+        3.  **If their response is off-topic or inappropriate (using vulgar language):** Gently steer them back to the topic or ask to watch their language.
 
         **Output Format (Strictly follow this):**
         UNDERSTANDING: [YES or NO]
@@ -501,16 +503,22 @@ class AudioManager:
         try:
             AudioManager.clean_audio_folder()
             await edge_tts.Communicate(text, voice).save(raw_path)
-            
-            # Speed up the audio
+
             subprocess.run([
                 "ffmpeg", "-y", "-i", raw_path,
                 "-filter:a", f"atempo={speed}", "-vn", final_path
             ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            
+
             os.remove(raw_path)
-            if os.path.exists(final_path):
-                return f"./audio/{os.path.basename(final_path)}"
+            # Wait up to 1 second for file to appear
+            for _ in range(10):
+                if os.path.exists(final_path):
+                    return f"./audio/{os.path.basename(final_path)}"
+                time.sleep(0.1)
+
+            logger.error(f"TTS final audio file missing after wait: {final_path}")
+            return None
+
         except Exception as e:
             logger.error(f"Text-to-speech error: {e}")
         
