@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request, HTTPException, Depends
-from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import os
@@ -35,7 +35,10 @@ logger = logging.getLogger(__name__)
 
 # Constants
 INACTIVITY_TIMEOUT = 300
-TTS_SPEED = 1.0
+TTS_SPEED = 1.8
+
+# Environment configuration
+FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "*")  # Configure via environment variable
 
 # ========================
 # Models and schemas
@@ -134,6 +137,7 @@ class TestResponse(BaseModel):
     test_id: str
     question: str
     audio_path: str
+    duration_sec: int
 
 class ConversationResponse(BaseModel):
     """Response model for conversation updates"""
@@ -154,39 +158,57 @@ class SummaryResponse(BaseModel):
 async def lifespan(app: FastAPI):
     """Application lifespan context manager"""
     # Startup
-    logger.info("Daily standup system starting up...")
+    logger.info("Daily standup API server starting up...")
     yield
     # Shutdown
     db_manager.close()
     AudioManager.clean_audio_folder()
-    logger.info("Daily standup system shut down")
+    logger.info("Daily standup API server shut down")
 
-app = FastAPI(title="Voice-Based Testing System", lifespan=lifespan)
+app = FastAPI(
+    title="Daily Standup Voice Testing API", 
+    description="API for voice-based daily standup testing system",
+    version="1.0.0",
+    lifespan=lifespan
+)
 
-# Get base directory
+# Get base directory and setup paths
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
 AUDIO_DIR = os.path.join(BASE_DIR, "audio")
 TEMP_DIR = os.path.join(BASE_DIR, "temp")
 os.makedirs(TEMP_DIR, exist_ok=True)
-
-# Add CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    # Allow all origins for development. For production, you should restrict
-    # this to your frontend's actual domain.
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Ensure audio directory exists
 os.makedirs(AUDIO_DIR, exist_ok=True)
 
-# Mount static directories
-app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "frontend")), name="static")
+# ========================
+# CORS Configuration
+# ========================
+def setup_cors(app: FastAPI, frontend_origin: str):
+    """Setup CORS middleware with configurable origins"""
+    if frontend_origin == "*":
+        # Development mode - allow all origins
+        logger.warning("CORS configured for ALL origins - NOT RECOMMENDED FOR PRODUCTION")
+        allowed_origins = ["*"]
+    else:
+        # Production mode - specific origins
+        allowed_origins = [origin.strip() for origin in frontend_origin.split(",")]
+        logger.info(f"CORS configured for origins: {allowed_origins}")
+    
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=allowed_origins,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=["*"],
+    )
+
+setup_cors(app, FRONTEND_ORIGIN)
+
+# ========================
+# Static Audio File Serving
+# ========================
+# Mount audio directory to serve generated audio files over HTTP/HTTPS
 app.mount("/audio", StaticFiles(directory=AUDIO_DIR), name="audio")
+logger.info(f"Audio files served from: /audio (directory: {AUDIO_DIR})")
 
 # ========================
 # Database setup
@@ -228,8 +250,13 @@ class DatabaseManager:
         """Save test data to the conversation collection"""
         try:
             # Fetch random student ID from SQL Server
-            student_id, first_name, last_name, session_id = fetch_random_student_info()
-            name = first_name + " " + last_name if first_name and last_name else "Unknown Student"
+            student_info = fetch_random_student_info()
+            if not student_info:
+                logger.error("Failed to fetch student info from SQL Server")
+                return False
+                
+            student_id, first_name, last_name, session_id = student_info
+            name = f"{first_name} {last_name}" if first_name and last_name else "Unknown Student"
             
             # Extract score from evaluation text
             import re
@@ -338,6 +365,19 @@ class TestManager:
         if test.conversation_log:
             test.conversation_log[-1].answer = answer
     
+    def cleanup_expired_tests(self):
+        """Remove expired test sessions"""
+        current_time = time.time()
+        expired_tests = [
+            tid for tid, test in self.tests.items()
+            if current_time > test.last_activity + INACTIVITY_TIMEOUT * 2
+        ]
+        
+        for tid in expired_tests:
+            self.tests.pop(tid, None)
+        
+        return len(expired_tests)
+
 # Initialize test manager
 test_manager = TestManager()
 
@@ -448,7 +488,8 @@ class LLMManager:
                               previous_question: str, 
                               user_response: str,
                               concept: str,
-                              current_question_number: int, total_questions: int) -> Dict[str, str]:
+                              current_question_number: int, 
+                              total_questions: int) -> Dict[str, str]:
         """Generate a follow-up question based on the user's response"""
         chain = self.followup_prompt | self.llm | self.parser
         response = await chain.ainvoke({
@@ -477,21 +518,37 @@ class LLMManager:
 llm_manager = LLMManager()
 
 # ========================
-# Audio utilities (Simplified)
+# Audio utilities
 # ========================
 
 class AudioManager:
-    """Manages audio transcription and text-to-speech (no longer handles recording)"""
+    """Manages audio transcription and text-to-speech"""
     
     @staticmethod
     def clean_audio_folder():
         """Clean up old audio files"""
-        for filename in os.listdir(AUDIO_DIR):
-            if filename.endswith(".mp3") and os.path.getmtime(os.path.join(AUDIO_DIR, filename)) < time.time() - 3600:
-                try:
-                    os.remove(os.path.join(AUDIO_DIR, filename))
-                except Exception as e:
-                    logger.warning(f"Failed to delete {filename}: {e}")
+        try:
+            current_time = time.time()
+            cleanup_count = 0
+            
+            for filename in os.listdir(AUDIO_DIR):
+                if filename.endswith(".mp3"):
+                    file_path = os.path.join(AUDIO_DIR, filename)
+                    file_age = current_time - os.path.getmtime(file_path)
+                    
+                    # Remove files older than 1 hour
+                    if file_age > 3600:
+                        try:
+                            os.remove(file_path)
+                            cleanup_count += 1
+                        except Exception as e:
+                            logger.warning(f"Failed to delete {filename}: {e}")
+            
+            if cleanup_count > 0:
+                logger.info(f"Cleaned up {cleanup_count} old audio files")
+                
+        except Exception as e:
+            logger.error(f"Error during audio cleanup: {e}")
     
     @staticmethod
     async def text_to_speech(text: str, voice: str, speed: float = TTS_SPEED) -> Optional[str]:
@@ -501,26 +558,40 @@ class AudioManager:
         final_path = os.path.join(AUDIO_DIR, f"ai_{timestamp}.mp3")
         
         try:
+            # Clean old files before generating new ones
             AudioManager.clean_audio_folder()
+            
+            # Generate TTS audio
             await edge_tts.Communicate(text, voice).save(raw_path)
 
+            # Apply speed adjustment with ffmpeg
             subprocess.run([
                 "ffmpeg", "-y", "-i", raw_path,
                 "-filter:a", f"atempo={speed}", "-vn", final_path
-            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
 
-            os.remove(raw_path)
-            # Wait up to 1 second for file to appear
+            # Clean up raw file
+            if os.path.exists(raw_path):
+                os.remove(raw_path)
+            
+            # Wait for final file to appear and return relative path
             for _ in range(10):
                 if os.path.exists(final_path):
-                    return f"./audio/{os.path.basename(final_path)}"
-                time.sleep(0.1)
+                    return f"/audio/{os.path.basename(final_path)}"
+                await asyncio.sleep(0.1)
 
             logger.error(f"TTS final audio file missing after wait: {final_path}")
             return None
 
         except Exception as e:
             logger.error(f"Text-to-speech error: {e}")
+            # Clean up any partial files
+            for path in [raw_path, final_path]:
+                if os.path.exists(path):
+                    try:
+                        os.remove(path)
+                    except:
+                        pass
         
         return None
     
@@ -529,7 +600,6 @@ class AudioManager:
         """Transcribe audio using Groq's Whisper API"""
         logger.info(f"Transcribing audio: {filepath}")
         try:
-            # Using ChatGroq for transcription (using Whisper)
             from groq import Groq
             groq_client = Groq()
             
@@ -539,11 +609,14 @@ class AudioManager:
                     model="whisper-large-v3-turbo",
                     response_format="verbose_json"
                 )
-            return result.text.strip()
+            
+            transcribed_text = result.text.strip()
+            logger.info(f"Transcription successful: {transcribed_text[:100]}...")
+            return transcribed_text
             
         except Exception as e:
             logger.error(f"Transcription error: {e}")
-            raise
+            raise HTTPException(status_code=500, detail=f"Audio transcription failed: {str(e)}")
 
 # ========================
 # Helper functions
@@ -558,10 +631,32 @@ def get_random_voice() -> str:
 # API Endpoints
 # ========================
 
-@app.get("/", response_class=HTMLResponse)
-async def home():
-    """Serve the main application page"""
-    return FileResponse(os.path.join(BASE_DIR, "frontend", "index.html"))
+@app.get("/health", tags=["health"])
+async def health_check():
+    """Health check endpoint"""
+    return {
+        "status": "healthy",
+        "service": "Daily Standup Voice Testing API",
+        "timestamp": time.time()
+    }
+
+@app.get("/api/info", tags=["info"])
+async def api_info():
+    """API information endpoint"""
+    return {
+        "name": "Daily Standup Voice Testing API",
+        "version": "1.0.0",
+        "description": "Voice-based daily standup testing system",
+        "endpoints": {
+            "start_test": "POST /start_test - Start a new test session",
+            "record_and_respond": "POST /record_and_respond - Process audio response",
+            "summary": "GET /summary?test_id={id} - Get test evaluation",
+            "download_results": "GET /api/download_results/{test_id} - Download PDF results",
+            "tests": "GET /api/tests - Get all test results",
+            "cleanup": "GET /cleanup - Clean up resources"
+        },
+        "audio_serving": "/audio/{filename} - Serve generated audio files"
+    }
 
 @app.get("/start_test", response_model=TestResponse)
 async def start_test():
@@ -588,65 +683,89 @@ async def start_test():
         return {
             "test_id": test_id, 
             "question": question, 
-            "audio_path": audio_path,
+            "audio_path": audio_path or "",
+            "duration_sec": 900  # 15 minutes default
         }
     
     except Exception as e:
         logger.error(f"Error starting test: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to start test: {str(e)}")
 
 from fastapi import UploadFile, File, Form
-from fastapi.responses import JSONResponse
 
 @app.post("/record_and_respond", response_model=ConversationResponse)
 async def record_and_respond(
     audio: UploadFile = File(...),
     test_id: str = Form(...)
 ):
-    total_questions = 5 # Configurable total questions
     """Process user's uploaded audio response and provide the next question"""
+    total_questions = 2  # Configurable total questions
+    
     try:
         test = test_manager.validate_test(test_id)
 
+        # Validate uploaded file
+        if not audio.content_type or not audio.content_type.startswith('audio/'):
+            raise HTTPException(status_code=400, detail="Invalid audio file format")
+
         # Save uploaded audio to file system
-        audio_filename = os.path.join(TEMP_DIR, f"user_audio_{int(time.time())}.webm")
-        with open(audio_filename, "wb") as f:
-            f.write(await audio.read())
+        audio_filename = os.path.join(TEMP_DIR, f"user_audio_{int(time.time())}_{test_id}.webm")
+        try:
+            content = await audio.read()
+            if len(content) == 0:
+                raise HTTPException(status_code=400, detail="Empty audio file received")
+                
+            with open(audio_filename, "wb") as f:
+                f.write(content)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to save audio file: {str(e)}")
 
         # Transcribe the uploaded audio
-        user_response = AudioManager.transcribe(audio_filename)
-        logger.info(f"Transcribed user response: {user_response}")
-
-        # Clean up the temporary audio file
         try:
-            os.remove(audio_filename)
+            user_response = AudioManager.transcribe(audio_filename)
+            if not user_response.strip():
+                raise HTTPException(status_code=400, detail="No speech detected in audio")
         except Exception as e:
-            logger.warning(f"Failed to clean up audio file: {e}")
+            raise HTTPException(status_code=500, detail=f"Audio transcription failed: {str(e)}")
+        finally:
+            # Clean up the temporary audio file
+            try:
+                if os.path.exists(audio_filename):
+                    os.remove(audio_filename)
+            except Exception as e:
+                logger.warning(f"Failed to clean up audio file {audio_filename}: {e}")
+
+        logger.info(f"Test {test_id}: Transcribed user response: {user_response}")
 
         # Log the user's answer
         test_manager.add_answer(test_id, user_response)
 
-        # Check if the test is now complete (i.e., user has answered the last question)
+        # Check if the test is now complete
         if test.question_index >= total_questions:
             closing_message = "The test has ended. Thank you for your participation."
             audio_path = await AudioManager.text_to_speech(closing_message, test.voice)
-            return {"ended": True, "response": closing_message, "audio_path": audio_path}
+            return {
+                "ended": True, 
+                "response": closing_message, 
+                "audio_path": audio_path or ""
+            }
 
         # Generate follow-up question using LLM
         history = test_manager.get_truncated_conversation_history(test_id)
         last_question = test.conversation_log[-1].question
         last_concept = test.current_concept or test.conversation_log[-1].concept
+        
         followup_data = await llm_manager.generate_followup(
             test.summary,
             history,
             last_question,
             user_response,
             last_concept,
-            # Pass the number for the *next* question to be generated
-            test.question_index + 1, 
-            total_questions)
+            test.question_index + 1,  # Next question number
+            total_questions
+        )
 
-        # Extract next question and other info
+        # Extract next question and concept
         next_question = followup_data.get("question", "Can you elaborate more on that?")
         next_concept = followup_data.get("concept", last_concept)
 
@@ -657,12 +776,14 @@ async def record_and_respond(
         return {
             "ended": False,
             "response": next_question,
-            "audio_path": audio_path,
+            "audio_path": audio_path or "",
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error processing response: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error processing response for test {test_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @app.get("/summary", response_model=SummaryResponse)
 async def get_summary(test_id: str):
@@ -703,14 +824,15 @@ async def get_summary(test_id: str):
                 "avg_response_length": round(avg_length, 1),
                 "concept_coverage": concept_coverage
             },
-            "pdf_url": f"./download_results/{test_id}"
+            "pdf_url": f"/api/download_results/{test_id}"
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error generating summary: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error generating summary for test {test_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate summary: {str(e)}")
 
-# Cleanup endpoint
 @app.get("/cleanup")
 async def cleanup_resources():
     """Clean up audio files and expired tests"""
@@ -719,20 +841,17 @@ async def cleanup_resources():
         AudioManager.clean_audio_folder()
         
         # Clean up expired tests
-        current_time = time.time()
-        expired_tests = [
-            tid for tid, test in test_manager.tests.items()
-            if current_time > test.last_activity + INACTIVITY_TIMEOUT * 2
-        ]
+        expired_count = test_manager.cleanup_expired_tests()
         
-        for tid in expired_tests:
-            test_manager.tests.pop(tid, None)
-        
-        return {"message": f"Cleaned up {len(expired_tests)} expired tests and old audio files"}
+        return {
+            "message": f"Cleaned up {expired_count} expired tests and old audio files",
+            "expired_tests": expired_count,
+            "timestamp": time.time()
+        }
     
     except Exception as e:
         logger.error(f"Error during cleanup: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Cleanup failed: {str(e)}")
  
 @app.get("/api/download_results/{test_id}")
 async def download_results_pdf(test_id: str):
@@ -859,7 +978,11 @@ async def get_all_tests():
             {}, 
             {"_id": 0, "conversation_log": 0, "evaluation": 0, "timestamp": 0}
         ))
-        return {"tests": results}
+        return {
+            "tests": results,
+            "count": len(results),
+            "timestamp": time.time()
+        }
     except Exception as e:
         logger.error(f"Error fetching all tests: {e}")
         raise HTTPException(status_code=500, detail="Failed to retrieve tests")
@@ -875,43 +998,225 @@ async def get_test_by_id(test_id: str):
         if not result:
             raise HTTPException(status_code=404, detail="Test not found")
         return result
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error fetching test {test_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to retrieve test")
     
-    
 @app.get("/api/standup-students", response_class=JSONResponse)
 async def get_unique_standup_students():
-    """
-    Return distinct Student_ID and name from daily standup results.
-    """
+    """Return distinct Student_ID and name from daily standup results."""
     try:
         pipeline = [
             {"$group": {"_id": "$Student_ID", "name": {"$first": "$name"}}},
-            {"$project": {"_id": 0, "Student_ID": "$_id", "name": 1}}
+            {"$project": {"_id": 0, "Student_ID": "$_id", "name": 1}},
+            {"$sort": {"Student_ID": 1}}
         ]
         students = list(db_manager.conversations.aggregate(pipeline))
-        return {"count": len(students), "students": students}
+        return {
+            "count": len(students), 
+            "students": students,
+            "timestamp": time.time()
+        }
     except Exception as e:
         logger.error(f"Error fetching standup students: {e}")
         raise HTTPException(status_code=500, detail="Failed to retrieve students")
 
 @app.get("/api/standup-students/{student_id}/tests", response_class=JSONResponse)
 async def get_tests_for_standup_student(student_id: str):
-    """
-    Get all test documents for a specific student, excluding conversation and evaluation.
-    """
+    """Get all test documents for a specific student, excluding conversation and evaluation."""
     try:
         student_id_int = int(student_id)
         results = list(db_manager.conversations.find(
             {"Student_ID": student_id_int},
             {"_id": 0, "conversation_log": 0, "evaluation": 0, "timestamp": 0}
-        ))
+        ).sort("timestamp", -1))  # Sort by most recent first
+        
         if not results:
             raise HTTPException(status_code=404, detail="No tests found for this student")
-        return {"count": len(results), "tests": results}
+        
+        return {
+            "count": len(results), 
+            "tests": results,
+            "student_id": student_id_int,
+            "timestamp": time.time()
+        }
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid student ID format")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error fetching tests for student ID {student_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to retrieve tests for student")
+
+# ========================
+# Additional API endpoints for monitoring
+# ========================
+
+@app.get("/api/stats", response_class=JSONResponse)
+async def get_system_stats():
+    """Get system statistics"""
+    try:
+        # Count active tests
+        active_tests = len(test_manager.tests)
+        
+        # Count audio files
+        audio_files = len([f for f in os.listdir(AUDIO_DIR) if f.endswith('.mp3')])
+        
+        # Get database stats
+        total_tests = db_manager.conversations.count_documents({})
+        
+        return {
+            "active_test_sessions": active_tests,
+            "audio_files_on_disk": audio_files,
+            "total_completed_tests": total_tests,
+            "audio_directory": AUDIO_DIR,
+            "temp_directory": TEMP_DIR,
+            "cors_origins": FRONTEND_ORIGIN,
+            "timestamp": time.time()
+        }
+    except Exception as e:
+        logger.error(f"Error fetching system stats: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve system statistics")
+
+@app.delete("/api/tests/{test_id}")
+async def delete_test_result(test_id: str):
+    """Delete a specific test result from the database"""
+    try:
+        result = db_manager.conversations.delete_one({"test_id": test_id})
+        
+        if result.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Test not found")
+        
+        logger.info(f"Deleted test result: {test_id}")
+        return {
+            "message": f"Test {test_id} deleted successfully",
+            "deleted_count": result.deleted_count,
+            "timestamp": time.time()
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting test {test_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete test")
+
+# ========================
+# Error handlers
+# ========================
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """Custom HTTP exception handler"""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": exc.detail,
+            "status_code": exc.status_code,
+            "timestamp": time.time(),
+            "path": str(request.url.path)
+        }
+    )
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    """General exception handler for unhandled errors"""
+    logger.error(f"Unhandled exception on {request.url.path}: {exc}")
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "Internal server error",
+            "message": "An unexpected error occurred",
+            "timestamp": time.time(),
+            "path": str(request.url.path)
+        }
+    )
+
+@app.get("/")
+async def daily_standup_root():
+    """Root endpoint for daily standup sub-app - provides API information"""
+    return {
+        "service": "Daily Standup Voice Testing API",
+        "version": "1.0.0",
+        "status": "running",
+        "base_url": "/daily_standup",
+        "endpoints": {
+            "health": "/daily_standup/health",
+            "start_test": "/daily_standup/start_test", 
+            "record_and_respond": "/daily_standup/record_and_respond",
+            "summary": "/daily_standup/summary",
+            "download_pdf": "/daily_standup/api/download_results/{test_id}",
+            "all_tests": "/daily_standup/api/tests",
+            "students": "/daily_standup/api/standup-students",
+            "cleanup": "/daily_standup/cleanup",
+            "audio_files": "/daily_standup/audio/{filename}"
+        },
+        "timestamp": time.time()
+    }
+    
+@app.get("/debug/test-mongo") # https://192.168.48.31:8060/daily_standup/debug/test-mongo
+async def test_mongodb_connection():
+    """Debug endpoint to test MongoDB connection and data"""
+    try:
+        # Test MongoDB connection
+        count = db_manager.conversations.count_documents({})
+        
+        # Get recent test
+        recent_test = db_manager.conversations.find_one(
+            {}, 
+            sort=[("timestamp", -1)]
+        )
+        
+        return {
+            "mongodb_connected": True,
+            "total_tests_saved": count,
+            "latest_test": {
+                "test_id": recent_test.get("test_id") if recent_test else None,
+                "timestamp": recent_test.get("timestamp") if recent_test else None,
+                "name": recent_test.get("name") if recent_test else None
+            } if recent_test else None
+        }
+    except Exception as e:
+        return {
+            "mongodb_connected": False,
+            "error": str(e)
+        }
+        
+        
+# ========================
+# Development utilities
+# ========================
+
+if __name__ == "__main__":
+    import uvicorn
+    import socket
+    
+    def get_local_ip():
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+        except Exception:
+            ip = "127.0.0.1"
+        finally:
+            s.close()
+        return ip
+
+    local_ip = get_local_ip()
+    port = 8061  # Different port to avoid conflicts with main launcher
+    
+    print(f"🚀 Starting Daily Standup API Server")
+    print(f"📡 Server: https://{local_ip}:{port}")
+    print(f"📋 API Docs: https://{local_ip}:{port}/docs")
+    print(f"🔊 Audio Files: https://{local_ip}:{port}/audio/")
+    print(f"🌐 CORS Origins: {FRONTEND_ORIGIN}")
+    
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=port,
+        reload=True,
+        log_level="info",
+        ssl_certfile="certs/cert.pem",
+        ssl_keyfile="certs/key.pem",
+    )

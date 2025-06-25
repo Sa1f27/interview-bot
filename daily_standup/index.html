@@ -167,7 +167,7 @@
         let hasSpoken = false;
         
         // Configuration
-        const API_BASE_URL = window.location.origin; // Use relative path for sub-module
+        const API_BASE_URL = 'https://192.168.48.31:8060/daily_standup';
         const SILENCE_THRESHOLD = 0.01;
         const SILENCE_DURATION = 2000; // 2 seconds
         const MAX_RECORDING_DURATION = 15000; // 15 seconds
@@ -427,8 +427,6 @@
                 }
 
                 if (data.ended) {
-                    // Test ended - automatically get summary and save results
-                    await getTestSummary();
                     endConversation('Test completed successfully');
                 } else if (conversationState !== 'ended') {
                     // Continue with next question cycle
@@ -492,93 +490,6 @@
             }
         }
 
-        // Get test summary and display results
-        async function getTestSummary() {
-            if (!testId) {
-                log('No test ID available for summary', 'error');
-                return;
-            }
-
-            try {
-                updateStatus('GENERATING SUMMARY', 'Generating test evaluation and saving results...');
-                log('Fetching test summary and saving to database...');
-                
-                const response = await fetch(`${API_BASE_URL}/summary?test_id=${testId}`);
-                const data = await response.json();
-                
-                if (response.ok) {
-                    log('✅ Test summary generated and saved to MongoDB', 'success');
-                    
-                    // Display results in the status area
-                    displayTestResults(data);
-                    
-                    // Show download option
-                    if (data.pdf_url) {
-                        showDownloadOption(data.pdf_url);
-                    }
-                } else {
-                    throw new Error(data.detail || 'Failed to generate summary');
-                }
-            } catch (error) {
-                log(`❌ Failed to get summary: ${error.message}`, 'error');
-                updateStatus('ERROR', `Summary generation failed: ${error.message}`);
-            }
-        }
-
-        // Display test results
-        function displayTestResults(summaryData) {
-            const summary = summaryData.summary || 'No evaluation available';
-            const analytics = summaryData.analytics || {};
-            
-            // Update status with results
-            updateStatus('RESULTS READY', 'Test completed! Results saved to database.');
-            
-            // Add results to log
-            log('=== TEST RESULTS ===', 'success');
-            log(`Questions Answered: ${analytics.num_questions || 0}`, 'success');
-            log(`Average Response Length: ${analytics.avg_response_length || 0} words`, 'success');
-            log(`Concept Coverage: ${analytics.concept_coverage || 0} concepts`, 'success');
-            log('=== EVALUATION ===', 'success');
-            log(summary, 'success');
-            
-            // Create results display in status message
-            const resultsHtml = `
-                <div style="text-align: left; margin-top: 15px;">
-                    <strong>📊 Test Analytics:</strong><br>
-                    • Questions: ${analytics.num_questions || 0}<br>
-                    • Avg Response: ${analytics.avg_response_length || 0} words<br>
-                    • Concepts Covered: ${analytics.concept_coverage || 0}<br><br>
-                    <strong>📝 Evaluation:</strong><br>
-                    <div style="background: #f8f9fa; padding: 10px; border-radius: 4px; margin-top: 5px; font-size: 14px;">
-                        ${summary.replace(/\n/g, '<br>')}
-                    </div>
-                </div>
-            `;
-            
-            statusMessage.innerHTML = resultsHtml;
-        }
-
-        // Show download option
-        function showDownloadOption(pdfUrl) {
-            const downloadBtn = document.createElement('button');
-            downloadBtn.textContent = '📄 Download PDF Results';
-            downloadBtn.style.marginTop = '15px';
-            downloadBtn.style.backgroundColor = '#17a2b8';
-            downloadBtn.style.color = 'white';
-            downloadBtn.style.border = 'none';
-            downloadBtn.style.padding = '10px 20px';
-            downloadBtn.style.borderRadius = '4px';
-            downloadBtn.style.cursor = 'pointer';
-            
-            downloadBtn.onclick = () => {
-                window.open(`${API_BASE_URL}${pdfUrl}`, '_blank');
-                log('PDF download initiated', 'success');
-            };
-            
-            // Add button after the control button
-            controlBtn.parentNode.insertBefore(downloadBtn, controlBtn.nextSibling);
-        }
-
         // End conversation
         function endConversation(reason) {
             updateConversationState('ended');
@@ -601,12 +512,6 @@
             
             testId = null;
             testIdDisplay.style.display = 'none';
-            
-            // Remove any download button
-            const downloadBtn = document.querySelector('button[style*="background-color: rgb(23, 162, 184)"]');
-            if (downloadBtn) {
-                downloadBtn.remove();
-            }
             
             controlBtn.textContent = '🎤 Start Conversation';
             controlBtn.className = 'start-btn';
