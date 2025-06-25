@@ -699,7 +699,7 @@ async def record_and_respond(
     test_id: str = Form(...)
 ):
     """Process user's uploaded audio response and provide the next question"""
-    total_questions = 2  # Configurable total questions
+    total_questions = 5  # Configurable total questions
     
     try:
         test = test_manager.validate_test(test_id)
