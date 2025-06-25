@@ -352,69 +352,53 @@ class LLMManager:
         
         # Define prompts
         self.question_prompt = PromptTemplate.from_template("""
-        You are conducting a comprehensive voice-based test designed to last for at least 15 minutes.
-        Your goal is to assess the student's deep understanding of the topic.
+        You are a friendly and engaging proctor for a voice-based test. Your first job is to make the student feel comfortable.
 
-        Start by greeting the user and using the provided Lecture Summary to form questions. As the test progresses,
-        you should broaden the scope and ask follow-up questions and related questions based on your general knowledge
-        of the subject and. This will help evaluate their understanding beyond the summary.
+        **Your Task:**
+        Start the conversation with a warm, friendly greeting and a general ice-breaker question.
+        For example: "Hi there, how are you doing today?" or "Hello! How was your day?".
+        Do NOT ask any questions about the lecture summary yet. This is just a warm-up.
 
-        Lecture Summary:
-        {summary}
+        **Context (for your information only, do not use yet):**
+        Lecture Summary: {summary}
+        Conversation so far: {history}
 
-        Conversation so far:
-        {history}
-
-        Instructions:
-        1. Extract a key concept from the lecture that hasn't been covered yet.
-        2. Formulate a clear, concise question about that concept.
-        3. If most concepts from the summary are covered, ask a more general or advanced question on the topic.
-
-        First identify the concept, then ask one question about it.
-        Format your response as:
-        CONCEPT: [the concept]
-        QUESTION: [your question]
+        **Output Format (Strictly follow this):**
+        CONCEPT: greeting
+        QUESTION: [Your friendly greeting and ice-breaker question]
         """)
         
         self.followup_prompt = PromptTemplate.from_template("""
-        You are an engaging and friendly interviewer. Your goal is to have a natural, flowing conversation with a student to understand their knowledge, not just to conduct a rigid test. Make the student feel comfortable. Use conversational language, show empathy, and react naturally to their answers.
+        You are an engaging and friendly interviewer conducting a voice-based test. Your goal is to have a natural, flowing conversation.
 
-        **Your Persona:**
-        - **Curious and Encouraging:** Act genuinely interested in what they have to say. Use phrases like "That's interesting, can you tell me more about...", "Oh, that's a great point.", or "I see, so how does that connect to...".
-        - **Conversational, not Robotic:** Avoid stiff, formal language. Your questions should feel like a natural part of a conversation.
-        - **Empathetic:** If the user is struggling, be encouraging. You might say, "No worries, that's a tricky concept. Let's try looking at it from another angle." or "That's a common point of confusion."
-        - **Avoids Repetition:** Do not ask a question that is identical to one you've already asked in the 'Recent Conversation' history. You can re-approach a concept, but you must phrase the question differently.
-
-        **Context of the Conversation:**
-        - **Topic:** Based on the Lecture Summary.
+        **Context:**
         - **Lecture Summary:** {summary}
         - **Current Concept:** {concept}
-        - **Recent Conversation:**
+        - **Recent Conversation History:**
         {history}
         - **Your Last Question:** {previous_question}
-        - **Their Response:** {user_response}
-        - **Progress:** This is question {current_question_number} out of {total_questions}.
+        - **Student's Response:** {user_response}
+        - **Progress:** This is question {current_question_number} of {total_questions}.
 
         **Your Task:**
-        Based on their response, decide how to continue the conversation.
+        
+        **IF THE 'Current Concept' IS 'greeting':**
+        The user has just responded to your ice-breaker. Your job is to transition to the test.
+        1. Acknowledge their response briefly and positively (e.g., "Glad to hear it!").
+        2. Announce the start of the test (e.g., "Alright, let's dive into the first question.").
+        3. Formulate the first real test question based on a key concept from the **Lecture Summary**.
+        4. In your output, set UNDERSTANDING to YES.
 
-        1.  **If they seem to understand:**
-            - Acknowledge their answer positively ("Great explanation!", "That makes sense.").
-            - Smoothly transition to a new, related concept from the summary or your own knowledge.
-            - Ask your next question conversationally.
-
-        2.  **If they seem to be struggling or are incorrect:**
-            - Be gentle and supportive. Don't say "You're wrong."
-            - Try to rephrase the question with simple english words or ask a simpler one about the **same concept** to help them. For example: "Okay, let's break that down a bit. What's the first step in that process?"
-
-        3.  **If their response is off-topic:**
-            - Gently steer them back. For example: "That's an interesting thought. Let's bring it back to [the topic] for a moment."
+        **OTHERWISE (for all other concepts):**
+        The user has answered a test question.
+        1.  **If they seem to understand:** Acknowledge their answer positively ("Great explanation!") and ask a follow-up question on a new, related concept.
+        2.  **If they seem to be struggling or are incorrect:** Be gentle and supportive. Rephrase the question or ask a simpler one about the **same concept**.
+        3.  **If their response is off-topic or inappropriate:** Gently steer them back to the topic.
 
         **Output Format (Strictly follow this):**
         UNDERSTANDING: [YES or NO]
-        CONCEPT: [The concept for your next question. Can be the same or new.]
-        QUESTION: [Your natural, conversational follow-up question. Do NOT include any preamble like "My question is...". Just the question itself.]
-
+        CONCEPT: [The concept for your next question. If greeting, this is the concept of the first test question.]
+        QUESTION: [Your natural, conversational question. No preamble like "My question is...".]
         """)
         
         self.evaluation_prompt = PromptTemplate.from_template("""
