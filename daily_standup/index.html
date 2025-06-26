@@ -221,7 +221,7 @@
         let preparationTimer = null;
         
         // Configuration
-        const API_BASE_URL = 'https://192.168.48.11:8060/daily_standup';
+        const API_BASE_URL = window.location.origin + '/daily_standup';
         const SILENCE_THRESHOLD = 0.01;
         const SILENCE_DURATION = 2000; // 2 seconds
         const MAX_RECORDING_DURATION = 15000; // 15 seconds

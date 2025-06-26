@@ -35,8 +35,8 @@ logger = logging.getLogger(__name__)
 
 # Constants
 INACTIVITY_TIMEOUT = 300
-TTS_SPEED = 1.8
-TOTAL_QUESTIONS = 3  # Total number of questions in a test
+TTS_SPEED = 1.0
+TOTAL_QUESTIONS = 20  # Total number of questions in a test
 ESTIMATED_SECONDS_PER_QUESTION = 180  # 3 minutes, for UI timer estimation
 
 # Environment configuration
@@ -1164,17 +1164,47 @@ async def general_exception_handler(request: Request, exc: Exception):
             "path": str(request.url.path)
         }
     )
+try:
+    app.mount("/audio", StaticFiles(directory=AUDIO_DIR), name="audio")
+    logger.info(f"✅ Audio files served from: /audio (directory: {AUDIO_DIR})")
+except Exception as e:
+    logger.error(f"❌ Failed to mount audio directory: {e}")
+
+
+from fastapi.responses import HTMLResponse
+import os
+
+@app.get("/test", response_class=HTMLResponse)
+async def serve_test_page():
+    """Serve the conversation test HTML page"""
+    html_file = os.path.join(BASE_DIR, "index.html")
+    if os.path.exists(html_file):
+        with open(html_file, 'r', encoding='utf-8') as f:
+            html_content = f.read()
+        
+        # Update the API URL in the HTML to be relative
+        html_content = html_content.replace(
+            "const API_BASE_URL = 'https://192.168.48.11:8060/daily_standup';",
+            "const API_BASE_URL = window.location.origin + '/daily_standup';"
+        )
+        
+        return HTMLResponse(content=html_content)
+    else:
+        return HTMLResponse(content="<h1>Test page not found</h1><p>Please place index.html in the daily_standup directory</p>")
+
 
 @app.get("/")
 async def daily_standup_root():
-    """Root endpoint for daily standup sub-app - provides API information"""
+    """Root endpoint for daily standup sub-app"""
     return {
         "service": "Daily Standup Voice Testing API",
         "version": "1.0.0",
         "status": "running",
         "base_url": "/daily_standup",
+        "test_page": "/daily_standup/test",
         "endpoints": {
             "health": "/daily_standup/health",
+            "test_frontend": "/daily_standup/test",
             "start_test": "/daily_standup/start_test", 
             "record_and_respond": "/daily_standup/record_and_respond",
             "summary": "/daily_standup/summary",
@@ -1183,6 +1213,10 @@ async def daily_standup_root():
             "students": "/daily_standup/api/standup-students",
             "cleanup": "/daily_standup/cleanup",
             "audio_files": "/daily_standup/audio/{filename}"
+        },
+        "instructions": {
+            "test_conversation": "Visit /daily_standup/test to test the voice conversation",
+            "api_docs": "Visit /daily_standup/docs for interactive API documentation"
         },
         "timestamp": time.time()
     }
