@@ -36,6 +36,8 @@ logger = logging.getLogger(__name__)
 # Constants
 INACTIVITY_TIMEOUT = 300
 TTS_SPEED = 1.8
+TOTAL_QUESTIONS = 3  # Total number of questions in a test
+ESTIMATED_SECONDS_PER_QUESTION = 180  # 3 minutes, for UI timer estimation
 
 # Environment configuration
 FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "*")  # Configure via environment variable
@@ -64,10 +66,12 @@ CONNECTION_STRING = (
 def get_db_connection():
     try:
         conn = pyodbc.connect(CONNECTION_STRING)
+        logger.info("Successfully connected to SQL Server.")
         return conn
     except pyodbc.Error as e:
-        logger.error(f"Database connection error: {e}")
-        return None
+        # Log the error and re-raise to ensure it's handled upstream
+        logger.error(f"SQL Server database connection error: {e}", exc_info=True)
+        raise
 
 def fetch_random_student_info():
     """Fetch a random ID, name from tbl_Student and session_id from session table from SQL Server"""
@@ -75,6 +79,7 @@ def fetch_random_student_info():
         conn = get_db_connection()
         if not conn:
             return None
+        logger.info("Attempting to fetch random student info from SQL Server.")
         
         cursor = conn.cursor()
         # Fetch all student records (ID, First_Name, Last_Name)
@@ -83,17 +88,20 @@ def fetch_random_student_info():
         student_records = cursor.fetchall()
         
         if not student_records:
-            logger.warning("No valid student data found in the database")
+            logger.warning("No valid student data found in tbl_Student. Cannot assign student to test.")
             return None
 
         # Fetch distinct Session_ID
         cursor.execute("SELECT DISTINCT Session_ID FROM tbl_Session WHERE Session_ID IS NOT NULL")
         session_rows = cursor.fetchall()
         session_ids = [row[0] for row in session_rows]
+        if not session_ids:
+            logger.warning("No valid session IDs found in tbl_Session. Session ID will be None.")
 
         cursor.close()
         conn.close()
 
+        logger.info(f"Found {len(student_records)} student records and {len(session_ids)} session IDs.")
         # Randomly select one student record
         selected_student = random.choice(student_records)
         student_id = selected_student[0]
@@ -105,7 +113,7 @@ def fetch_random_student_info():
             first_name,
             last_name,
             random.choice(session_ids) if session_ids else None
-        )
+        ) # Return None for session_id if no session_ids are found
     except Exception as e:
         logger.error(f"Error fetching student info: {e}")
         return None
@@ -248,6 +256,7 @@ class DatabaseManager:
     
     def save_test_data(self, test_id: str, conversation_log: List[ConversationEntry], evaluation: str) -> bool:
         """Save test data to the conversation collection"""
+        logger.info(f"Attempting to save test data for test_id: {test_id}")
         try:
             # Fetch random student ID from SQL Server
             student_info = fetch_random_student_info()
@@ -255,6 +264,7 @@ class DatabaseManager:
                 logger.error("Failed to fetch student info from SQL Server")
                 return False
                 
+            logger.info(f"Fetched student info: {student_info}")
             student_id, first_name, last_name, session_id = student_info
             name = f"{first_name} {last_name}" if first_name and last_name else "Unknown Student"
             
@@ -291,7 +301,7 @@ class DatabaseManager:
             return True
             
         except Exception as e:
-            logger.error(f"Error saving test data for test {test_id}: {e}")
+            logger.error(f"Error saving test data for test {test_id}: {e}", exc_info=True) # Log traceback
             return False
     
     def close(self):
@@ -385,6 +395,10 @@ test_manager = TestManager()
 # LLM and prompt setup
 # ========================
 
+# ========================
+# LLM and prompt setup
+# ========================
+
 class LLMManager:
     """Manages LLM interactions for question generation and evaluation"""
     def __init__(self):
@@ -394,24 +408,30 @@ class LLMManager:
         
         # Define prompts
         self.question_prompt = PromptTemplate.from_template("""
-        You are a friendly and engaging proctor for a voice-based test. Your first job is to make the student feel comfortable.
+        You are a friendly and supportive interviewer conducting a voice-based daily standup. Your goal is to create a comfortable, welcoming environment.
 
         **Your Task:**
-        Start the conversation with a warm, friendly greeting and a general ice-breaker question.
-        For example: "Hi there, how are you doing today?" or "Hello! How was your day?".
-        Do NOT ask any questions about the lecture summary yet. This is just a warm-up.
+        Start with a warm, simple greeting that puts the person at ease. Use everyday language and be genuinely friendly.
+        Examples: "Hello there! I hope you're having a good day." or "Hi! Thanks for joining me today."
+        Do NOT ask direct questions yet - this is just to make them feel welcome and relaxed.
 
-        **Context (for your information only, do not use yet):**
+        **Important Guidelines:**
+        - Use simple, clear English
+        - Be warm and encouraging
+        - Keep it conversational and natural
+        - Make them feel comfortable and supported
+
+        **Context (for your reference only):**
         Lecture Summary: {summary}
         Conversation so far: {history}
 
         **Output Format (Strictly follow this):**
         CONCEPT: greeting
-        QUESTION: [Your friendly greeting and ice-breaker question]
+        QUESTION: [Your warm, friendly greeting without direct questions]
         """)
         
         self.followup_prompt = PromptTemplate.from_template("""
-        You are an engaging and friendly interviewer conducting a voice-based test. Your goal is to have a natural, flowing conversation.
+        You are a kind and supportive interviewer conducting a voice-based daily standup. Your approach should be encouraging and understanding.
 
         **Context:**
         - **Lecture Summary:** {summary}
@@ -423,29 +443,41 @@ class LLMManager:
         - **Progress:** This is question {current_question_number} of {total_questions}.
 
         **Your Task:**
-        
+
         **IF THE 'Current Concept' IS 'greeting':**
-        The user has just responded to your ice-breaker. Your job is to transition to the test.
-        1. Acknowledge their response briefly and positively (e.g., "Glad to hear it!").
-        2. Announce the start of the test (e.g., "Alright, let's dive into the first question.").
-        3. Formulate the first real test question based on a key concept from the **Lecture Summary**.
-        4. In your output, set UNDERSTANDING to YES.
+        The user has responded to your greeting. Now gently transition to the standup.
+        1. Acknowledge their response warmly (e.g., "That's wonderful to hear!")
+        2. Gently introduce the standup (e.g., "Let's start with something easy...")
+        3. Ask your first question using simple, clear language based on the **Lecture Summary**
+        4. Set UNDERSTANDING to YES
 
         **OTHERWISE (for all other concepts):**
-        The user has answered a test question.
-        1.  **If they seem to understand:** Acknowledge their answer positively ("Great explanation!") and ask a follow-up question on a new, related concept.
-        2.  **If they seem to be struggling or are incorrect:** Be gentle and supportive. Rephrase the question or ask a simpler one about the **same concept**.
-        3.  **If their response is off-topic or inappropriate (using vulgar language):** Gently steer them back to the topic or ask to watch their language.
+        The user has answered a standup question. Be supportive and encouraging.
+        1. **If they seem to understand:** Give brief, positive feedback ("Great job explaining that!") and ask about a related topic
+        2. **If they seem to struggle or are uncertain:** Be very supportive:
+           - Reassure them ("That's okay, no pressure at all!")
+           - Offer help ("Would you like me to rephrase the question?")
+           - Give them an option ("We can skip this if you'd prefer")
+           - Simplify the question or ask something easier
+        3. **If they seem unprepared or stressed:** Suggest they can reschedule if needed
+        4. **If their response is unclear:** Gently guide them back with encouragement
+
+        **Communication Style:**
+        - Use simple, everyday English
+        - Be patient and understanding
+        - Give brief, constructive feedback
+        - Keep questions conversational, not formal
+        - Always be supportive and reassuring
 
         **Output Format (Strictly follow this):**
         UNDERSTANDING: [YES or NO]
-        CONCEPT: [The concept for your next question. If greeting, this is the concept of the first test question.]
-        QUESTION: [Your natural, conversational question. No preamble like "My question is...".]
+        CONCEPT: [The concept for your next question]
+        QUESTION: [Your supportive, conversational question in simple English]
         """)
         
         self.evaluation_prompt = PromptTemplate.from_template("""
-        You are evaluating a student's performance in a comprehensive voice-based test on the topic below.
-        The test assessed understanding of both the provided summary and broader related knowledge.
+        You are evaluating a student's performance in a supportive voice-based daily standup on the topic below.
+        The standup assessed understanding in a friendly, encouraging environment.
 
         Lecture Summary:
         {summary}
@@ -453,15 +485,15 @@ class LLMManager:
         Full Q&A log:
         {conversation}
 
-        Generate a concise, strict evaluation. Your response must include the following sections:
-        1. Key Strengths: (2-3 bullet points)
-        2. Areas for Improvement: (1-2 bullet points)
-        3. Concept Coverage: (Brief summary of how well they covered concepts from the summary and beyond)
-        4. Recommendation: (One specific recommendation for further study)
-        5. Final Score: A numeric score on a separate line, in the format 'Final Score: X/10'.
+        Generate a kind but honest evaluation. Your response must include the following sections:
+        1. Key Strengths: (2-3 positive points about their performance)
+        2. Areas for Growth: (1-2 gentle suggestions for improvement)
+        3. Concept Understanding: (Brief summary of how well they grasped the concepts)
+        4. Encouragement: (One supportive recommendation for continued learning)
+        5. Final Score: A fair score on a separate line, in the format 'Final Score: X/10'.
 
-        Be very strict with the score. If the user gave multiple irrelevant or off-topic answers, give a score of 0/10.
-        Keep the total evaluation under 200 words.
+        Be encouraging but fair with the score. Consider their effort and engagement, not just technical accuracy.
+        Keep the total evaluation under 200 words and maintain a supportive, constructive tone.
         """)
     
     def _parse_llm_response(self, response: str, keys: List[str]) -> Dict[str, str]:
@@ -680,11 +712,12 @@ async def start_test():
         # Generate audio for the question
         audio_path = await AudioManager.text_to_speech(question, voice)
         
+        estimated_duration = TOTAL_QUESTIONS * ESTIMATED_SECONDS_PER_QUESTION
         return {
             "test_id": test_id, 
             "question": question, 
             "audio_path": audio_path or "",
-            "duration_sec": 900  # 15 minutes default
+            "duration_sec": estimated_duration
         }
     
     except Exception as e:
@@ -699,8 +732,6 @@ async def record_and_respond(
     test_id: str = Form(...)
 ):
     """Process user's uploaded audio response and provide the next question"""
-    total_questions = 5  # Configurable total questions
-    
     try:
         test = test_manager.validate_test(test_id)
 
@@ -741,7 +772,8 @@ async def record_and_respond(
         test_manager.add_answer(test_id, user_response)
 
         # Check if the test is now complete
-        if test.question_index >= total_questions:
+        if test.question_index >= TOTAL_QUESTIONS:
+            logger.info(f"Test {test_id} completed. Question index ({test.question_index}) reached TOTAL_QUESTIONS ({TOTAL_QUESTIONS}).")
             closing_message = "The test has ended. Thank you for your participation."
             audio_path = await AudioManager.text_to_speech(closing_message, test.voice)
             return {
@@ -762,7 +794,7 @@ async def record_and_respond(
             user_response,
             last_concept,
             test.question_index + 1,  # Next question number
-            total_questions
+            TOTAL_QUESTIONS
         )
 
         # Extract next question and concept
@@ -788,6 +820,7 @@ async def record_and_respond(
 @app.get("/summary", response_model=SummaryResponse)
 async def get_summary(test_id: str):
     """Get a summary evaluation of the test session"""
+    logger.info(f"Summary endpoint called for test_id: {test_id}")
     try:
         test = test_manager.validate_test(test_id)
         history = test_manager.get_truncated_conversation_history(test_id)
@@ -806,7 +839,7 @@ async def get_summary(test_id: str):
         )
         
         if not save_success:
-            logger.warning(f"Failed to save test data for test {test_id}")
+            logger.error(f"Failed to save test data for test {test_id} after evaluation.")
         
         # Calculate analytics
         num_questions = len(test.conversation_log)
@@ -829,7 +862,7 @@ async def get_summary(test_id: str):
 
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception as e: # Log traceback for general exceptions
         logger.error(f"Error generating summary for test {test_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to generate summary: {str(e)}")
 
