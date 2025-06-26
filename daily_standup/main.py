@@ -10,6 +10,7 @@ import logging
 import random
 import textwrap 
 import subprocess
+import re
 from typing import Dict, List, Optional, Any
 from pydantic import BaseModel
 import pyodbc
@@ -35,9 +36,11 @@ logger = logging.getLogger(__name__)
 
 # Constants
 INACTIVITY_TIMEOUT = 300
-TTS_SPEED = 1.0
-TOTAL_QUESTIONS = 20  # Total number of questions in a test
+TTS_SPEED = 1.9
+TOTAL_QUESTIONS = 20  # Baseline hint for ratio calculation
 ESTIMATED_SECONDS_PER_QUESTION = 180  # 3 minutes, for UI timer estimation
+MIN_QUESTIONS_PER_CONCEPT = 1  # Minimum questions per concept
+MAX_QUESTIONS_PER_CONCEPT = 4  # Maximum questions per concept for balance
 
 # Environment configuration
 FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "*")  # Configure via environment variable
@@ -118,22 +121,88 @@ def fetch_random_student_info():
         logger.error(f"Error fetching student info: {e}")
         return None
 
+def parse_summary_into_fragments(summary: str) -> Dict[str, str]:
+    """
+    Parse summary text into fragments based on top-level numbered sections.
+    Returns dict with concept titles as keys and content blocks as values.
+    """
+    if not summary or not summary.strip():
+        return {"General": summary or "No content available"}
+    
+    # Split into lines for processing
+    lines = summary.strip().split('\n')
+    
+    # Pattern to match top-level sections: digit(s) followed by period and space
+    section_pattern = re.compile(r'^\s*(\d+)\.\s+(.+)')
+    
+    fragments = {}
+    current_section = None
+    current_content = []
+    
+    for line in lines:
+        match = section_pattern.match(line)
+        
+        if match:
+            # Save previous section if exists
+            if current_section and current_content:
+                fragments[current_section] = '\n'.join(current_content).strip()
+            
+            # Start new section
+            section_num = match.group(1)
+            section_title = match.group(2).strip()
+            current_section = f"{section_num}. {section_title}"
+            current_content = [line]  # Include the header line
+        else:
+            # Add line to current section
+            if current_section:
+                current_content.append(line)
+            else:
+                # Content before any numbered section - treat as introduction
+                if "Introduction" not in fragments:
+                    fragments["Introduction"] = line
+                else:
+                    fragments["Introduction"] += '\n' + line
+    
+    # Don't forget the last section
+    if current_section and current_content:
+        fragments[current_section] = '\n'.join(current_content).strip()
+    
+    # Fallback if no numbered sections found
+    if not fragments:
+        fragments["General"] = summary
+    
+    logger.info(f"Parsed summary into {len(fragments)} concept fragments: {list(fragments.keys())}")
+    return fragments
+
 class Session:
-    """Session data model for a test session"""
+    """Enhanced session data model with fragment support"""
     def __init__(self, summary: str, voice: str):
-        self.summary = summary
+        self.summary = summary  # Keep original for backward compatibility
         self.voice = voice        
         self.conversation_log = []
         self.last_activity = time.time()
         self.question_index = 0
         self.current_concept = None
+        
+        # New fragment-based attributes
+        self.fragments = parse_summary_into_fragments(summary)
+        self.fragment_keys = list(self.fragments.keys())
+        self.concept_question_counts = {key: 0 for key in self.fragment_keys}
+        self.questions_per_concept = max(MIN_QUESTIONS_PER_CONCEPT, 
+                                       min(MAX_QUESTIONS_PER_CONCEPT,
+                                           TOTAL_QUESTIONS // len(self.fragment_keys) if self.fragment_keys else 1))
+        self.followup_questions = 0  # Track follow-up questions separately
+        
+        logger.info(f"Session initialized with {len(self.fragment_keys)} concepts, "
+                   f"target {self.questions_per_concept} questions per concept")
 
 class ConversationEntry:
     """Single Q&A entry in the conversation log"""
-    def __init__(self, question: str, answer: str = None, concept: str = None):
+    def __init__(self, question: str, answer: str = None, concept: str = None, is_followup: bool = False):
         self.question = question
         self.answer = answer
         self.concept = concept
+        self.is_followup = is_followup  # Track if this is a follow-up question
         self.timestamp = time.time()
 
 class RecordRequest(BaseModel):
@@ -254,8 +323,8 @@ class DatabaseManager:
             logger.error(f"Error fetching summary: {e}")
             raise ValueError("No summary found in the database")
     
-    def save_test_data(self, test_id: str, conversation_log: List[ConversationEntry], evaluation: str) -> bool:
-        """Save test data to the conversation collection"""
+    def save_test_data(self, test_id: str, conversation_log: List[ConversationEntry], evaluation: str, session: Session) -> bool:
+        """Save test data to the conversation collection with enhanced analytics"""
         logger.info(f"Attempting to save test data for test_id: {test_id}")
         try:
             # Fetch random student ID from SQL Server
@@ -280,10 +349,11 @@ class DatabaseManager:
                     "question": entry.question,
                     "answer": entry.answer,
                     "concept": entry.concept,
+                    "is_followup": getattr(entry, 'is_followup', False),
                     "timestamp": entry.timestamp
                 })
             
-            # Create the document to insert
+            # Create the document to insert with enhanced analytics
             document = {
                 "test_id": test_id,
                 "Student_ID": student_id,
@@ -292,16 +362,27 @@ class DatabaseManager:
                 "timestamp": time.time(),
                 "conversation_log": conversation_data,
                 "evaluation": evaluation,
-                "score": extracted_score 
+                "score": extracted_score,
+                # Enhanced analytics
+                "fragment_analytics": {
+                    "total_concepts": len(session.fragment_keys),
+                    "concepts_covered": list(session.concept_question_counts.keys()),
+                    "questions_per_concept": dict(session.concept_question_counts),
+                    "followup_questions": session.followup_questions,
+                    "main_questions": session.question_index - session.followup_questions,
+                    "target_questions_per_concept": session.questions_per_concept
+                }
             }
             
             # Insert into the conversation collection
             result = self.conversations.insert_one(document)
-            logger.info(f"Test data saved successfully for test {test_id}, name: {name}, Student_ID: {student_id}, score: {extracted_score}, session_id: {session_id}, document ID: {result.inserted_id}")
+            logger.info(f"Test data saved successfully for test {test_id}, name: {name}, "
+                       f"Student_ID: {student_id}, score: {extracted_score}, session_id: {session_id}, "
+                       f"concepts covered: {len(session.concept_question_counts)}, document ID: {result.inserted_id}")
             return True
             
         except Exception as e:
-            logger.error(f"Error saving test data for test {test_id}: {e}", exc_info=True) # Log traceback
+            logger.error(f"Error saving test data for test {test_id}: {e}", exc_info=True)
             return False
     
     def close(self):
@@ -321,19 +402,50 @@ db_manager = DatabaseManager(
 )
 
 # ========================
-# Test management
+# Enhanced Test management
 # ========================
 
 class TestManager:
-    """Manages test sessions"""
+    """Enhanced test manager with fragment support"""
     def __init__(self):
         self.tests: Dict[str, Session] = {}
     
     def create_test(self, summary: str, voice: str) -> str:
-        """Create a new test session"""
+        """Create a new test session with fragment parsing"""
         test_id = str(uuid.uuid4())
         self.tests[test_id] = Session(summary, voice)
         return test_id
+    
+    def get_active_fragment(self, test_id: str) -> tuple[str, str]:
+        """
+        Get the current active concept fragment based on question index and scheduling logic.
+        Returns (concept_title, concept_content)
+        """
+        test = self.validate_test(test_id)
+        
+        if not test.fragment_keys:
+            return "General", test.summary
+        
+        # Intelligent concept selection based on coverage and balance
+        # Priority: concepts with fewer questions asked
+        min_questions = min(test.concept_question_counts.values())
+        underutilized_concepts = [
+            concept for concept, count in test.concept_question_counts.items() 
+            if count == min_questions
+        ]
+        
+        # If we have underutilized concepts, pick one
+        if underutilized_concepts:
+            # Pick the next underutilized concept in order
+            for concept in test.fragment_keys:
+                if concept in underutilized_concepts:
+                    return concept, test.fragments[concept]
+        
+        # If all concepts have been covered equally, cycle through them
+        concept_index = test.question_index % len(test.fragment_keys)
+        selected_concept = test.fragment_keys[concept_index]
+        
+        return selected_concept, test.fragments[selected_concept]
     
     def get_truncated_conversation_history(self, test_id: str, window_size: int = 5) -> str:
         """Return a string of the last `window_size` Q&A pairs formatted"""
@@ -362,18 +474,78 @@ class TestManager:
         test.last_activity = time.time()
         return test
     
-    def add_question(self, test_id: str, question: str, concept: str = None):
-        """Add a question to the test conversation log"""
+    def add_question(self, test_id: str, question: str, concept: str = None, is_followup: bool = False):
+        """Add a question to the test conversation log with enhanced tracking"""
         test = self.validate_test(test_id)
-        test.conversation_log.append(ConversationEntry(question=question, concept=concept))
+        
+        # Track concept usage
+        if concept and concept in test.concept_question_counts:
+            test.concept_question_counts[concept] += 1
+        
+        # Track follow-up questions separately
+        if is_followup:
+            test.followup_questions += 1
+        
+        test.conversation_log.append(ConversationEntry(
+            question=question, 
+            concept=concept, 
+            is_followup=is_followup
+        ))
         test.current_concept = concept
         test.question_index += 1
+        
+        logger.info(f"Added question {test.question_index} (followup: {is_followup}) "
+                   f"for concept '{concept}' to test {test_id}")
     
     def add_answer(self, test_id: str, answer: str):
         """Add an answer to the last question in the conversation log"""
         test = self.validate_test(test_id)
         if test.conversation_log:
             test.conversation_log[-1].answer = answer
+    
+    def should_continue_test(self, test_id: str) -> bool:
+        """
+        Determine if the test should continue based on enhanced criteria.
+        More dynamic than just checking TOTAL_QUESTIONS.
+        """
+        test = self.validate_test(test_id)
+        
+        # Check if we've covered all concepts at least once
+        uncovered_concepts = [
+            concept for concept, count in test.concept_question_counts.items() 
+            if count == 0
+        ]
+        
+        # Continue if we have uncovered concepts
+        if uncovered_concepts:
+            return True
+        
+        # Continue if we haven't reached the minimum questions per concept for most concepts
+        underdeveloped_concepts = [
+            concept for concept, count in test.concept_question_counts.items() 
+            if count < test.questions_per_concept
+        ]
+        
+        # Allow some flexibility - continue if more than 30% of concepts need more questions
+        if len(underdeveloped_concepts) > len(test.fragment_keys) * 0.3:
+            return True
+        
+        # Hard limit to prevent extremely long tests
+        max_questions = TOTAL_QUESTIONS + (TOTAL_QUESTIONS // 2)  # 150% of baseline
+        if test.question_index >= max_questions:
+            return False
+        
+        # Soft limit based on baseline
+        if test.question_index >= TOTAL_QUESTIONS:
+            # Only continue if we have very unbalanced coverage
+            max_questions_any_concept = max(test.concept_question_counts.values())
+            min_questions_any_concept = min(test.concept_question_counts.values())
+            
+            # Stop if coverage is reasonably balanced
+            if max_questions_any_concept - min_questions_any_concept <= 1:
+                return False
+        
+        return True
     
     def cleanup_expired_tests(self):
         """Remove expired test sessions"""
@@ -392,15 +564,11 @@ class TestManager:
 test_manager = TestManager()
 
 # ========================
-# LLM and prompt setup
-# ========================
-
-# ========================
-# LLM and prompt setup
+# Enhanced LLM and prompt setup
 # ========================
 
 class LLMManager:
-    """Manages LLM interactions for question generation and evaluation"""
+    """Enhanced LLM manager with fragment-aware question generation"""
     def __init__(self):
         # Initialize LLM
         self.llm = ChatOpenAI(model="gpt-4.1-mini", temperature=0.8)
@@ -421,10 +589,6 @@ class LLMManager:
         - Keep it conversational and natural
         - Make them feel comfortable and supported
 
-        **Context (for your reference only):**
-        Lecture Summary: {summary}
-        Conversation so far: {history}
-
         **Output Format (Strictly follow this):**
         CONCEPT: greeting
         QUESTION: [Your warm, friendly greeting without direct questions]
@@ -434,53 +598,55 @@ class LLMManager:
         You are a kind and supportive interviewer conducting a voice-based daily standup. Your approach should be encouraging and understanding.
 
         **Context:**
-        - **Lecture Summary:** {summary}
-        - **Current Concept:** {concept}
+        - **Current Concept Fragment:** {current_concept_title}
+        - **Concept Content:** {concept_content}
         - **Recent Conversation History:**
         {history}
         - **Your Last Question:** {previous_question}
         - **Student's Response:** {user_response}
-        - **Progress:** This is question {current_question_number} of {total_questions}.
+        - **Progress:** This is question {current_question_number}. Questions asked for this concept: {questions_for_concept}.
 
         **Your Task:**
 
-        **IF THE 'Current Concept' IS 'greeting':**
+        **IF THE 'Current Concept Fragment' IS 'greeting':**
         The user has responded to your greeting. Now gently transition to the standup.
         1. Acknowledge their response warmly (e.g., "That's wonderful to hear!")
         2. Gently introduce the standup (e.g., "Let's start with something easy...")
-        3. Ask your first question using simple, clear language based on the **Lecture Summary**
+        3. Ask your first question using simple, clear language based on the **Concept Content**
         4. Set UNDERSTANDING to YES
 
-        **OTHERWISE (for all other concepts):**
-        The user has answered a standup question. Be supportive and encouraging.
-        1. **If they seem to understand:** Give brief, positive feedback ("Great job explaining that!") and ask about a related topic
+        **OTHERWISE (for all other concept fragments):**
+        The user has answered a standup question about the current concept. Be supportive and encouraging.
+        
+        **Response Strategy:**
+        1. **If they demonstrate good understanding:** Give brief, positive feedback and ask a related follow-up question about the SAME concept, or if you feel the concept is well covered, move to exploring their practical experience with this concept.
+        
         2. **If they seem to struggle or are uncertain:** Be very supportive:
            - Reassure them ("That's okay, no pressure at all!")
-           - Offer help ("Would you like me to rephrase the question?")
+           - Offer help or ask a simpler question about the same concept
            - Give them an option ("We can skip this if you'd prefer")
-           - Simplify the question or ask something easier
-        3. **If they seem unprepared or stressed:** Suggest they can reschedule if needed
-        4. **If their response is unclear:** Gently guide them back with encouragement
+        
+        3. **If their response shows they're ready for the next concept:** You can transition to signal readiness for a new concept by setting UNDERSTANDING to YES and mentioning a transition.
 
-        **Communication Style:**
+        **Important Guidelines:**
+        - Focus ONLY on the current concept fragment provided
         - Use simple, everyday English
         - Be patient and understanding
-        - Give brief, constructive feedback
         - Keep questions conversational, not formal
-        - Always be supportive and reassuring
+        - Vary your language to sound natural and fresh
 
         **Output Format (Strictly follow this):**
-        UNDERSTANDING: [YES or NO]
-        CONCEPT: [The concept for your next question]
+        UNDERSTANDING: [YES if ready for next concept, NO if staying with current concept]
+        CONCEPT: [{current_concept_title} or specify new concept if transitioning]
         QUESTION: [Your supportive, conversational question in simple English]
         """)
         
         self.evaluation_prompt = PromptTemplate.from_template("""
-        You are evaluating a student's performance in a supportive voice-based daily standup on the topic below.
-        The standup assessed understanding in a friendly, encouraging environment.
+        You are evaluating a student's performance in a supportive voice-based daily standup covering multiple technical concepts.
+        The standup assessed understanding across various topics in a friendly, encouraging environment.
 
-        Lecture Summary:
-        {summary}
+        Conversation Fragments Covered:
+        {concepts_covered}
 
         Full Q&A log:
         {conversation}
@@ -488,12 +654,13 @@ class LLMManager:
         Generate a kind but honest evaluation. Your response must include the following sections:
         1. Key Strengths: (2-3 positive points about their performance)
         2. Areas for Growth: (1-2 gentle suggestions for improvement)
-        3. Concept Understanding: (Brief summary of how well they grasped the concepts)
-        4. Encouragement: (One supportive recommendation for continued learning)
-        5. Final Score: A fair score on a separate line, in the format 'Final Score: X/10'.
+        3. Concept Understanding: (Brief summary of how well they grasped the different concepts)
+        4. Coverage Analysis: (Note which topics were well-covered vs. areas that could use more attention)
+        5. Encouragement: (One supportive recommendation for continued learning)
+        6. Final Score: A fair score on a separate line, in the format 'Final Score: X/10'.
 
-        Be encouraging but fair with the score. Consider their effort and engagement, not just technical accuracy.
-        Keep the total evaluation under 200 words and maintain a supportive, constructive tone.
+        Be encouraging but fair with the score. Consider their effort, engagement, and breadth of understanding across topics, not just technical accuracy.
+        Keep the total evaluation under 250 words and maintain a supportive, constructive tone.
         """)
     
     def _parse_llm_response(self, response: str, keys: List[str]) -> Dict[str, str]:
@@ -509,40 +676,41 @@ class LLMManager:
         return result
     
     async def generate_first_question(self, summary: str) -> Dict[str, str]:
-        """Generate the first question for a test session"""
+        """Generate the first question for a test session (greeting)"""
         chain = self.question_prompt | self.llm | self.parser
-        response = await chain.ainvoke({"summary": summary, "history": ""})
+        response = await chain.ainvoke({"summary": summary})
         return self._parse_llm_response(response, ["CONCEPT", "QUESTION"])
     
     async def generate_followup(self, 
-                              summary: str, 
+                              concept_title: str,
+                              concept_content: str,
                               history: str, 
                               previous_question: str, 
                               user_response: str,
-                              concept: str,
-                              current_question_number: int, 
-                              total_questions: int) -> Dict[str, str]:
-        """Generate a follow-up question based on the user's response"""
+                              current_question_number: int,
+                              questions_for_concept: int) -> Dict[str, str]:
+        """Generate a follow-up question based on the current concept fragment and user's response"""
         chain = self.followup_prompt | self.llm | self.parser
         response = await chain.ainvoke({
-            "summary": summary,
+            "current_concept_title": concept_title,
+            "concept_content": concept_content,
             "history": history,
             "previous_question": previous_question,
             "user_response": user_response,
-            "concept": concept,
             "current_question_number": current_question_number,
-            "total_questions": total_questions
+            "questions_for_concept": questions_for_concept
         })
         return self._parse_llm_response(
             response, 
             ["UNDERSTANDING", "CONCEPT", "QUESTION"]
         )
     
-    async def generate_evaluation(self, summary: str, conversation: str) -> str:
-        """Generate an evaluation of the test session"""
+    async def generate_evaluation(self, concepts_covered: List[str], conversation: str) -> str:
+        """Generate an evaluation of the test session with concept coverage analysis"""
         chain = self.evaluation_prompt | self.llm | self.parser
+        concepts_text = "\n".join([f"- {concept}" for concept in concepts_covered])
         return await chain.ainvoke({
-            "summary": summary,
+            "concepts_covered": concepts_text,
             "conversation": conversation
         })
 
@@ -550,7 +718,7 @@ class LLMManager:
 llm_manager = LLMManager()
 
 # ========================
-# Audio utilities
+# Audio utilities (unchanged)
 # ========================
 
 class AudioManager:
@@ -660,7 +828,7 @@ def get_random_voice() -> str:
     return random.choice(voices)
 
 # ========================
-# API Endpoints
+# Enhanced API Endpoints
 # ========================
 
 @app.get("/health", tags=["health"])
@@ -678,7 +846,13 @@ async def api_info():
     return {
         "name": "Daily Standup Voice Testing API",
         "version": "1.0.0",
-        "description": "Voice-based daily standup testing system",
+        "description": "Voice-based daily standup testing system with fragment-based concept coverage",
+        "features": {
+            "fragment_based_questioning": "Questions are generated based on specific concept fragments",
+            "dynamic_test_length": "Test length adapts based on concept coverage",
+            "balanced_coverage": "Ensures balanced coverage across all concept areas",
+            "intelligent_scheduling": "Smart question scheduling based on concept utilization"
+        },
         "endpoints": {
             "start_test": "POST /start_test - Start a new test session",
             "record_and_respond": "POST /record_and_respond - Process audio response",
@@ -692,7 +866,7 @@ async def api_info():
 
 @app.get("/start_test", response_model=TestResponse)
 async def start_test():
-    """Start a new test session"""
+    """Start a new test session with fragment-based concept mapping"""
     try:
         # Get latest lecture summary
         summary = db_manager.get_latest_summary()
@@ -701,10 +875,14 @@ async def start_test():
         voice = get_random_voice()
         test_id = test_manager.create_test(summary, voice)
         
-        # Generate first question
+        # Log fragment information
+        test = test_manager.get_test(test_id)
+        logger.info(f"Started test {test_id} with {len(test.fragment_keys)} concept fragments: {test.fragment_keys}")
+        
+        # Generate first question (greeting)
         question_data = await llm_manager.generate_first_question(summary)
         question = question_data.get("question", "What can you tell me about this topic?")
-        concept = question_data.get("concept", "general understanding")
+        concept = question_data.get("concept", "greeting")
         
         # Add question to test
         test_manager.add_question(test_id, question, concept)
@@ -712,7 +890,8 @@ async def start_test():
         # Generate audio for the question
         audio_path = await AudioManager.text_to_speech(question, voice)
         
-        estimated_duration = TOTAL_QUESTIONS * ESTIMATED_SECONDS_PER_QUESTION
+        # Dynamic duration estimation based on concepts
+        estimated_duration = len(test.fragment_keys) * test.questions_per_concept * ESTIMATED_SECONDS_PER_QUESTION
         return {
             "test_id": test_id, 
             "question": question, 
@@ -731,7 +910,7 @@ async def record_and_respond(
     audio: UploadFile = File(...),
     test_id: str = Form(...)
 ):
-    """Process user's uploaded audio response and provide the next question"""
+    """Process user's uploaded audio response and provide the next question using fragment-based logic"""
     try:
         test = test_manager.validate_test(test_id)
 
@@ -771,9 +950,9 @@ async def record_and_respond(
         # Log the user's answer
         test_manager.add_answer(test_id, user_response)
 
-        # Check if the test is now complete
-        if test.question_index >= TOTAL_QUESTIONS:
-            logger.info(f"Test {test_id} completed. Question index ({test.question_index}) reached TOTAL_QUESTIONS ({TOTAL_QUESTIONS}).")
+        # Check if the test should continue using enhanced logic
+        if not test_manager.should_continue_test(test_id):
+            logger.info(f"Test {test_id} completed. Enhanced completion criteria met.")
             closing_message = "The test has ended. Thank you for your participation."
             audio_path = await AudioManager.text_to_speech(closing_message, test.voice)
             return {
@@ -782,28 +961,50 @@ async def record_and_respond(
                 "audio_path": audio_path or ""
             }
 
-        # Generate follow-up question using LLM
+        # Get current concept information
+        current_concept_title, current_concept_content = test_manager.get_active_fragment(test_id)
+        
+        # Generate follow-up question using fragment-aware LLM
         history = test_manager.get_truncated_conversation_history(test_id)
         last_question = test.conversation_log[-1].question
         last_concept = test.current_concept or test.conversation_log[-1].concept
         
+        # Get questions count for current concept
+        questions_for_concept = test.concept_question_counts.get(current_concept_title, 0)
+        
         followup_data = await llm_manager.generate_followup(
-            test.summary,
+            current_concept_title,
+            current_concept_content,
             history,
             last_question,
             user_response,
-            last_concept,
-            test.question_index + 1,  # Next question number
-            TOTAL_QUESTIONS
+            test.question_index + 1,
+            questions_for_concept
         )
 
-        # Extract next question and concept
+        # Extract next question and determine if it's a follow-up
         next_question = followup_data.get("question", "Can you elaborate more on that?")
-        next_concept = followup_data.get("concept", last_concept)
+        understanding = followup_data.get("understanding", "NO").upper()
+        suggested_concept = followup_data.get("concept", current_concept_title)
+        
+        # Determine if this is a follow-up question (staying with same concept)
+        is_followup = (understanding == "NO" and suggested_concept == current_concept_title)
+        
+        # If LLM suggests moving to next concept, get the next fragment
+        if understanding == "YES" or suggested_concept != current_concept_title:
+            next_concept_title, next_concept_content = test_manager.get_active_fragment(test_id)
+            concept_for_question = next_concept_title
+        else:
+            concept_for_question = current_concept_title
 
         # Update test log and synthesize speech
-        test_manager.add_question(test_id, next_question, next_concept)
+        test_manager.add_question(test_id, next_question, concept_for_question, is_followup)
         audio_path = await AudioManager.text_to_speech(next_question, test.voice)
+
+        # Log progress
+        logger.info(f"Test {test_id} progress: Q{test.question_index}, "
+                   f"Concept: {concept_for_question}, Follow-up: {is_followup}, "
+                   f"Concept coverage: {dict(test.concept_question_counts)}")
 
         return {
             "ended": False,
@@ -819,50 +1020,67 @@ async def record_and_respond(
 
 @app.get("/summary", response_model=SummaryResponse)
 async def get_summary(test_id: str):
-    """Get a summary evaluation of the test session"""
+    """Get a summary evaluation of the test session with enhanced fragment analytics"""
     logger.info(f"Summary endpoint called for test_id: {test_id}")
     try:
         test = test_manager.validate_test(test_id)
         history = test_manager.get_truncated_conversation_history(test_id)
 
-        # Generate evaluation
+        # Get concepts that were actually covered (had questions asked)
+        concepts_covered = [
+            concept for concept, count in test.concept_question_counts.items() 
+            if count > 0
+        ]
+
+        # Generate evaluation with concept coverage information
         evaluation = await llm_manager.generate_evaluation(
-            test.summary,
+            concepts_covered,
             history
         )
         
-        # Save test data to MongoDB
+        # Save test data to MongoDB with enhanced analytics
         save_success = db_manager.save_test_data(
             test_id=test_id,
             conversation_log=test.conversation_log,
-            evaluation=evaluation
+            evaluation=evaluation,
+            session=test
         )
         
         if not save_success:
             logger.error(f"Failed to save test data for test {test_id} after evaluation.")
         
-        # Calculate analytics
+        # Calculate enhanced analytics
         num_questions = len(test.conversation_log)
         answers = [entry.answer for entry in test.conversation_log if entry.answer]
         avg_length = sum(len(answer.split()) for answer in answers) / len(answers) if answers else 0
         
-        # Calculate concept coverage
-        unique_concepts = set(entry.concept for entry in test.conversation_log if entry.concept)
-        concept_coverage = len(unique_concepts)
+        # Enhanced concept coverage analytics
+        total_concepts = len(test.fragment_keys)
+        concepts_touched = len(concepts_covered)
+        coverage_percentage = (concepts_touched / total_concepts * 100) if total_concepts > 0 else 0
+        
+        # Question distribution analysis
+        main_questions = test.question_index - test.followup_questions
         
         return {
             "summary": evaluation,
             "analytics": {
                 "num_questions": num_questions,
+                "main_questions": main_questions,
+                "followup_questions": test.followup_questions,
                 "avg_response_length": round(avg_length, 1),
-                "concept_coverage": concept_coverage
+                "total_concepts": total_concepts,
+                "concepts_covered": concepts_touched,
+                "coverage_percentage": round(coverage_percentage, 1),
+                "questions_per_concept": dict(test.concept_question_counts),
+                "target_questions_per_concept": test.questions_per_concept
             },
             "pdf_url": f"/api/download_results/{test_id}"
         }
 
     except HTTPException:
         raise
-    except Exception as e: # Log traceback for general exceptions
+    except Exception as e:
         logger.error(f"Error generating summary for test {test_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to generate summary: {str(e)}")
 
@@ -888,7 +1106,7 @@ async def cleanup_resources():
  
 @app.get("/api/download_results/{test_id}")
 async def download_results_pdf(test_id: str):
-    """Fetch the saved test document from MongoDB and stream it as a PDF."""
+    """Fetch the saved test document from MongoDB and stream it as a PDF with enhanced analytics."""
     try:
         # Query MongoDB
         doc = db_manager.conversations.find_one({"test_id": test_id}, {"_id": 0})
@@ -937,6 +1155,24 @@ async def download_results_pdf(test_id: str):
         score_val = doc.get("score", "N/A")
         y = write_line(p, y, "Score", str(score_val))
 
+        # Enhanced analytics section
+        fragment_analytics = doc.get("fragment_analytics", {})
+        if fragment_analytics:
+            y -= 10
+            p.setFont("Helvetica-Bold", 12)
+            if y < margin + 50:
+                p.showPage()
+                y = height - margin
+                p.setFont("Helvetica-Bold", 12)
+            p.drawString(margin, y, "Fragment Analytics:")
+            y -= 20
+            p.setFont("Helvetica", 11)
+            
+            y = write_line(p, y, "Total Concepts", str(fragment_analytics.get("total_concepts", "N/A")))
+            y = write_line(p, y, "Main Questions", str(fragment_analytics.get("main_questions", "N/A")))
+            y = write_line(p, y, "Follow-up Questions", str(fragment_analytics.get("followup_questions", "N/A")))
+            y = write_line(p, y, "Target Q/Concept", str(fragment_analytics.get("target_questions_per_concept", "N/A")))
+
         eval_val = doc.get("evaluation", "N/A")
         wrapped_eval = textwrap.wrap(str(eval_val), 80)
         p.setFont("Helvetica-Bold", 12)
@@ -952,7 +1188,7 @@ async def download_results_pdf(test_id: str):
 
         y -= 10
 
-        # Conversation Log
+        # Conversation Log with enhanced details
         p.setFont("Helvetica-Bold", 12)
         if y < margin + 30:
             p.showPage()
@@ -963,13 +1199,16 @@ async def download_results_pdf(test_id: str):
 
         p.setFont("Helvetica", 11)
         for idx, entry in enumerate(doc.get("conversation_log", []), start=1):
-            if y < margin + 80:
+            if y < margin + 100:
                 p.showPage()
                 p.setFont("Helvetica", 11)
                 y = height - margin
 
             concept_val = entry.get("concept", "N/A")
-            y = write_line(p, y, f"{idx}. Concept", concept_val)
+            is_followup = entry.get("is_followup", False)
+            question_type = " (Follow-up)" if is_followup else " (Main)"
+            
+            y = write_line(p, y, f"{idx}. Concept", concept_val + question_type)
 
             question_val = entry.get("question", "N/A")
             y = write_line(p, y, "    Question", question_val, indent=15)
@@ -1084,12 +1323,12 @@ async def get_tests_for_standup_student(student_id: str):
         raise HTTPException(status_code=500, detail="Failed to retrieve tests for student")
 
 # ========================
-# Additional API endpoints for monitoring
+# Enhanced API endpoints for monitoring
 # ========================
 
 @app.get("/api/stats", response_class=JSONResponse)
 async def get_system_stats():
-    """Get system statistics"""
+    """Get enhanced system statistics with fragment analytics"""
     try:
         # Count active tests
         active_tests = len(test_manager.tests)
@@ -1100,10 +1339,37 @@ async def get_system_stats():
         # Get database stats
         total_tests = db_manager.conversations.count_documents({})
         
+        # Get fragment analytics from recent tests
+        recent_tests = list(db_manager.conversations.find(
+            {"fragment_analytics": {"$exists": True}},
+            {"fragment_analytics": 1, "_id": 0}
+        ).limit(10))
+        
+        avg_concepts = 0
+        avg_coverage = 0
+        if recent_tests:
+            concept_counts = [test["fragment_analytics"].get("total_concepts", 0) for test in recent_tests]
+            coverage_rates = []
+            for test in recent_tests:
+                analytics = test["fragment_analytics"]
+                total = analytics.get("total_concepts", 1)
+                covered = len([c for c, count in analytics.get("questions_per_concept", {}).items() if count > 0])
+                coverage_rates.append(covered / total * 100 if total > 0 else 0)
+            
+            avg_concepts = sum(concept_counts) / len(concept_counts)
+            avg_coverage = sum(coverage_rates) / len(coverage_rates)
+
         return {
             "active_test_sessions": active_tests,
             "audio_files_on_disk": audio_files,
             "total_completed_tests": total_tests,
+            "fragment_analytics": {
+                "avg_concepts_per_test": round(avg_concepts, 1),
+                "avg_coverage_percentage": round(avg_coverage, 1),
+                "baseline_questions": TOTAL_QUESTIONS,
+                "min_questions_per_concept": MIN_QUESTIONS_PER_CONCEPT,
+                "max_questions_per_concept": MAX_QUESTIONS_PER_CONCEPT
+            },
             "audio_directory": AUDIO_DIR,
             "temp_directory": TEMP_DIR,
             "cors_origins": FRONTEND_ORIGIN,
@@ -1135,7 +1401,7 @@ async def delete_test_result(test_id: str):
         raise HTTPException(status_code=500, detail="Failed to delete test")
 
 # ========================
-# Error handlers
+# Error handlers (unchanged)
 # ========================
 
 @app.exception_handler(HTTPException)
@@ -1164,12 +1430,12 @@ async def general_exception_handler(request: Request, exc: Exception):
             "path": str(request.url.path)
         }
     )
+
 try:
     app.mount("/audio", StaticFiles(directory=AUDIO_DIR), name="audio")
     logger.info(f"✅ Audio files served from: /audio (directory: {AUDIO_DIR})")
 except Exception as e:
     logger.error(f"❌ Failed to mount audio directory: {e}")
-
 
 from fastapi.responses import HTMLResponse
 import os
@@ -1192,14 +1458,19 @@ async def serve_test_page():
     else:
         return HTMLResponse(content="<h1>Test page not found</h1><p>Please place index.html in the daily_standup directory</p>")
 
-
 @app.get("/")
 async def daily_standup_root():
-    """Root endpoint for daily standup sub-app"""
+    """Root endpoint for daily standup sub-app with enhanced information"""
     return {
         "service": "Daily Standup Voice Testing API",
         "version": "1.0.0",
         "status": "running",
+        "features": {
+            "fragment_based_questioning": "Questions generated from concept fragments",
+            "dynamic_test_length": "Adaptive test length based on concept coverage",
+            "intelligent_scheduling": "Smart question distribution across concepts",
+            "enhanced_analytics": "Detailed coverage and performance tracking"
+        },
         "base_url": "/daily_standup",
         "test_page": "/daily_standup/test",
         "endpoints": {
@@ -1212,44 +1483,104 @@ async def daily_standup_root():
             "all_tests": "/daily_standup/api/tests",
             "students": "/daily_standup/api/standup-students",
             "cleanup": "/daily_standup/cleanup",
+            "stats": "/daily_standup/api/stats",
             "audio_files": "/daily_standup/audio/{filename}"
         },
         "instructions": {
             "test_conversation": "Visit /daily_standup/test to test the voice conversation",
-            "api_docs": "Visit /daily_standup/docs for interactive API documentation"
+            "api_docs": "Visit /daily_standup/docs for interactive API documentation",
+            "system_stats": "Visit /daily_standup/api/stats for enhanced system analytics"
         },
         "timestamp": time.time()
     }
     
-@app.get("/debug/test-mongo") # https://192.168.48.31:8060/daily_standup/debug/test-mongo
+@app.get("/debug/test-mongo")
 async def test_mongodb_connection():
-    """Debug endpoint to test MongoDB connection and data"""
+    """Debug endpoint to test MongoDB connection and data with fragment analytics"""
     try:
         # Test MongoDB connection
         count = db_manager.conversations.count_documents({})
         
-        # Get recent test
+        # Get recent test with fragment analytics
         recent_test = db_manager.conversations.find_one(
-            {}, 
+            {"fragment_analytics": {"$exists": True}}, 
             sort=[("timestamp", -1)]
         )
+        
+        # Test summary parsing
+        try:
+            latest_summary = db_manager.get_latest_summary()
+            fragments = parse_summary_into_fragments(latest_summary)
+            fragment_info = {
+                "total_fragments": len(fragments),
+                "fragment_titles": list(fragments.keys())[:5],  # First 5 for brevity
+                "sample_content_length": len(list(fragments.values())[0]) if fragments else 0
+            }
+        except Exception as e:
+            fragment_info = {"error": str(e)}
         
         return {
             "mongodb_connected": True,
             "total_tests_saved": count,
-            "latest_test": {
+            "latest_test_with_analytics": {
                 "test_id": recent_test.get("test_id") if recent_test else None,
                 "timestamp": recent_test.get("timestamp") if recent_test else None,
-                "name": recent_test.get("name") if recent_test else None
-            } if recent_test else None
+                "name": recent_test.get("name") if recent_test else None,
+                "fragment_analytics": recent_test.get("fragment_analytics") if recent_test else None
+            } if recent_test else None,
+            "summary_parsing": fragment_info,
+            "system_constants": {
+                "TOTAL_QUESTIONS": TOTAL_QUESTIONS,
+                "MIN_QUESTIONS_PER_CONCEPT": MIN_QUESTIONS_PER_CONCEPT,
+                "MAX_QUESTIONS_PER_CONCEPT": MAX_QUESTIONS_PER_CONCEPT
+            }
         }
     except Exception as e:
         return {
             "mongodb_connected": False,
             "error": str(e)
         }
+
+@app.get("/debug/test-fragments")
+async def test_fragment_parsing():
+    """Debug endpoint to test fragment parsing with current summary"""
+    try:
+        # Get the latest summary
+        summary = db_manager.get_latest_summary()
         
+        # Parse into fragments
+        fragments = parse_summary_into_fragments(summary)
         
+        # Provide detailed breakdown
+        fragment_details = {}
+        for title, content in fragments.items():
+            fragment_details[title] = {
+                "character_count": len(content),
+                "word_count": len(content.split()),
+                "line_count": len(content.split('\n')),
+                "preview": content[:200] + "..." if len(content) > 200 else content
+            }
+        
+        # Calculate suggested questions per concept
+        questions_per_concept = max(MIN_QUESTIONS_PER_CONCEPT, 
+                                  min(MAX_QUESTIONS_PER_CONCEPT,
+                                      TOTAL_QUESTIONS // len(fragments) if fragments else 1))
+        
+        return {
+            "summary_length": len(summary),
+            "total_fragments": len(fragments),
+            "fragment_titles": list(fragments.keys()),
+            "questions_per_concept_target": questions_per_concept,
+            "estimated_test_length": len(fragments) * questions_per_concept,
+            "fragment_details": fragment_details
+        }
+        
+    except Exception as e:
+        return {
+            "error": f"Failed to test fragment parsing: {str(e)}",
+            "summary_available": False
+        }
+
 # ========================
 # Development utilities
 # ========================
@@ -1272,10 +1603,13 @@ if __name__ == "__main__":
     local_ip = get_local_ip()
     port = 8061  # Different port to avoid conflicts with main launcher
     
-    print(f"🚀 Starting Daily Standup API Server")
+    print(f"🚀 Starting Enhanced Daily Standup API Server")
     print(f"📡 Server: https://{local_ip}:{port}")
     print(f"📋 API Docs: https://{local_ip}:{port}/docs")
     print(f"🔊 Audio Files: https://{local_ip}:{port}/audio/")
+    print(f"🧩 Fragment-Based Questioning: Enabled")
+    print(f"📊 Enhanced Analytics: Enabled")
+    print(f"🎯 Target Questions: {TOTAL_QUESTIONS} (dynamic)")
     print(f"🌐 CORS Origins: {FRONTEND_ORIGIN}")
     
     uvicorn.run(
