@@ -658,7 +658,8 @@ class LLMManager:
         2. Areas for Growth: (1-2 gentle suggestions for improvement)
         3. Concept Understanding: (Brief summary of how well they grasped the different concepts)
         4. Coverage Analysis: (Note which topics were well-covered vs. areas that could use more attention)
-        5. Final Score: A fair score on a separate line, in the format 'Final Score: X/10'.
+        5. Encouragement: (One supportive recommendation for continued learning)
+        6. Final Score: A fair score on a separate line, in the format 'Final Score: X/10'.
 
         Be encouraging but fair with the score. Consider their effort, engagement, and breadth of understanding across topics, not just technical accuracy.
         Keep the total evaluation under 250 words and maintain a supportive, constructive tone.
@@ -784,7 +785,10 @@ class AudioManager:
             tts = ChatterboxTTS.from_pretrained(device=device)
 
             # Use the random reference audio for cloning
-            wav = tts.generate(text, audio_prompt_path=reference_audio)
+            wav = tts.generate(text, audio_prompt_path=reference_audio,
+                               exaggeration=0.5,
+                               cfg_weight=0.3,
+                            )
 
             # Save the generated speech to a WAV file
             torchaudio.save(raw_path, wav, tts.sr)
@@ -1008,6 +1012,7 @@ async def record_and_respond(
 
         # Extract next question and determine if it's a follow-up
         next_question = followup_data.get("question", "Can you elaborate more on that?")
+        logger.info(f"Next question generated: {next_question}")
         understanding = followup_data.get("understanding", "NO").upper()
         suggested_concept = followup_data.get("concept", current_concept_title)
         
