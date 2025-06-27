@@ -242,7 +242,7 @@ hr_ranges = split_into_three_parts(total_questions)
 class LLMManager:
     def __init__(self):
         # Fixed model name and increased max_tokens for longer responses
-        self.llm = ChatOpenAI(model="gpt-4.1", temperature=0.8)
+        self.llm = ChatOpenAI(model="gpt-4.1-mini", temperature=0.8)
         self.parser = StrOutputParser()
         
         # prompts for each round in shorter interviews
