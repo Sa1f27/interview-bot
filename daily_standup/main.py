@@ -1439,7 +1439,7 @@ except Exception as e:
 from fastapi.responses import HTMLResponse
 import os
 
-@app.get("/test", response_class=HTMLResponse)
+@app.get("/", response_class=HTMLResponse)
 async def serve_test_page():
     """Serve the conversation test HTML page"""
     html_file = os.path.join(BASE_DIR, "index.html")
@@ -1449,7 +1449,7 @@ async def serve_test_page():
         
         # Update the API URL in the HTML to be relative
         html_content = html_content.replace(
-            "const API_BASE_URL = 'https://192.168.48.11:8060/daily_standup';",
+            "const API_BASE_URL = 'https://192.168.48.27:8060/daily_standup';",
             "const API_BASE_URL = window.location.origin + '/daily_standup';"
         )
         
