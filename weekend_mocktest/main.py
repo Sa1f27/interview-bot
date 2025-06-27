@@ -810,7 +810,7 @@ async def home():
     
     return {
         "service": "Clean Mock Test API",
-        "version": "4.0.0-clean",
+        "version": "1.2.0",
         "system_ready": bool(db_manager and groq_client),
         "timestamp": time.time()
     }

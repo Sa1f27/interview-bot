@@ -221,69 +221,29 @@ class DatabaseManager:
 # LLM Manager
 # ========================
 
+def split_into_three_parts(x):
+    base = x // 3
+    rem = x % 3
+
+    parts = []
+    start = 1
+    for i in range(3):
+        count = base + (1 if i < rem else 0)
+        end = start + count - 1
+        parts.append((start, end))
+        start = end + 1
+    return parts
+
+total_questions = 6 # total questions for each interview round
+technical_ranges = split_into_three_parts(total_questions)
+communication_ranges = split_into_three_parts(total_questions)
+hr_ranges = split_into_three_parts(total_questions)
+        
 class LLMManager:
     def __init__(self):
         # Fixed model name and increased max_tokens for longer responses
-        self.llm = ChatOpenAI(model="gpt-4.1", temperature=0.8)
+        self.llm = ChatOpenAI(model="gpt-4.1-mini", temperature=0.8)
         self.parser = StrOutputParser()
-        
-        # prompts for each round in longer interviews
-        # self.prompts = {
-        #     RoundType.TECHNICAL: PromptTemplate.from_template("""
-        #     You are conducting a technical interview round (20 minutes duration). Your goal is to ask comprehensive technical questions.
-        #     If the candidate goes off-topic, tell them explicitly that they are going off-topic and ask a redirected next technical question.
-            
-        #     Technical content for reference:
-        #     {technical_content}
-            
-        #     Previous conversation:
-        #     {history}
-            
-        #     Current question number: {question_count}
-            
-        #     Instructions:
-        #     - Questions 1-4: Ask fundamental technical concepts and basic programming knowledge
-        #     - Questions 5-8: Ask application-based questions and problem-solving scenarios  
-        #     - Questions 9+: Ask advanced problem-solving and system design questions
-        #     - If question count >= 12: Say "Thank you for the technical round. Let's move to the communication round."
-            
-        #     Ask specific, practical technical question. Keep it focused and clear.
-            
-        #     """),
-            
-        #     RoundType.COMMUNICATION: PromptTemplate.from_template("""
-        #     You are testing communication skills in this round (20 minutes duration). Focus on verbal communication, clarity, and presentation abilities.
-        #     If the candidate goes off-topic, tell them explicitly that they are going off-topic and ask a redirected next communication question.
-        #     Previous conversation:
-        #     {history}
-            
-        #     Current question number: {question_count}
-            
-        #     Instructions:
-        #     - Questions 1-4: Test clarity of explanation and articulation skills
-        #     - Questions 5-8: Test persuasion, storytelling, and explanation skills
-        #     - Questions 9-11: Test confidence, presentation skills, and leadership communication
-        #     - If question count >= 12: Say "Thank you for the communication round. Let's proceed to the HR round."
-
-        #     Ask question that evaluates verbal communication, confidence, or presentation skills.
-        #     """),
-            
-        #     RoundType.HR: PromptTemplate.from_template("""
-        #     You are an HR interviewer conducting behavioral assessment (20 minutes duration). Focus on cultural fit, teamwork, and soft skills.
-        #     If the candidate goes off-topic, tell them explicitly that they are going off-topic and ask a redirected next HR question.
-        #     Previous conversation:
-        #     {history}
-            
-        #     Current question number: {question_count}
-            
-        #     Instructions:
-        #     - Questions 1-4: Ask about past experiences, teamwork, and collaboration
-        #     - Questions 5-8: Ask situational and behavioral questions (STAR method encouraged)
-        #     - Questions 9-11: Ask about conflict resolution, adaptability, and growth mindset
-        #     - If question count >= 12: Say "Thank you for completing the interview. We'll now prepare your evaluation."
-        #     Ask behavioral or situational question that reveals personality and cultural fit.
-        #     """)
-        # }
         
         # prompts for each round in shorter interviews
         self.prompts = {
@@ -300,9 +260,9 @@ class LLMManager:
             Current question number: {question_count}
             
             Instructions:
-            - Questions 1-2: Ask fundamental technical concepts and basic programming knowledge
-            - Questions 3-4: Ask application-based questions and problem-solving scenarios
-            - Questions 5+: Ask advanced problem-solving and system design questions
+            - Questions {technical_ranges[0][0]}-{technical_ranges[0][1]}: Ask fundamental technical concepts and basic programming knowledge
+            - Questions {technical_ranges[1][0]}-{technical_ranges[1][1]}: Ask application-based questions and problem-solving scenarios
+            - Questions {technical_ranges[2][0]}-{technical_ranges[2][1]}: Ask advanced problem-solving and system design questions
             - If question count >= 6: Say "Thank you for the technical round. Let's move to the communication round."
             
             Ask specific, practical technical question. Keep it focused and clear.
@@ -318,9 +278,9 @@ class LLMManager:
             Current question number: {question_count}
             
             Instructions:
-            - Questions 1-2: Test clarity of explanation and articulation skills
-            - Questions 3-4: Test persuasion, storytelling, and explanation skills
-            - Questions 5-6: Test confidence, presentation skills, and leadership communication
+            - Questions {communication_ranges[0][0]}-{communication_ranges[0][1]}: Test clarity of explanation and articulation skills
+            - Questions {communication_ranges[1][0]}-{communication_ranges[1][1]}: Test persuasion, storytelling, and explanation skills
+            - Questions {communication_ranges[2][0]}-{communication_ranges[2][1]}: Test confidence, presentation skills, and leadership communication
             - If question count >= 6: Say "Thank you for the communication round. Let's proceed to the HR round."
 
             Ask question that evaluates verbal communication, confidence, or presentation skills.
@@ -335,9 +295,9 @@ class LLMManager:
             Current question number: {question_count}
             
             Instructions:
-            - Questions 1-2: Ask about past experiences, teamwork, and collaboration
-            - Questions 3-4: Ask situational and behavioral questions (STAR method encouraged)
-            - Questions 5-6: Ask about conflict resolution, adaptability, and growth mindset
+            - Questions {hr_ranges[0][0]}-{hr_ranges[0][1]}: Ask about past experiences, teamwork, and collaboration
+            - Questions {hr_ranges[1][0]}-{hr_ranges[1][1]}: Ask situational and behavioral questions (STAR method encouraged)
+            - Questions {hr_ranges[2][0]}-{hr_ranges[2][1]}: Ask about conflict resolution, adaptability, and growth mindset
             - If question count >= 6: Say "Thank you for completing the interview. We'll now prepare your evaluation."
             Ask behavioral or situational question that reveals personality and cultural fit.
             """)
@@ -365,7 +325,7 @@ class LLMManager:
         """)
     
     async def generate_question(self, round_type: RoundType, history: str, 
-                              question_count: int, technical_content: str = "") -> str:
+                            question_count: int, technical_content: str = "") -> str:
         """Generate the next question for the current round"""
         try:
             prompt = self.prompts[round_type]
@@ -381,7 +341,8 @@ class LLMManager:
         except Exception as e:
             logger.error(f"LLM generation error: {e}")
             return self._get_fallback_question(round_type, question_count)
-    
+
+
     def _get_fallback_question(self, round_type: RoundType, question_count: int) -> str:
         """Improved fallback questions if LLM fails"""
         fallbacks = {

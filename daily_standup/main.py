@@ -658,8 +658,7 @@ class LLMManager:
         2. Areas for Growth: (1-2 gentle suggestions for improvement)
         3. Concept Understanding: (Brief summary of how well they grasped the different concepts)
         4. Coverage Analysis: (Note which topics were well-covered vs. areas that could use more attention)
-        5. Encouragement: (One supportive recommendation for continued learning)
-        6. Final Score: A fair score on a separate line, in the format 'Final Score: X/10'.
+        5. Final Score: A fair score on a separate line, in the format 'Final Score: X/10'.
 
         Be encouraging but fair with the score. Consider their effort, engagement, and breadth of understanding across topics, not just technical accuracy.
         Keep the total evaluation under 250 words and maintain a supportive, constructive tone.
