@@ -15,7 +15,8 @@ from typing import Dict, List, Optional, Any
 from pydantic import BaseModel
 import pyodbc
 import random
-import edge_tts
+import torch
+import torchaudio
 import pymongo
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
@@ -29,6 +30,7 @@ from reportlab.pdfgen import canvas
 from urllib.parse import quote_plus
 from reportlab.lib.pagesizes import LETTER
 from fastapi.responses import StreamingResponse
+from chatterbox.tts import ChatterboxTTS
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -36,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 # Constants
 INACTIVITY_TIMEOUT = 300
-TTS_SPEED = 1.9
+TTS_SPEED = 1.0
 TOTAL_QUESTIONS = 20  # Baseline hint for ratio calculation
 ESTIMATED_SECONDS_PER_QUESTION = 180  # 3 minutes, for UI timer estimation
 MIN_QUESTIONS_PER_CONCEPT = 1  # Minimum questions per concept
@@ -749,32 +751,56 @@ class AudioManager:
                 
         except Exception as e:
             logger.error(f"Error during audio cleanup: {e}")
-    
+
+    REFERENCE_AUDIOS_DIR = "ref_audios"  # Define the folder where you store your reference .wav files.
+
     @staticmethod
-    async def text_to_speech(text: str, voice: str, speed: float = TTS_SPEED) -> Optional[str]:
-        """Convert text to speech using Edge TTS"""
-        timestamp = int(time.time() * 1000)
-        raw_path = os.path.join(AUDIO_DIR, f"ai_raw_{timestamp}.mp3")
-        final_path = os.path.join(AUDIO_DIR, f"ai_{timestamp}.mp3")
+    def get_random_reference_audio() -> str:
+        """Select a random reference audio file from the 'reference_audios' folder."""
+        reference_audios = [f for f in os.listdir(AudioManager.REFERENCE_AUDIOS_DIR) if f.endswith('.wav')]
         
+        if not reference_audios:
+            raise FileNotFoundError("No reference audio files found in the directory.")
+        
+        return os.path.join(AudioManager.REFERENCE_AUDIOS_DIR, random.choice(reference_audios))
+    
+
+    @staticmethod
+    async def text_to_speech(text: str, voice: str = None, speed: float = TTS_SPEED) -> Optional[str]:
+        """Convert text to speech using Chatterbox TTS (with voice cloning using a random reference audio)"""
+        timestamp = int(time.time() * 1000)
+        raw_path = os.path.join(AUDIO_DIR, f"ai_raw_{timestamp}.wav")  # Save in WAV format
+        final_path = os.path.join(AUDIO_DIR, f"ai_{timestamp}.mp3")
+
         try:
             # Clean old files before generating new ones
             AudioManager.clean_audio_folder()
-            
-            # Generate TTS audio
-            await edge_tts.Communicate(text, voice).save(raw_path)
 
-            # Apply speed adjustment with ffmpeg
+            # Get a random reference audio file for cloning (use the random audio for each session)
+            reference_audio = AudioManager.get_random_reference_audio()  # Select a random reference audio
+
+            # Initialize Chatterbox TTS model with CUDA for GPU support (low latency)
+            device = "cuda" if torch.cuda.is_available() else "cpu" 
+            logger.info(f"Using device: {device}") # Use GPU if available
+            tts = ChatterboxTTS.from_pretrained(device=device)
+
+            # Use the random reference audio for cloning
+            wav = tts.generate(text, audio_prompt_path=reference_audio)
+
+            # Save the generated speech to a WAV file
+            torchaudio.save(raw_path, wav, tts.sr)
+
+            # Apply speed adjustment with ffmpeg (still using .mp3 as output format)
             subprocess.run([
                 "ffmpeg", "-y", "-i", raw_path,
                 "-filter:a", f"atempo={speed}", "-vn", final_path
             ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
 
-            # Clean up raw file
+            # Clean up raw WAV file
             if os.path.exists(raw_path):
                 os.remove(raw_path)
-            
-            # Wait for final file to appear and return relative path
+
+            # Wait for the final MP3 file to be written
             for _ in range(10):
                 if os.path.exists(final_path):
                     return f"/audio/{os.path.basename(final_path)}"
@@ -792,7 +818,6 @@ class AudioManager:
                         os.remove(path)
                     except:
                         pass
-        
         return None
     
     @staticmethod
@@ -924,7 +949,7 @@ async def record_and_respond(
             content = await audio.read()
             if len(content) == 0:
                 raise HTTPException(status_code=400, detail="Empty audio file received")
-                
+            
             with open(audio_filename, "wb") as f:
                 f.write(content)
         except Exception as e:
@@ -954,7 +979,7 @@ async def record_and_respond(
         if not test_manager.should_continue_test(test_id):
             logger.info(f"Test {test_id} completed. Enhanced completion criteria met.")
             closing_message = "The test has ended. Thank you for your participation."
-            audio_path = await AudioManager.text_to_speech(closing_message, test.voice)
+            audio_path = await AudioManager.text_to_speech(closing_message)  # No need for reference_audio here
             return {
                 "ended": True, 
                 "response": closing_message, 
@@ -997,9 +1022,9 @@ async def record_and_respond(
         else:
             concept_for_question = current_concept_title
 
-        # Update test log and synthesize speech
+        # Update test log and synthesize speech using the random cloned voice
         test_manager.add_question(test_id, next_question, concept_for_question, is_followup)
-        audio_path = await AudioManager.text_to_speech(next_question, test.voice)
+        audio_path = await AudioManager.text_to_speech(next_question)  # No need for reference_audio here
 
         # Log progress
         logger.info(f"Test {test_id} progress: Q{test.question_index}, "
