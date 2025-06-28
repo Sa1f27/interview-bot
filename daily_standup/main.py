@@ -3,7 +3,6 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import os
-from fastapi import FastAPI, Request, HTTPException, Depends, File, UploadFile, Form
 import time
 import asyncio
 import uuid
@@ -31,21 +30,9 @@ from urllib.parse import quote_plus
 from reportlab.lib.pagesizes import LETTER
 from fastapi.responses import StreamingResponse
 
-
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# Initialize Chatterbox TTS model with CUDA for GPU support (low latency)
-device = "cuda" if torch.cuda.is_available() else "cpu" 
-logger.info(f"Using device: {device}") # Use GPU if available
-tts = ChatterboxTTS.from_pretrained(device=device)
-
-REFERENCE_WAVS = [
-    os.path.join("ref_audios", f)
-    for f in os.listdir("ref_audios")
-    if f.endswith(".wav")
-]
 
 # Constants
 INACTIVITY_TIMEOUT = 300
@@ -742,47 +729,33 @@ llm_manager = LLMManager()
 # Audio utilities (unchanged)
 # ========================
 
-
 class AudioManager:
-    REFERENCE_AUDIOS_DIR = "ref_audios"  # Folder for your .wav reference voices
-
+    """Manages audio transcription and text-to-speech"""
+    
     @staticmethod
     def clean_audio_folder():
-        """Remove old wav files."""
+        """Clean up old audio files"""
         try:
-            now = time.time()
+            current_time = time.time()
+            cleanup_count = 0
+            
             for filename in os.listdir(AUDIO_DIR):
-                if filename.endswith(".wav"):
-                    path = os.path.join(AUDIO_DIR, filename)
-                    if now - os.path.getmtime(path) > 3600:
+                if filename.endswith(".mp3"):
+                    file_path = os.path.join(AUDIO_DIR, filename)
+                    file_age = current_time - os.path.getmtime(file_path)
+                    
+                    # Remove files older than 1 hour
+                    if file_age > 3600:
                         try:
-                            os.remove(path)
-                        except Exception:
-                            pass
+                            os.remove(file_path)
+                            cleanup_count += 1
+                        except Exception as e:
+                            logger.warning(f"Failed to delete {filename}: {e}")
+            
+            if cleanup_count > 0:
+                logger.info(f"Cleaned up {cleanup_count} old audio files")
+                
         except Exception as e:
-<<<<<<< HEAD
-            logger.error(f"Audio cleanup error: {e}")
-
-    @staticmethod
-    def get_random_reference_audio() -> str:
-        audios = [f for f in os.listdir(AudioManager.REFERENCE_AUDIOS_DIR) if f.endswith('.wav')]
-        if not audios:
-            raise FileNotFoundError("No reference audio files found!")
-        return os.path.join(AudioManager.REFERENCE_AUDIOS_DIR, random.choice(audios))
-
-    @staticmethod
-    async def text_to_speech(
-        text: str, 
-        voice: str = None, 
-        speed: float = TTS_SPEED, 
-        reference_audio: str = None
-    ) -> str:
-        """
-        Generate TTS and save as wav (no mp3). Returns the wav file path (relative URL).
-        """
-        timestamp = int(time.time() * 1000)
-        wav_path = os.path.join(AUDIO_DIR, f"ai_{timestamp}.wav")
-=======
             logger.error(f"Error during audio cleanup: {e}")
     
     @staticmethod
@@ -792,52 +765,9 @@ class AudioManager:
         raw_path = os.path.join(AUDIO_DIR, f"ai_raw_{timestamp}.mp3")
         final_path = os.path.join(AUDIO_DIR, f"ai_{timestamp}.mp3")
         
->>>>>>> 6b12dbb8e4ea1453877800c1781793fb0839441e
         try:
+            # Clean old files before generating new ones
             AudioManager.clean_audio_folder()
-<<<<<<< HEAD
-            if not reference_audio:
-                reference_audio = AudioManager.get_random_reference_audio()
-            wav_tensor = tts.generate(
-                text,
-                audio_prompt_path=reference_audio,
-                exaggeration=0.5,
-                cfg_weight=0.3,
-            )
-            torchaudio.save(wav_path, wav_tensor, tts.sr)
-            return f"/audio/{os.path.basename(wav_path)}"
-        except Exception as e:
-            logger.error(f"TTS error: {e}")
-            if os.path.exists(wav_path):
-                os.remove(wav_path)
-            return None
-    @staticmethod
-    def stream_tts(
-            text: str, 
-            reference_audio: str
-        ):
-        def _gen():
-            try:
-                for chunk in tts.generate_stream(
-                    text,
-                    audio_prompt_path=reference_audio,
-                    exaggeration=0.7,
-                    cfg_weight=0.3,
-                ):
-                    # Handle tuple output from TTS (if any)
-                    if isinstance(chunk, tuple):
-                        chunk = chunk[0]
-                    # Convert PyTorch tensor to bytes
-                    if isinstance(chunk, torch.Tensor):
-                        yield chunk.cpu().numpy().tobytes()
-                    else:
-                        yield chunk  # if it's already bytes (very rare)
-            except Exception as e:
-                logger.error(f"TTS stream error: {e}")
-                return
-        return _gen()
-      
-=======
             
             # Generate TTS audio
             await edge_tts.Communicate(text, voice).save(raw_path)
@@ -873,7 +803,6 @@ class AudioManager:
         
         return None
     
->>>>>>> 6b12dbb8e4ea1453877800c1781793fb0839441e
     @staticmethod
     def transcribe(filepath: str) -> str:
         """Transcribe audio using Groq's Whisper API"""
@@ -976,39 +905,24 @@ async def start_test():
     except Exception as e:
         logger.error(f"Error starting test: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to start test: {str(e)}")
-<<<<<<< HEAD
-
-def test_tts_stream_type():
-    stream = tts.generate_stream("hello", audio_prompt_path="ref_audios/any.wav")
-    print("Stream type:", type(stream))
-    print("Has __aiter__?", hasattr(stream, '__aiter__'))
-    print("Has __iter__?", hasattr(stream, '__iter__'))
-=======
     
 from fastapi import UploadFile, File, Form
->>>>>>> 6b12dbb8e4ea1453877800c1781793fb0839441e
 
-
-@app.post("/record_and_respond")
+@app.post("/record_and_respond", response_model=ConversationResponse)
 async def record_and_respond(
     audio: UploadFile = File(...),
     test_id: str = Form(...)
 ):
+    """Process user's uploaded audio response and provide the next question using fragment-based logic"""
     try:
-        # --- STEP 1: Validate file and test session ---
         test = test_manager.validate_test(test_id)
+
+        # Validate uploaded file
         if not audio.content_type or not audio.content_type.startswith('audio/'):
             raise HTTPException(status_code=400, detail="Invalid audio file format")
 
-        # --- STEP 2: Save uploaded audio to a temporary file ---
+        # Save uploaded audio to file system
         audio_filename = os.path.join(TEMP_DIR, f"user_audio_{int(time.time())}_{test_id}.webm")
-<<<<<<< HEAD
-        content = await audio.read()
-        if len(content) == 0:
-            raise HTTPException(status_code=400, detail="Empty audio file received")
-        with open(audio_filename, "wb") as f:
-            f.write(content)
-=======
         try:
             content = await audio.read()
             if len(content) == 0:
@@ -1018,32 +932,27 @@ async def record_and_respond(
                 f.write(content)
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to save audio file: {str(e)}")
->>>>>>> 6b12dbb8e4ea1453877800c1781793fb0839441e
 
-        # --- STEP 3: Transcribe ---
+        # Transcribe the uploaded audio
         try:
             user_response = AudioManager.transcribe(audio_filename)
             if not user_response.strip():
                 raise HTTPException(status_code=400, detail="No speech detected in audio")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Audio transcription failed: {str(e)}")
         finally:
-            if os.path.exists(audio_filename):
-                os.remove(audio_filename)
+            # Clean up the temporary audio file
+            try:
+                if os.path.exists(audio_filename):
+                    os.remove(audio_filename)
+            except Exception as e:
+                logger.warning(f"Failed to clean up audio file {audio_filename}: {e}")
 
-        # --- STEP 4: Update conversation and generate next question ---
+        logger.info(f"Test {test_id}: Transcribed user response: {user_response}")
+
+        # Log the user's answer
         test_manager.add_answer(test_id, user_response)
 
-<<<<<<< HEAD
-        # --- STEP 5: Determine if test should end (same logic as before) ---
-        if not test_manager.should_continue_test(test_id):
-            closing_message = "The test has ended. Thank you for your participation."
-            # Stream TTS closing message
-            reference_audio = AudioManager.get_random_reference_audio()
-            audio_gen = await AudioManager.stream_tts(closing_message, reference_audio)
-            # You can send custom headers if you want to signal test end
-            return StreamingResponse(audio_gen, media_type="audio/wav", headers={"X-Ended": "true"})
-
-        # --- STEP 6: Generate next question (fragment-aware) ---
-=======
         # Handle greeting flow
         if test.greeting_step < 3:
             if test.greeting_step < 2:
@@ -1106,11 +1015,16 @@ async def record_and_respond(
             }
 
         # Continue with regular test flow - Get current concept information
->>>>>>> 6b12dbb8e4ea1453877800c1781793fb0839441e
         current_concept_title, current_concept_content = test_manager.get_active_fragment(test_id)
+        
+        # Generate follow-up question using fragment-aware LLM
         history = test_manager.get_truncated_conversation_history(test_id)
         last_question = test.conversation_log[-1].question
+        last_concept = test.current_concept or test.conversation_log[-1].concept
+        
+        # Get questions count for current concept
         questions_for_concept = test.concept_question_counts.get(current_concept_title, 0)
+        
         followup_data = await llm_manager.generate_followup(
             current_concept_title,
             current_concept_content,
@@ -1120,35 +1034,37 @@ async def record_and_respond(
             test.question_index + 1,
             questions_for_concept
         )
+
+        # Extract next question and determine if it's a follow-up
         next_question = followup_data.get("question", "Can you elaborate more on that?")
         understanding = followup_data.get("understanding", "NO").upper()
         suggested_concept = followup_data.get("concept", current_concept_title)
+        
+        # Determine if this is a follow-up question (staying with same concept)
         is_followup = (understanding == "NO" and suggested_concept == current_concept_title)
+        
+        # If LLM suggests moving to next concept, get the next fragment
         if understanding == "YES" or suggested_concept != current_concept_title:
-            next_concept_title, _ = test_manager.get_active_fragment(test_id)
+            next_concept_title, next_concept_content = test_manager.get_active_fragment(test_id)
             concept_for_question = next_concept_title
         else:
             concept_for_question = current_concept_title
-<<<<<<< HEAD
-        test_manager.add_question(test_id, next_question, concept_for_question, is_followup)
-=======
 
         # Update test log and synthesize speech
         test_manager.add_question(test_id, next_question, concept_for_question, is_followup)
         audio_path = await AudioManager.text_to_speech(next_question, test.voice)
->>>>>>> 6b12dbb8e4ea1453877800c1781793fb0839441e
 
-        # --- STEP 7: Stream TTS of the next question! ---
-        reference_audio = AudioManager.get_random_reference_audio()
-        audio_gen = AudioManager.stream_tts(next_question, reference_audio)
+        # Log progress
+        logger.info(f"Test {test_id} progress: Q{test.question_index}, "
+                   f"Concept: {concept_for_question}, Follow-up: {is_followup}, "
+                   f"Concept coverage: {dict(test.concept_question_counts)}")
 
-        return StreamingResponse(
-            audio_gen,
-            media_type="audio/wav",
-            headers={
-                "X-Ended": "false"
-            }
-        )
+        return {
+            "ended": False,
+            "response": next_question,
+            "audio_path": audio_path or "",
+        }
+
     except HTTPException:
         raise
     except Exception as e:
