@@ -78,7 +78,7 @@ if __name__ == "__main__":
     port = 8060
     print(f"🚀 Starting server at https://{local_ip}:{port}")
     uvicorn.run(
-        "main:app",
+        "app:app",
         host="0.0.0.0",
         port=port,
         reload=True,
