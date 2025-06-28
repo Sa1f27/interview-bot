@@ -378,7 +378,7 @@ def parse_technical_fragments(content: str) -> Dict[str, str]:
 class LLMManager:
     """Enhanced LLM manager with adaptive questioning"""
     def __init__(self):
-        self.llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.8)
+        self.llm = ChatOpenAI(model="gpt-4.1-mini", temperature=0.8)
         self.parser = StrOutputParser()
         
         # Enhanced prompts with greeting and transitions
@@ -1392,19 +1392,19 @@ async def health_check():
         "timestamp": time.time()
     }
 
-@app.get("/start_interview")
+@app.get("/start_interview", response_model=InterviewResponse)
 async def start_interview():
     """Start a new interview session"""
     try:
         test_id = test_manager.create_test()
         result = await test_manager.start_interview(test_id)
         logger.info(f"Interview started: {test_id}")
-        return result
+        return InterviewResponse(**result)
     except Exception as e:
         logger.error(f"Error starting interview: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to start interview: {str(e)}")
 
-@app.post("/record_and_respond")
+@app.post("/record_and_respond", response_model=ConversationResponse)
 async def record_and_respond(
     audio: UploadFile = File(...),
     test_id: str = Form(...)
@@ -1416,7 +1416,7 @@ async def record_and_respond(
         
         result = await test_manager.process_response(test_id, audio)
         logger.info(f"Response processed for test {test_id}")
-        return result
+        return ConversationResponse(**result)
         
     except HTTPException:
         raise
@@ -1435,13 +1435,13 @@ async def start_next_round(test_id: str):
         logger.error(f"Error starting next round: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/evaluate")
+@app.get("/evaluate", response_model=EvaluationResponse)
 async def get_evaluation(test_id: str):
     """Generate final interview evaluation"""
     try:
         result = await test_manager.generate_evaluation(test_id)
         logger.info(f"Evaluation generated for test {test_id}")
-        return result
+        return EvaluationResponse(**result)
     except Exception as e:
         logger.error(f"Error generating evaluation: {e}")
         raise HTTPException(status_code=500, detail=str(e))

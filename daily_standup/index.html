@@ -100,16 +100,7 @@
             animation: pulse 1s infinite;
         }
         
-        .preparation-indicator {
-            display: none;
-            align-items: center;
-            justify-content: center;
-            gap: 15px;
-            margin: 20px 0;
-            color: #ffc107;
-            font-weight: bold;
-            font-size: 18px;
-        }
+
         
         .countdown-circle {
             width: 50px;
@@ -180,10 +171,7 @@
             <span>Recording... Speak now!</span>
         </div>
 
-        <div class="preparation-indicator" id="preparationIndicator">
-            <div class="countdown-circle" id="countdownCircle">5</div>
-            <span>Get ready to answer... Recording starts in <span id="countdownText">5</span> seconds</span>
-        </div>
+ 
 
         <div id="summaryResults" class="status-box" style="display: none; text-align: left;">
             <div class="status-title">Test Evaluation</div>
@@ -206,7 +194,7 @@
         let testId = null;
         let isRecording = false;
         let isPreparingToRecord = false;
-        let preparationCountdown = 0;
+        // let preparationCountdown = 0;
         
         // Audio recording variables
         let mediaRecorder = null;
@@ -218,20 +206,20 @@
         let hasSpoken = false;
         
         // Timer references
-        let preparationTimer = null;
+        // let preparationTimer = null;
         
         // Configuration
         const API_BASE_URL = window.location.origin + '/daily_standup';
-        const SILENCE_THRESHOLD = 0.01;
-        const SILENCE_DURATION = 2000; // 2 seconds
-        const MAX_RECORDING_DURATION = 30000; // 15 seconds
-        const PREPARATION_TIME = 1000; // 5 seconds preparation before recording
-        
+       const SILENCE_THRESHOLD = 0.01;
+        const SILENCE_DURATION = 3000; // Changed from 2000 to 3000
+        const MAX_RECORDING_DURATION = 30000;
+        // const PREPARATION_TIME = 3000; // 3 seconds preparation before recording
+
         // DOM elements
         const statusTitle = document.getElementById('statusTitle');
         const statusMessage = document.getElementById('statusMessage');
         const recordingIndicator = document.getElementById('recordingIndicator');
-        const preparationIndicator = document.getElementById('preparationIndicator');
+        // const preparationIndicator = document.getElementById('preparationIndicator');
         const countdownCircle = document.getElementById('countdownCircle');
         const countdownText = document.getElementById('countdownText');
         const controlBtn = document.getElementById('controlBtn');
@@ -283,7 +271,7 @@
                 if (silenceStart === null) {
                     silenceStart = now;
                 } else if (hasSpoken && (now - silenceStart) > SILENCE_DURATION) {
-                    log('Silence detected for 2 seconds, stopping recording', 'success');
+                    log('Silence detected for 3 seconds, stopping recording', 'success');  // Changed from 2 to 3
                     stopRecording();
                     return;
                 }
@@ -332,60 +320,60 @@
             if (microphone) {
                 microphone.disconnect();
             }
-            if (preparationTimer) {
-                clearInterval(preparationTimer);
-                preparationTimer = null;
-            }
+            // if (preparationTimer) {
+            //     clearInterval(preparationTimer);
+            //     preparationTimer = null;
+            // }
             isRecording = false;
-            isPreparingToRecord = false;
-            preparationCountdown = 0;
+            // isPreparingToRecord = false;
+            // preparationCountdown = 0;
             recordingIndicator.style.display = 'none';
-            preparationIndicator.style.display = 'none';
+            // preparationIndicator.style.display = 'none';
         }
 
         // Start preparation phase before recording
-        function startPreparationPhase() {
-            if (isPreparingToRecord || isRecording || conversationState === 'ended') return;
+        // Update preparation phase countdown display
+        // function startPreparationPhase() {
+        //     if (isPreparingToRecord || isRecording || conversationState === 'ended') return;
 
-            try {
-                log('Starting 5-second preparation phase');
-                isPreparingToRecord = true;
-                preparationCountdown = 5;
+        //     try {
+        //         log('Starting 3-second preparation phase');
+        //         isPreparingToRecord = true;
+        //         preparationCountdown = 3; // Changed from 5 to 3
                 
-                updateConversationState('preparing');
-                updateStatus('PREPARING', `Get ready to answer... Recording starts in ${preparationCountdown} seconds`);
+        //         updateConversationState('preparing');
+        //         updateStatus('PREPARING', `Get ready to answer... Recording starts in ${preparationCountdown} seconds`);
                 
-                // Show preparation indicator
-                preparationIndicator.style.display = 'flex';
-                countdownCircle.textContent = preparationCountdown;
-                countdownText.textContent = preparationCountdown;
+        //         preparationIndicator.style.display = 'flex';
+        //         countdownCircle.textContent = preparationCountdown;
+        //         countdownText.textContent = preparationCountdown;
                 
-                preparationTimer = setInterval(() => {
-                    preparationCountdown--;
-                    countdownCircle.textContent = preparationCountdown;
-                    countdownText.textContent = preparationCountdown;
-                    updateStatus('PREPARING', `Get ready to answer... Recording starts in ${preparationCountdown} seconds`);
+        //         preparationTimer = setInterval(() => {
+        //             preparationCountdown--;
+        //             countdownCircle.textContent = preparationCountdown;
+        //             countdownText.textContent = preparationCountdown;
+        //             updateStatus('PREPARING', `Get ready to answer... Recording starts in ${preparationCountdown} seconds`);
                     
-                    if (preparationCountdown <= 0) {
-                        clearInterval(preparationTimer);
-                        preparationTimer = null;
-                        isPreparingToRecord = false;
-                        preparationIndicator.style.display = 'none';
+        //             if (preparationCountdown <= 0) {
+        //                 clearInterval(preparationTimer);
+        //                 preparationTimer = null;
+        //                 isPreparingToRecord = false;
+        //                 preparationIndicator.style.display = 'none';
                         
-                        if (conversationState !== 'ended') {
-                            log('Preparation phase complete, starting recording');
-                            startRecording();
-                        }
-                    }
-                }, 1000);
+        //                 if (conversationState !== 'ended') {
+        //                     log('Preparation phase complete, starting recording');
+        //                     startRecording();
+        //                 }
+        //             }
+        //         }, 1000);
                 
-            } catch (error) {
-                log(`Preparation phase error: ${error.message}`, 'error');
-                isPreparingToRecord = false;
-                preparationIndicator.style.display = 'none';
-                startRecording(); // Fallback to immediate recording
-            }
-        }
+        //     } catch (error) {
+        //         log(`Preparation phase error: ${error.message}`, 'error');
+        //         isPreparingToRecord = false;
+        //         preparationIndicator.style.display = 'none';
+        //         startRecording();
+        //     }
+        // }
 
         // Fetch and display summary
         async function fetchAndDisplaySummary() {
@@ -423,11 +411,12 @@
         }
 
         // Start recording with silence detection
+        // Update startRecording function to start listening immediately but delay silence detection
         async function startRecording() {
-            if (isRecording || isPreparingToRecord || conversationState === 'ended') return;
+            if (isRecording || conversationState === 'ended') return;
 
             try {
-                log('Starting recording with silence detection');
+                log('Starting recording immediately - silence detection begins in 3 seconds');
                 isRecording = true;
                 hasSpoken = false;
                 silenceStart = null;
@@ -437,7 +426,7 @@
                 updateStatus('LISTENING', 'Please speak your response...');
                 recordingIndicator.style.display = 'flex';
 
-                // Get user media
+                // Get user media and start recording immediately
                 const stream = await navigator.mediaDevices.getUserMedia({
                     audio: {
                         echoCancellation: true,
@@ -446,14 +435,13 @@
                     }
                 });
 
-                // Set up audio analysis for silence detection
+                // Set up audio analysis
                 audioContext = new AudioContext({ sampleRate: 16000 });
                 analyser = audioContext.createAnalyser();
                 microphone = audioContext.createMediaStreamSource(stream);
                 
                 analyser.fftSize = 256;
                 analyser.smoothingTimeConstant = 0.8;
-                
                 microphone.connect(analyser);
 
                 // Set up MediaRecorder
@@ -470,42 +458,41 @@
                 mediaRecorder.onstop = async () => {
                     log('MediaRecorder stopped, processing audio');
                     
-                    // Clean up audio resources
-                    if (microphone) {
-                        microphone.disconnect();
-                    }
-                    if (audioContext) {
-                        await audioContext.close();
-                    }
+                    if (microphone) microphone.disconnect();
+                    if (audioContext) await audioContext.close();
                     stream.getTracks().forEach(track => track.stop());
 
                     recordingIndicator.style.display = 'none';
 
-                    // Process the recorded audio
                     if (audioChunks.length > 0) {
                         await processRecordedAudio();
                     } else {
                         log('No audio data recorded', 'error');
                         if (conversationState !== 'ended') {
                             updateStatus('ERROR', 'No audio detected. Retrying...');
-                            setTimeout(() => startPreparationPhase(), 1000);
+                            setTimeout(() => startRecording(), 1000);
                         }
                     }
                 };
 
-                // Start recording
+                // Start recording immediately
                 mediaRecorder.start(100);
 
-                // Start silence detection
-                detectSilence();
-
-                // Failsafe: stop recording after max duration
+                // Wait 3 seconds before starting silence detection
                 setTimeout(() => {
                     if (isRecording) {
-                        log('Max recording duration reached, stopping', 'error');
+                        log('3-second delay complete, starting silence detection');
+                        detectSilence();
+                    }
+                }, 3000);
+
+                // Failsafe: stop recording after max duration (starts AFTER the 3-second delay)
+                setTimeout(() => {
+                    if (isRecording) {
+                        log('Max recording duration reached, stopping');
                         stopRecording();
                     }
-                }, MAX_RECORDING_DURATION);
+                }, MAX_RECORDING_DURATION + 3000); // Add 3 seconds to account for silence detection delay
 
             } catch (error) {
                 log(`Recording error: ${error.message}`, 'error');
@@ -513,7 +500,6 @@
                 endConversation('Recording error');
             }
         }
-
         // Stop recording
         function stopRecording() {
             if (!isRecording) return;
@@ -527,85 +513,67 @@
         }
 
         // Process recorded audio
-        async function processRecordedAudio() {
-            try {
-                updateConversationState('processing');
-                updateStatus('PROCESSING', 'Processing your response...');
-
-                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-
-                if (audioBlob.size < 1000) {
-                    log('Recording too short, requesting user to speak again');
-                    updateStatus('LISTENING', 'Recording was too short. Please speak again...');
-                    setTimeout(() => startPreparationPhase(), 1000);
-                    return;
-                }
-
-                const formData = new FormData();
-                formData.append('audio', audioBlob, 'response.webm');
-                formData.append('test_id', testId);
-
-                log('Sending audio to backend...');
-                const response = await fetch(`${API_BASE_URL}/record_and_respond`, {
-                    method: 'POST',
-                    body: formData,
-                });
-
-                const contentType = response.headers.get('content-type');
-
-                if (contentType && contentType.startsWith('audio/wav')) {
-                    // Handle audio streaming response
-                    log('Received audio/wav stream from backend');
-                    updateConversationState('speaking');
-                    updateStatus('AI SPEAKING', 'Playing AI audio...');
-
-                    // Play the audio directly
-                    const audioBlob = await response.blob();
-                    const audioURL = URL.createObjectURL(audioBlob);
-                    const audio = new Audio(audioURL);
-                    audio.onended = async () => {
-                        URL.revokeObjectURL(audioURL);
-                        if (conversationState !== 'ended') {
-                            updateStatus('WAITING', 'Please respond...');
-                            setTimeout(() => startPreparationPhase(), 1000);
-                        }
-                    };
-                    audio.onerror = () => {
-                        log('Error playing backend audio', 'error');
-                        if (conversationState !== 'ended') {
-                            updateStatus('WAITING', 'Please respond...');
-                            setTimeout(() => startPreparationPhase(), 1000);
-                        }
-                    };
-                    audio.play();
-                    return;
-                }
-
-                // If not audio, try to parse as JSON (for errors or end of test)
-                let data;
-                try {
-                    data = await response.json();
-                } catch (err) {
-                    log('Backend response was neither audio nor JSON', 'error');
-                    updateStatus('ERROR', 'Processing error: Invalid response from backend.');
-                    endConversation('Processing error');
-                    return;
-                }
-
-                if (data.ended) {
-                    await fetchAndDisplaySummary();
-                    endConversation('Test completed successfully');
-                } else if (conversationState !== 'ended') {
-                    updateStatus('WAITING', 'Please respond...');
-                    setTimeout(() => startPreparationPhase(), 1000);
-                }
-
-            } catch (error) {
-                log(`Error processing audio: ${error.message}`, 'error');
-                updateStatus('ERROR', `Processing error: ${error.message}`);
-                endConversation('Processing error');
-            }
+async function processRecordedAudio() {
+    try {
+        updateConversationState('processing');
+        updateStatus('PROCESSING', 'Processing your response...');
+        
+        // Create blob from recorded chunks
+        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+        
+        // Check if we have sufficient audio data
+        if (audioBlob.size < 1000) {
+            log('Recording too short, requesting user to speak again');
+            updateStatus('LISTENING', 'Recording was too short. Please speak again...');
+            setTimeout(() => startRecording(), 1000); // Changed from startPreparationPhase() to startRecording()
+            return;
         }
+
+        // Send to backend for processing
+        const formData = new FormData();
+        formData.append('audio', audioBlob, 'response.webm');
+        formData.append('test_id', testId);
+
+        log('Sending audio to backend...');
+        const response = await fetch(`${API_BASE_URL}/record_and_respond`, {
+            method: 'POST',
+            body: formData,
+        });
+
+        const data = await response.json();
+        log('Backend response received');
+
+        if (!response.ok) {
+            throw new Error(data.error || 'Recording processing failed');
+        }
+
+        const responseText = data.response || 'AI response not available';
+        log(`AI Response: ${responseText}`);
+        
+        updateConversationState('speaking');
+        updateStatus('AI SPEAKING', responseText);
+        
+        // Play AI response audio
+        if (data.audio_path) {
+            log(`Playing AI audio: ${data.audio_path}`);
+            await playAudio(data.audio_path);
+        }
+
+        if (data.ended) {
+            await fetchAndDisplaySummary();
+            endConversation('Test completed successfully');
+        } else if (conversationState !== 'ended') {
+            // Start listening immediately for next response
+            updateStatus('WAITING', 'Please respond...');
+            setTimeout(() => startRecording(), 500); // Changed from startPreparationPhase() to startRecording()
+        }
+
+    } catch (error) {
+        log(`Error processing audio: ${error.message}`, 'error');
+        updateStatus('ERROR', `Processing error: ${error.message}`);
+        endConversation('Processing error');
+    }
+}
 
         // Start conversation
         async function startConversation() {
@@ -645,9 +613,9 @@
                 
                 // Start listening for user response with preparation phase
                 if (conversationState !== 'ended') {
-                    updateStatus('WAITING', 'Please respond...');
-                    setTimeout(() => startPreparationPhase(), 500);
-                }
+                updateStatus('WAITING', 'Please respond...');
+                setTimeout(() => startRecording(), 500); // Start recording immediately
+            }
                 
             } catch (error) {
                 log(`Start conversation error: ${error.message}`, 'error');
@@ -679,7 +647,7 @@
             testId = null;
             testIdDisplay.style.display = 'none';
             summaryResults.style.display = 'none'; // Hide summary box
-            preparationIndicator.style.display = 'none'; // Hide preparation indicator
+            // preparationIndicator.style.display = 'none'; // Hide preparation indicator
             
             controlBtn.textContent = '🎤 Start Conversation';
             controlBtn.className = 'start-btn';

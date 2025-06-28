@@ -16,8 +16,7 @@ from typing import Dict, List, Optional, Any
 from pydantic import BaseModel
 import pyodbc
 import random
-import torch
-import torchaudio
+import edge_tts
 import pymongo
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
@@ -31,7 +30,6 @@ from reportlab.pdfgen import canvas
 from urllib.parse import quote_plus
 from reportlab.lib.pagesizes import LETTER
 from fastapi.responses import StreamingResponse
-from chatterbox.tts import ChatterboxTTS
 
 
 # Configure logging
@@ -51,7 +49,7 @@ REFERENCE_WAVS = [
 
 # Constants
 INACTIVITY_TIMEOUT = 300
-TTS_SPEED = 1.0
+TTS_SPEED = 1.2
 TOTAL_QUESTIONS = 20  # Baseline hint for ratio calculation
 ESTIMATED_SECONDS_PER_QUESTION = 180  # 3 minutes, for UI timer estimation
 MIN_QUESTIONS_PER_CONCEPT = 1  # Minimum questions per concept
@@ -190,26 +188,27 @@ def parse_summary_into_fragments(summary: str) -> Dict[str, str]:
     return fragments
 
 class Session:
-    """Enhanced session data model with fragment support"""
+    """Enhanced session data model with fragment support and greeting flow"""
     def __init__(self, summary: str, voice: str):
-        self.summary = summary  # Keep original for backward compatibility
+        self.summary = summary
         self.voice = voice        
         self.conversation_log = []
         self.last_activity = time.time()
         self.question_index = 0
         self.current_concept = None
+        self.greeting_step = 0  # NEW: 0=initial greeting, 1=after user greeting, 2=after check-in, 3=test begins
         
-        # New fragment-based attributes
+        # Fragment-based attributes
         self.fragments = parse_summary_into_fragments(summary)
         self.fragment_keys = list(self.fragments.keys())
         self.concept_question_counts = {key: 0 for key in self.fragment_keys}
         self.questions_per_concept = max(MIN_QUESTIONS_PER_CONCEPT, 
                                        min(MAX_QUESTIONS_PER_CONCEPT,
                                            TOTAL_QUESTIONS // len(self.fragment_keys) if self.fragment_keys else 1))
-        self.followup_questions = 0  # Track follow-up questions separately
+        self.followup_questions = 0
         
         logger.info(f"Session initialized with {len(self.fragment_keys)} concepts, "
-                   f"target {self.questions_per_concept} questions per concept")
+                   f"target {self.questions_per_concept} questions per concept, greeting_step: {self.greeting_step}")
 
 class ConversationEntry:
     """Single Q&A entry in the conversation log"""
@@ -431,6 +430,48 @@ class TestManager:
         self.tests[test_id] = Session(summary, voice)
         return test_id
     
+    def should_continue_test(self, test_id: str) -> bool:
+        """Determine if test should continue - only count actual test questions, not greeting"""
+        test = self.validate_test(test_id)
+        
+        # If still in greeting phase, continue
+        if test.greeting_step < 3:
+            return True
+        
+        # Count only non-greeting questions for test logic
+        actual_test_questions = len([entry for entry in test.conversation_log 
+                                   if not entry.concept.startswith('greeting')])
+        
+        # Apply existing logic using actual test question count
+        if actual_test_questions == 0:  # Just finished greeting, start test
+            return True
+            
+        # Existing fragment coverage logic...
+        uncovered_concepts = [
+            concept for concept, count in test.concept_question_counts.items() 
+            if count == 0
+        ]
+        if uncovered_concepts:
+            return True
+            
+        underdeveloped_concepts = [
+            concept for concept, count in test.concept_question_counts.items() 
+            if count < test.questions_per_concept
+        ]
+        if len(underdeveloped_concepts) > len(test.fragment_keys) * 0.3:
+            return True
+            
+        # Hard limit based on actual test questions
+        if actual_test_questions >= TOTAL_QUESTIONS + (TOTAL_QUESTIONS // 2):
+            return False
+            
+        if actual_test_questions >= TOTAL_QUESTIONS:
+            max_questions_any_concept = max(test.concept_question_counts.values())
+            min_questions_any_concept = min(test.concept_question_counts.values())
+            if max_questions_any_concept - min_questions_any_concept <= 1:
+                return False
+        
+        return True
     def get_active_fragment(self, test_id: str) -> tuple[str, str]:
         """
         Get the current active concept fragment based on question index and scheduling logic.
@@ -493,12 +534,12 @@ class TestManager:
         """Add a question to the test conversation log with enhanced tracking"""
         test = self.validate_test(test_id)
         
-        # Track concept usage
-        if concept and concept in test.concept_question_counts:
+        # Track concept usage (skip for greeting concepts)
+        if concept and concept in test.concept_question_counts and not concept.startswith('greeting'):
             test.concept_question_counts[concept] += 1
         
-        # Track follow-up questions separately
-        if is_followup:
+        # Track follow-up questions separately (skip greeting)
+        if is_followup and not concept.startswith('greeting'):
             test.followup_questions += 1
         
         test.conversation_log.append(ConversationEntry(
@@ -507,60 +548,19 @@ class TestManager:
             is_followup=is_followup
         ))
         test.current_concept = concept
-        test.question_index += 1
         
-        logger.info(f"Added question {test.question_index} (followup: {is_followup}) "
-                   f"for concept '{concept}' to test {test_id}")
-    
+        # Only increment question_index for actual test questions
+        if not concept.startswith('greeting'):
+            test.question_index += 1
+        
+        logger.info(f"Added question (concept: '{concept}', followup: {is_followup}) to test {test_id}")
+        
     def add_answer(self, test_id: str, answer: str):
         """Add an answer to the last question in the conversation log"""
         test = self.validate_test(test_id)
         if test.conversation_log:
             test.conversation_log[-1].answer = answer
     
-    def should_continue_test(self, test_id: str) -> bool:
-        """
-        Determine if the test should continue based on enhanced criteria.
-        More dynamic than just checking TOTAL_QUESTIONS.
-        """
-        test = self.validate_test(test_id)
-        
-        # Check if we've covered all concepts at least once
-        uncovered_concepts = [
-            concept for concept, count in test.concept_question_counts.items() 
-            if count == 0
-        ]
-        
-        # Continue if we have uncovered concepts
-        if uncovered_concepts:
-            return True
-        
-        # Continue if we haven't reached the minimum questions per concept for most concepts
-        underdeveloped_concepts = [
-            concept for concept, count in test.concept_question_counts.items() 
-            if count < test.questions_per_concept
-        ]
-        
-        # Allow some flexibility - continue if more than 30% of concepts need more questions
-        if len(underdeveloped_concepts) > len(test.fragment_keys) * 0.3:
-            return True
-        
-        # Hard limit to prevent extremely long tests
-        max_questions = TOTAL_QUESTIONS + (TOTAL_QUESTIONS // 2)  # 150% of baseline
-        if test.question_index >= max_questions:
-            return False
-        
-        # Soft limit based on baseline
-        if test.question_index >= TOTAL_QUESTIONS:
-            # Only continue if we have very unbalanced coverage
-            max_questions_any_concept = max(test.concept_question_counts.values())
-            min_questions_any_concept = min(test.concept_question_counts.values())
-            
-            # Stop if coverage is reasonably balanced
-            if max_questions_any_concept - min_questions_any_concept <= 1:
-                return False
-        
-        return True
     
     def cleanup_expired_tests(self):
         """Remove expired test sessions"""
@@ -583,100 +583,106 @@ test_manager = TestManager()
 # ========================
 
 class LLMManager:
-    """Enhanced LLM manager with fragment-aware question generation"""
     def __init__(self):
-        # Initialize LLM
         self.llm = ChatOpenAI(model="gpt-4.1-mini", temperature=0.8)
         self.parser = StrOutputParser()
         
-        # Define prompts
-        self.question_prompt = PromptTemplate.from_template("""
-        You are a friendly and supportive interviewer conducting a voice-based daily standup. Your goal is to create a comfortable, welcoming environment.
-
-        **Your Task:**
-        Start with a warm, simple greeting that puts the person at ease. Use everyday language and be genuinely friendly.
-        Examples: "Hello there! I hope you're having a good day." or "Hi! Thanks for joining me today."
-        Do NOT ask direct questions yet - this is just to make them feel welcome and relaxed.
-
-        **Important Guidelines:**
-        - Use simple, clear English
-        - Be warm and encouraging
-        - Keep it conversational and natural
-        - Make them feel comfortable and supported
-
-        **Output Format (Strictly follow this):**
-        CONCEPT: greeting
-        QUESTION: [Your warm, friendly greeting without direct questions]
+        # Initial greeting prompt
+        self.initial_greeting_prompt = PromptTemplate.from_template("""
+        You are starting a friendly voice conversation. Give a warm, natural greeting to welcome the person.
+        
+        Keep it simple and conversational - just say hello in your own natural way.
+        Examples: "Hi there!", "Hello! Good to see you.", "Hey, how's it going?"
+        
+        **Output Format:**
+        CONCEPT: greeting_initial
+        QUESTION: [Your natural, friendly greeting]
         """)
         
+        # Greeting response prompts
+        self.greeting_response_prompt = PromptTemplate.from_template("""
+        You are having a natural conversation. Here's the context:
+        
+        **Greeting Step:** {greeting_step}
+        **User's Response:** {user_response}
+        
+        **Instructions based on greeting step:**
+        
+        **If greeting_step is 1:** The user responded to your initial greeting. Now ask how they're doing in a casual, friendly way.
+        Examples: "How are you doing today?", "How's your day going?", "How are things with you?"
+        
+        **If greeting_step is 2:** The user shared how they're doing. Now ask if they're ready to begin the session.
+        Examples: "Great! Are you ready to get started?", "Awesome! Ready to begin?", "Perfect! Shall we start?"
+        
+        Be natural and conversational. Vary your language.
+        
+        **Output Format:**
+        CONCEPT: greeting_step_{greeting_step}
+        QUESTION: [Your natural, conversational response]
+        """)
+        
+        # Existing prompts remain the same...
         self.followup_prompt = PromptTemplate.from_template("""
-        You are a kind and supportive interviewer conducting a voice-based daily standup. Your approach should be encouraging and understanding.
+        You are a kind and supportive interviewer conducting a voice-based daily standup.
 
         **Context:**
         - **Current Concept Fragment:** {current_concept_title}
         - **Concept Content:** {concept_content}
-        - **Recent Conversation History:**
-        {history}
+        - **Recent Conversation History:** {history}
         - **Your Last Question:** {previous_question}
         - **Student's Response:** {user_response}
         - **Progress:** This is question {current_question_number}. Questions asked for this concept: {questions_for_concept}.
 
-        **Your Task:**
-
-        **IF THE 'Current Concept Fragment' IS 'greeting':**
-        The user has responded to your greeting. Now gently transition to the standup.
-        1. Acknowledge their response warmly (e.g., "That's wonderful to hear!")
-        2. Gently introduce the standup (e.g., "Let's start with something easy...")
-        3. Ask your first question using simple, clear language based on the **Concept Content**
-        4. Set UNDERSTANDING to YES
-
-        **OTHERWISE (for all other concept fragments):**
-        The user has answered a standup question about the current concept. Be supportive and encouraging.
+        **Your Task:** Generate a supportive follow-up question based on the current concept fragment.
         
         **Response Strategy:**
-        1. **If they demonstrate good understanding:** Give brief, positive feedback and ask a related follow-up question about the SAME concept, or if you feel the concept is well covered, move to exploring their practical experience with this concept.
-        
-        2. **If they seem to struggle or are uncertain:** Be very supportive:
-           - Reassure them ("That's okay, no pressure at all!")
-           - Offer help or ask a simpler question about the same concept
-           - Give them an option ("We can skip this if you'd prefer")
-        
-        3. **If their response shows they're ready for the next concept:** You can transition to signal readiness for a new concept by setting UNDERSTANDING to YES and mentioning a transition.
+        1. **If they demonstrate good understanding:** Give brief, positive feedback and ask a related follow-up question about the SAME concept.
+        2. **If they seem to struggle:** Be supportive and ask a simpler question about the same concept.
+        3. **If ready for next concept:** Signal readiness by setting UNDERSTANDING to YES.
 
-        **Important Guidelines:**
+        **Guidelines:**
         - Focus ONLY on the current concept fragment provided
         - Use simple, everyday English
         - Be patient and understanding
-        - Keep questions conversational, not formal
-        - Vary your language to sound natural and fresh
+        - Keep questions conversational
 
-        **Output Format (Strictly follow this):**
+        **Output Format:**
         UNDERSTANDING: [YES if ready for next concept, NO if staying with current concept]
-        CONCEPT: [{current_concept_title} or specify new concept if transitioning]
-        QUESTION: [Your supportive, conversational question in simple English]
+        CONCEPT: [{current_concept_title}]
+        QUESTION: [Your supportive, conversational question]
         """)
         
+        # Evaluation prompt remains the same...
         self.evaluation_prompt = PromptTemplate.from_template("""
         You are evaluating a student's performance in a supportive voice-based daily standup covering multiple technical concepts.
-        The standup assessed understanding across various topics in a friendly, encouraging environment.
 
-        Conversation Fragments Covered:
-        {concepts_covered}
+        Conversation Fragments Covered: {concepts_covered}
+        Full Q&A log: {conversation}
 
-        Full Q&A log:
-        {conversation}
+        Generate a kind but honest evaluation with these sections:
+        1. Key Strengths: (2-3 positive points)
+        2. Areas for Growth: (1-2 gentle suggestions)
+        3. Concept Understanding: (Brief summary across concepts)
+        4. Coverage Analysis: (Topics well-covered vs. areas needing attention)
+        5. Final Score: Format 'Final Score: X/10'
 
-        Generate a kind but honest evaluation. Your response must include the following sections:
-        1. Key Strengths: (2-3 positive points about their performance)
-        2. Areas for Growth: (1-2 gentle suggestions for improvement)
-        3. Concept Understanding: (Brief summary of how well they grasped the different concepts)
-        4. Coverage Analysis: (Note which topics were well-covered vs. areas that could use more attention)
-        5. Encouragement: (One supportive recommendation for continued learning)
-        6. Final Score: A fair score on a separate line, in the format 'Final Score: X/10'.
-
-        Be encouraging but fair with the score. Consider their effort, engagement, and breadth of understanding across topics, not just technical accuracy.
-        Keep the total evaluation under 250 words and maintain a supportive, constructive tone.
+        Keep under 250 words, maintain supportive tone.
         """)
+    
+    async def generate_initial_greeting(self) -> Dict[str, str]:
+        """Generate the initial greeting"""
+        chain = self.initial_greeting_prompt | self.llm | self.parser
+        response = await chain.ainvoke({})
+        return self._parse_llm_response(response, ["CONCEPT", "QUESTION"])
+    
+    async def generate_greeting_response(self, greeting_step: int, user_response: str) -> Dict[str, str]:
+        """Generate response during greeting flow"""
+        chain = self.greeting_response_prompt | self.llm | self.parser
+        response = await chain.ainvoke({
+            "greeting_step": greeting_step,
+            "user_response": user_response
+        })
+        return self._parse_llm_response(response, ["CONCEPT", "QUESTION"])
     
     def _parse_llm_response(self, response: str, keys: List[str]) -> Dict[str, str]:
         """Parse structured responses from the LLM"""
@@ -754,6 +760,7 @@ class AudioManager:
                         except Exception:
                             pass
         except Exception as e:
+<<<<<<< HEAD
             logger.error(f"Audio cleanup error: {e}")
 
     @staticmethod
@@ -775,8 +782,20 @@ class AudioManager:
         """
         timestamp = int(time.time() * 1000)
         wav_path = os.path.join(AUDIO_DIR, f"ai_{timestamp}.wav")
+=======
+            logger.error(f"Error during audio cleanup: {e}")
+    
+    @staticmethod
+    async def text_to_speech(text: str, voice: str, speed: float = TTS_SPEED) -> Optional[str]:
+        """Convert text to speech using Edge TTS"""
+        timestamp = int(time.time() * 1000)
+        raw_path = os.path.join(AUDIO_DIR, f"ai_raw_{timestamp}.mp3")
+        final_path = os.path.join(AUDIO_DIR, f"ai_{timestamp}.mp3")
+        
+>>>>>>> 6b12dbb8e4ea1453877800c1781793fb0839441e
         try:
             AudioManager.clean_audio_folder()
+<<<<<<< HEAD
             if not reference_audio:
                 reference_audio = AudioManager.get_random_reference_audio()
             wav_tensor = tts.generate(
@@ -818,6 +837,43 @@ class AudioManager:
                 return
         return _gen()
       
+=======
+            
+            # Generate TTS audio
+            await edge_tts.Communicate(text, voice).save(raw_path)
+
+            # Apply speed adjustment with ffmpeg
+            subprocess.run([
+                "ffmpeg", "-y", "-i", raw_path,
+                "-filter:a", f"atempo={speed}", "-vn", final_path
+            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+
+            # Clean up raw file
+            if os.path.exists(raw_path):
+                os.remove(raw_path)
+            
+            # Wait for final file to appear and return relative path
+            for _ in range(10):
+                if os.path.exists(final_path):
+                    return f"/audio/{os.path.basename(final_path)}"
+                await asyncio.sleep(0.1)
+
+            logger.error(f"TTS final audio file missing after wait: {final_path}")
+            return None
+
+        except Exception as e:
+            logger.error(f"Text-to-speech error: {e}")
+            # Clean up any partial files
+            for path in [raw_path, final_path]:
+                if os.path.exists(path):
+                    try:
+                        os.remove(path)
+                    except:
+                        pass
+        
+        return None
+    
+>>>>>>> 6b12dbb8e4ea1453877800c1781793fb0839441e
     @staticmethod
     def transcribe(filepath: str) -> str:
         """Transcribe audio using Groq's Whisper API"""
@@ -889,31 +945,26 @@ async def api_info():
 
 @app.get("/start_test", response_model=TestResponse)
 async def start_test():
-    """Start a new test session with fragment-based concept mapping"""
+    """Start a new test session with greeting flow"""
     try:
-        # Get latest lecture summary
         summary = db_manager.get_latest_summary()
-        
-        # Create a new test
         voice = get_random_voice()
         test_id = test_manager.create_test(summary, voice)
         
-        # Log fragment information
         test = test_manager.get_test(test_id)
-        logger.info(f"Started test {test_id} with {len(test.fragment_keys)} concept fragments: {test.fragment_keys}")
+        logger.info(f"Started test {test_id} with greeting flow, {len(test.fragment_keys)} concept fragments")
         
-        # Generate first question (greeting)
-        question_data = await llm_manager.generate_first_question(summary)
-        question = question_data.get("question", "What can you tell me about this topic?")
-        concept = question_data.get("concept", "greeting")
+        # Generate initial greeting
+        question_data = await llm_manager.generate_initial_greeting()
+        question = question_data.get("question", "Hi there!")
+        concept = question_data.get("concept", "greeting_initial")
         
-        # Add question to test
+        # Add to conversation log
         test_manager.add_question(test_id, question, concept)
         
-        # Generate audio for the question
+        # Generate audio
         audio_path = await AudioManager.text_to_speech(question, voice)
         
-        # Dynamic duration estimation based on concepts
         estimated_duration = len(test.fragment_keys) * test.questions_per_concept * ESTIMATED_SECONDS_PER_QUESTION
         return {
             "test_id": test_id, 
@@ -925,12 +976,17 @@ async def start_test():
     except Exception as e:
         logger.error(f"Error starting test: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to start test: {str(e)}")
+<<<<<<< HEAD
 
 def test_tts_stream_type():
     stream = tts.generate_stream("hello", audio_prompt_path="ref_audios/any.wav")
     print("Stream type:", type(stream))
     print("Has __aiter__?", hasattr(stream, '__aiter__'))
     print("Has __iter__?", hasattr(stream, '__iter__'))
+=======
+    
+from fastapi import UploadFile, File, Form
+>>>>>>> 6b12dbb8e4ea1453877800c1781793fb0839441e
 
 
 @app.post("/record_and_respond")
@@ -946,11 +1002,23 @@ async def record_and_respond(
 
         # --- STEP 2: Save uploaded audio to a temporary file ---
         audio_filename = os.path.join(TEMP_DIR, f"user_audio_{int(time.time())}_{test_id}.webm")
+<<<<<<< HEAD
         content = await audio.read()
         if len(content) == 0:
             raise HTTPException(status_code=400, detail="Empty audio file received")
         with open(audio_filename, "wb") as f:
             f.write(content)
+=======
+        try:
+            content = await audio.read()
+            if len(content) == 0:
+                raise HTTPException(status_code=400, detail="Empty audio file received")
+                
+            with open(audio_filename, "wb") as f:
+                f.write(content)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to save audio file: {str(e)}")
+>>>>>>> 6b12dbb8e4ea1453877800c1781793fb0839441e
 
         # --- STEP 3: Transcribe ---
         try:
@@ -964,6 +1032,7 @@ async def record_and_respond(
         # --- STEP 4: Update conversation and generate next question ---
         test_manager.add_answer(test_id, user_response)
 
+<<<<<<< HEAD
         # --- STEP 5: Determine if test should end (same logic as before) ---
         if not test_manager.should_continue_test(test_id):
             closing_message = "The test has ended. Thank you for your participation."
@@ -974,6 +1043,70 @@ async def record_and_respond(
             return StreamingResponse(audio_gen, media_type="audio/wav", headers={"X-Ended": "true"})
 
         # --- STEP 6: Generate next question (fragment-aware) ---
+=======
+        # Handle greeting flow
+        if test.greeting_step < 3:
+            if test.greeting_step < 2:
+                # Continue greeting flow
+                test.greeting_step += 1
+                question_data = await llm_manager.generate_greeting_response(
+                    test.greeting_step, user_response
+                )
+                next_question = question_data.get("question", "How are you doing?")
+                concept = question_data.get("concept", f"greeting_step_{test.greeting_step}")
+                
+                test_manager.add_question(test_id, next_question, concept)
+                audio_path = await AudioManager.text_to_speech(next_question, test.voice)
+                
+                return {
+                    "ended": False,
+                    "response": next_question,
+                    "audio_path": audio_path or "",
+                }
+            else:
+                # Greeting complete, start test
+                test.greeting_step = 3
+                logger.info(f"Test {test_id}: Greeting complete, starting main test")
+                
+                # Get first test concept and question
+                current_concept_title, current_concept_content = test_manager.get_active_fragment(test_id)
+                
+                # Generate first real test question
+                followup_data = await llm_manager.generate_followup(
+                    current_concept_title,
+                    current_concept_content,
+                    "",  # No history yet
+                    "Are you ready to begin?",
+                    user_response,
+                    1,  # First test question
+                    0   # No questions for this concept yet
+                )
+                
+                next_question = followup_data.get("question", "Let's start with the first topic.")
+                test_manager.add_question(test_id, next_question, current_concept_title)
+                audio_path = await AudioManager.text_to_speech(next_question, test.voice)
+                
+                return {
+                    "ended": False,
+                    "response": next_question,
+                    "audio_path": audio_path or "",
+                }
+
+        # Check if the test should continue (MAIN TEST LOGIC)
+        if not test_manager.should_continue_test(test_id):
+            logger.info(f"Test {test_id} completed. Enhanced completion criteria met.")
+            
+            # Fetch and return summary
+            closing_message = "The test has ended. Thank you for your participation."
+            audio_path = await AudioManager.text_to_speech(closing_message, test.voice)
+            return {
+                "ended": True, 
+                "response": closing_message, 
+                "audio_path": audio_path or ""
+            }
+
+        # Continue with regular test flow - Get current concept information
+>>>>>>> 6b12dbb8e4ea1453877800c1781793fb0839441e
         current_concept_title, current_concept_content = test_manager.get_active_fragment(test_id)
         history = test_manager.get_truncated_conversation_history(test_id)
         last_question = test.conversation_log[-1].question
@@ -996,7 +1129,14 @@ async def record_and_respond(
             concept_for_question = next_concept_title
         else:
             concept_for_question = current_concept_title
+<<<<<<< HEAD
         test_manager.add_question(test_id, next_question, concept_for_question, is_followup)
+=======
+
+        # Update test log and synthesize speech
+        test_manager.add_question(test_id, next_question, concept_for_question, is_followup)
+        audio_path = await AudioManager.text_to_speech(next_question, test.voice)
+>>>>>>> 6b12dbb8e4ea1453877800c1781793fb0839441e
 
         # --- STEP 7: Stream TTS of the next question! ---
         reference_audio = AudioManager.get_random_reference_audio()
@@ -1014,7 +1154,8 @@ async def record_and_respond(
     except Exception as e:
         logger.error(f"Error processing response for test {test_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
-
+    
+    
 @app.get("/summary", response_model=SummaryResponse)
 async def get_summary(test_id: str):
     """Get a summary evaluation of the test session with enhanced fragment analytics"""
