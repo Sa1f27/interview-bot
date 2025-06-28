@@ -491,15 +491,26 @@ class TestManager:
         return selected_concept, test.fragments[selected_concept]
     
     def get_truncated_conversation_history(self, test_id: str, window_size: int = 5) -> str:
-        """Return a string of the last `window_size` Q&A pairs formatted"""
+        """
+        Returns a string of the last Q&A pairs *only* from the current concept,
+        limited to `window_size`.
+        """
         test = self.validate_test(test_id)
-        last_entries = test.conversation_log[-window_size:]
+        current_concept = test.current_concept
+
+        entries = [
+            entry for entry in reversed(test.conversation_log)
+            if entry.concept == current_concept and entry.answer
+        ]
+        last_entries = list(reversed(entries[:window_size]))
+
         history = []
         for entry in last_entries:
-            q_line = f"Q: {entry.question}"
-            a_line = f"A: {entry.answer}" if entry.answer else "A: "
-            history.append(f"{q_line}\n{a_line}")
+            q = f"Q: {entry.question}"
+            a = f"A: {entry.answer}"
+            history.append(f"{q}\n{a}")
         return "\n\n".join(history)
+
     
     def get_test(self, test_id: str) -> Optional[Session]:
         """Get a test by ID"""
@@ -608,36 +619,56 @@ class LLMManager:
         QUESTION: [Your natural, conversational response]
         """)
         
-        # Existing prompts remain the same...
         self.followup_prompt = PromptTemplate.from_template("""
-        You are a kind and supportive interviewer conducting a voice-based daily standup.
+            You are a supportive voice-based interviewer conducting a technical daily standup.
 
-        **Context:**
-        - **Current Concept Fragment:** {current_concept_title}
-        - **Concept Content:** {concept_content}
-        - **Recent Conversation History:** {history}
-        - **Your Last Question:** {previous_question}
-        - **Student's Response:** {user_response}
-        - **Progress:** This is question {current_question_number}. Questions asked for this concept: {questions_for_concept}.
+            **Current Concept Fragment**
+            Title: {current_concept_title}
+            Content:
+            {concept_content}
 
-        **Your Task:** Generate a supportive follow-up question based on the current concept fragment.
-        
-        **Response Strategy:**
-        1. **If they demonstrate good understanding:** Give brief, positive feedback and ask a related follow-up question about the SAME concept.
-        2. **If they seem to struggle:** Be supportive and ask a simpler question about the same concept.
-        3. **If ready for next concept:** Signal readiness by setting UNDERSTANDING to YES.
+            **Conversation Context**
+            Last Question: {previous_question}
+            Student's Response: {user_response}
+            Recent Q&A History (Only this concept):
+            {history}
+            Question Number: {current_question_number}
+            Questions Asked for This Concept: {questions_for_concept}
 
-        **Guidelines:**
-        - Focus ONLY on the current concept fragment provided
-        - Use simple, everyday English
-        - Be patient and understanding
-        - Keep questions conversational
+            ---
 
-        **Output Format:**
-        UNDERSTANDING: [YES if ready for next concept, NO if staying with current concept]
-        CONCEPT: [{current_concept_title}]
-        QUESTION: [Your supportive, conversational question]
-        """)
+            **Instructions**
+
+            1. Focus only on the current concept. Do NOT bring in prior concepts or previous conversation context.
+
+            2. Response Handling Logic:
+            - ✅ If the response is clear or reasonably accurate (even if brief):
+                - Give supportive feedback.
+                - Then either:
+                a. Ask the next main question for this concept
+                b. OR mark UNDERSTANDING as YES to proceed to next concept
+                c. OR ask one unique follow-up only if the answer is interesting
+
+            - ⚠️ If the response is short, vague, or unclear:
+                - Retry **once only** using simpler phrasing.
+                - If still unclear in next round, lower difficulty or move to next concept.
+                - Do NOT rephrase the same question multiple times.
+
+            ---
+
+            **Tone & Style**
+            - Keep it natural, simple, friendly
+            - Avoid repetition
+            - Use everyday English
+
+            ---
+
+            **Output Format (strict)**
+            UNDERSTANDING: [YES | NO]
+            CONCEPT: [{current_concept_title}]
+            QUESTION: [Next question to ask]
+            """)
+
         
         # Evaluation prompt remains the same...
         self.evaluation_prompt = PromptTemplate.from_template("""
