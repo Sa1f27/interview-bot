@@ -32,14 +32,15 @@ A comprehensive AI-powered platform featuring voice-based interviews, mock tests
 ├── main.py                    # Main FastAPI app with sub-app mounting
 ├── requirements.txt           # Python dependencies
 ├── .gitignore                # Git ignore rules
-├── README.md                 # This documentation
+├── README.md  
+├── yolo_model/
+│   └── interview_monitor.py # Interview monitoring script
 ├── static/                   # Main landing page assets
 │   └── index.html           # Project launcher interface
 ├── daily_standup/           # Voice testing module
 │   ├── __init__.py
 │   ├── main.py             # Standup API endpoints
-│   └── frontend/           # Standup UI
-│       └── index.html
+│   └── index.html
 ├── weekend_mocktest/        # Mock test module  
 │   ├── __init__.py
 │   ├── main.py             # Test API endpoints
@@ -50,6 +51,7 @@ A comprehensive AI-powered platform featuring voice-based interviews, mock tests
     ├── main.py             # Interview API endpoints
     └── frontend/           # Interview UI
         └── index.html
+
 ```
 
 ## 🛠️ Tech Stack
@@ -86,8 +88,8 @@ A comprehensive AI-powered platform featuring voice-based interviews, mock tests
 
 1. **Clone the repository**
 ```cmd
-git clone <repository-url>
-cd fastapi-interview-system
+git clone https://github.com/Sa1f27/Edu-app.git
+cd Edu-app
 ```
 
 2. **Create virtual environment (recommended)**
@@ -99,6 +101,8 @@ venv\Scripts\activate
 3. **Install dependencies**
 ```cmd
 pip install -r requirements.txt
+
+pip install torch==2.6.0+cu118 torchvision==0.21.0+cu118 torchaudio==2.6.0+cu118 --index-url https://download.pytorch.org/whl/cu118
 ```
 
 4. **Set environment variables**
@@ -221,15 +225,15 @@ mongodb://sa:L%40nc%5Eere%400012@192.168.48.200:27017/?authSource=admin
 ```python
 SAMPLE_RATE = 16000           # Audio sample rate
 SILENCE_THRESHOLD = 0.01      # Voice activity detection
-SILENCE_DURATION = 2.0        # Silence before auto-stop
-MAX_RECORDING_DURATION = 10.0 # Maximum recording time
+SILENCE_DURATION = 3.0        # Silence before auto-stop
+MAX_RECORDING_DURATION = 15.0 # Maximum recording time
 TTS_SPEED = 1.2              # Text-to-speech playback speed
 ```
 
 ### Test Parameters
 ```python
-TEST_DURATION_SEC = 120       # Daily standup time limit
-INACTIVITY_TIMEOUT = 120      # Session timeout
+TEST_DURATION_SEC = 15000      # Daily standup time limit
+INACTIVITY_TIMEOUT = 180    # Session timeout
 ```
 
 ## 🔌 API Endpoints
