@@ -531,11 +531,9 @@
             try {
                 updateConversationState('processing');
                 updateStatus('PROCESSING', 'Processing your response...');
-                
-                // Create blob from recorded chunks
+
                 const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                
-                // Check if we have sufficient audio data
+
                 if (audioBlob.size < 1000) {
                     log('Recording too short, requesting user to speak again');
                     updateStatus('LISTENING', 'Recording was too short. Please speak again...');
@@ -543,7 +541,6 @@
                     return;
                 }
 
-                // Send to backend for processing
                 const formData = new FormData();
                 formData.append('audio', audioBlob, 'response.webm');
                 formData.append('test_id', testId);
@@ -554,30 +551,51 @@
                     body: formData,
                 });
 
-                const data = await response.json();
-                log('Backend response received');
+                const contentType = response.headers.get('content-type');
 
-                if (!response.ok) {
-                    throw new Error(data.error || 'Recording processing failed');
+                if (contentType && contentType.startsWith('audio/wav')) {
+                    // Handle audio streaming response
+                    log('Received audio/wav stream from backend');
+                    updateConversationState('speaking');
+                    updateStatus('AI SPEAKING', 'Playing AI audio...');
+
+                    // Play the audio directly
+                    const audioBlob = await response.blob();
+                    const audioURL = URL.createObjectURL(audioBlob);
+                    const audio = new Audio(audioURL);
+                    audio.onended = async () => {
+                        URL.revokeObjectURL(audioURL);
+                        if (conversationState !== 'ended') {
+                            updateStatus('WAITING', 'Please respond...');
+                            setTimeout(() => startPreparationPhase(), 1000);
+                        }
+                    };
+                    audio.onerror = () => {
+                        log('Error playing backend audio', 'error');
+                        if (conversationState !== 'ended') {
+                            updateStatus('WAITING', 'Please respond...');
+                            setTimeout(() => startPreparationPhase(), 1000);
+                        }
+                    };
+                    audio.play();
+                    return;
                 }
 
-                const responseText = data.response || 'AI response not available';
-                log(`AI Response: ${responseText}`);
-                
-                updateConversationState('speaking');
-                updateStatus('AI SPEAKING', responseText);
-                
-                // Play AI response audio
-                if (data.audio_path) {
-                    log(`Playing AI audio: ${data.audio_path}`);
-                    await playAudio(data.audio_path);
+                // If not audio, try to parse as JSON (for errors or end of test)
+                let data;
+                try {
+                    data = await response.json();
+                } catch (err) {
+                    log('Backend response was neither audio nor JSON', 'error');
+                    updateStatus('ERROR', 'Processing error: Invalid response from backend.');
+                    endConversation('Processing error');
+                    return;
                 }
 
                 if (data.ended) {
-                    await fetchAndDisplaySummary(); // Fetch summary first
-                    endConversation('Test completed successfully'); // Then end the conversation flow
+                    await fetchAndDisplaySummary();
+                    endConversation('Test completed successfully');
                 } else if (conversationState !== 'ended') {
-                    // Continue with next question cycle
                     updateStatus('WAITING', 'Please respond...');
                     setTimeout(() => startPreparationPhase(), 1000);
                 }
