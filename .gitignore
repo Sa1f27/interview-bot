@@ -32,3 +32,8 @@ audio/
 # === Environment & Credentials ===
 .env
 weekend_mocktest/vector_store/
+*.key
+*.cert
+*.pem
+
+
