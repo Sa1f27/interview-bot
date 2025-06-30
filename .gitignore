@@ -4,6 +4,7 @@ __pycache__/
 # === Virtual Environments ===
 venvapp/
 venv/
+certs/
 # === IDEs and Editors ===
 .vscode/
 .idea/
