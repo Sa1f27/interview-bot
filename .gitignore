@@ -5,6 +5,7 @@ __pycache__/
 venvapp/
 venv/
 certs/
+avenv/
 # === IDEs and Editors ===
 .vscode/
 .idea/
