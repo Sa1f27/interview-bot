@@ -1031,7 +1031,7 @@ class AudioManager:
 
 class LLMManager:
     def __init__(self):
-        self.llm = ChatOpenAI(model="gpt-4.1-mini", temperature=0.8)
+        self.llm = ChatOpenAI(model="gpt-4.1-mini", temperature=1.2)
         self.parser = StrOutputParser()
 
         # Initial Greeting Prompt

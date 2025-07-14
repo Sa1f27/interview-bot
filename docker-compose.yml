@@ -1,0 +1,12 @@
+
+
+services:
+  interview_app:
+    build: .
+    ports:
+      - "8060:8060"
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    restart: unless-stopped
