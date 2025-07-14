@@ -1,360 +1,257 @@
-# FastAPI Multi-Module Interview & Testing System
 
-A comprehensive AI-powered platform featuring voice-based interviews, mock tests, and daily standups. Built with FastAPI, this system provides an integrated solution for technical assessments and skill evaluation.
+# 🚀 FastAPI Multi-Module Interview & Testing System
 
-## 🚀 Features
+A comprehensive AI-powered platform featuring voice-based interviews, mock tests, and daily standups. Built with FastAPI, MongoDB, LangChain, and OpenAI/Groq APIs, this system provides a complete solution for technical assessments, adaptive testing, and real-time evaluation.
+
+---
+
+## 🌟 Features
 
 ### 🎤 Daily Standup Module
-- **Voice-based testing** with AI-generated questions
-- Real-time audio recording and transcription
-- Adaptive questioning based on lecture summaries
-- **Text-to-speech** responses with natural voice synthesis
-- Live evaluation and feedback
+- Voice-based adaptive questioning
+- Whisper transcription (via Groq API)
+- Text-to-speech feedback (Edge TTS)
+- Real-time evaluation, silence detection
+- PDF summary export
 
-### 📝 Weekend Mock Test Module  
-- **Adaptive testing** for developers and non-developers
-- Developer mode: Code writing, debugging, scenario-based questions
-- Non-developer mode: Multiple choice questions with auto-evaluation
-- **MongoDB integration** for dynamic content generation
-- PDF export of test results
-- Real-time scoring and analytics
+### 📝 Weekend Mock Test Module
+- Developer & Non-developer test modes
+- Code questions, MCQs, adaptive logic
+- PDF export and scoring analytics
 
 ### 💼 Weekly Interview Module
-- **Three-round interview system**: Technical, Communication, HR
-- Voice-based interaction with AI interviewers
-- **Progressive difficulty** based on performance
-- Comprehensive evaluation reports
-- Real-time round transitions
+- 3-round AI interview (Tech, Comm, HR)
+- Realistic voice interaction
+- Progressive difficulty & evaluation
+- Round transitions and reports
+
+---
 
 ## 🏗️ Project Structure
 
 ```
-├── main.py                    # Main FastAPI app with sub-app mounting
-├── requirements.txt           # Python dependencies
-├── .gitignore                # Git ignore rules
-├── README.md  
-├── yolo_model/
-│   └── interview_monitor.py # Interview monitoring script
-├── static/                   # Main landing page assets
-│   └── index.html           # Project launcher interface
-├── daily_standup/           # Voice testing module
-│   ├── __init__.py
-│   ├── main.py             # Standup API endpoints
+
+├── main.py                  # FastAPI main app
+├── requirements.txt
+├── Dockerfile
+├── docker-compose.yml
+├── .env                     # API keys
+├── yolo\_model/
+│   └── interview\_monitor.py
+├── static/index.html        # Landing UI
+├── daily\_standup/
+│   ├── main.py
 │   └── index.html
-├── weekend_mocktest/        # Mock test module  
-│   ├── __init__.py
-│   ├── main.py             # Test API endpoints
-│   └── frontend/           # Test UI
-│       └── index.html
-└── weekly_interview/        # Interview module
-    ├── __init__.py
-    ├── main.py             # Interview API endpoints
-    └── frontend/           # Interview UI
-        └── index.html
+├── weekend\_mocktest/
+│   ├── main.py
+│   └── frontend/index.html
+└── weekly\_interview/
+├── main.py
+└── frontend/index.html
 
-```
+````
 
-## 🛠️ Tech Stack
+---
 
-### Backend
-- **FastAPI** - Modern async web framework
-- **MongoDB** - Document database for content storage
-- **LangChain** - LLM orchestration and prompt management
-- **OpenAI GPT-4** - Question generation and evaluation
-- **Groq API** - Fast audio transcription (Whisper)
-- **Edge TTS** - Natural text-to-speech synthesis
+## ⚙️ Tech Stack
 
-### Frontend
-- **HTML/CSS/JavaScript** - Modern responsive interfaces
-- **Tailwind CSS** - Utility-first styling (weekend module)
-- **Real-time audio** processing with Web Audio API
-- **Progressive UI** with loading states and animations
+**Backend**
+- FastAPI, MongoDB, LangChain
+- Whisper (via Groq), OpenAI GPT-4
+- Edge TTS, FFmpeg
 
-### Audio Processing
-- **sounddevice** - Real-time audio capture
-- **scipy** - Audio file processing
-- **FFmpeg** - Audio format conversion and speed adjustment
+**Frontend**
+- HTML/JS + Tailwind CSS (where used)
+- Web Audio API, real-time response UX
+
+**Audio Tools**
+- sounddevice, scipy, pydub
+- FFmpeg for conversion/speed tuning
+
+---
 
 ## 📋 Prerequisites
 
-- Python 3.8+ installed on Windows
-- MongoDB instance (local or remote)
-- FFmpeg installed and added to Windows PATH
-- OpenAI API key
-- Groq API key
-- Windows microphone access permissions
+- Python 3.8+ (Windows/Linux)
+- MongoDB (local/cloud)
+- FFmpeg installed & in PATH
+- OpenAI and Groq API keys
+- Microphone permission (Windows)
 
-## ⚙️ Installation
+---
 
-1. **Clone the repository**
-```cmd
+## 💻 Setup Options
+
+### 🅰️ Manual Setup (Recommended for Dev)
+
+```bash
+# Clone
 git clone https://github.com/Sa1f27/Edu-app.git
 cd Edu-app
-```
 
-2. **Create virtual environment (recommended)**
-```cmd
+# Create virtual env
 python -m venv venv
 venv\Scripts\activate
-```
 
-3. **Install dependencies**
-```cmd
+# Install dependencies
 pip install -r requirements.txt
-
 pip install torch==2.6.0+cu118 torchvision==0.21.0+cu118 torchaudio==2.6.0+cu118 --index-url https://download.pytorch.org/whl/cu118
-```
 
-4. **Set environment variables**
+# Set environment
+echo OPENAI_API_KEY=your_key >> .env
+echo GROQ_API_KEY=your_key >> .env
+````
 
-Create a `.env` file in the root directory:
-```
-OPENAI_API_KEY=your_openai_api_key_here
-GROQ_API_KEY=your_groq_api_key_here
-```
+**Install FFmpeg**
 
-Or set them in Windows Command Prompt:
-```cmd
-set OPENAI_API_KEY=your_openai_api_key_here
-set GROQ_API_KEY=your_groq_api_key_here
-```
-
-Or set them in PowerShell:
-```powershell
-$env:OPENAI_API_KEY="your_openai_api_key_here"
-$env:GROQ_API_KEY="your_groq_api_key_here"
-```
-
-5. **Install FFmpeg for Windows**
-
-**Option A: Using Chocolatey (recommended)**
-```cmd
-# Install Chocolatey first if not installed
-# Visit: https://chocolatey.org/install
-
+```bash
 choco install ffmpeg
+# OR manually add to PATH from https://www.gyan.dev/ffmpeg/builds/
 ```
 
-**Option B: Manual Installation**
-```cmd
-# 1. Download FFmpeg from https://www.gyan.dev/ffmpeg/builds/
-# 2. Extract to C:\ffmpeg
-# 3. Add C:\ffmpeg\bin to Windows PATH:
-#    - Press Win + R, type "sysdm.cpl"
-#    - Go to Advanced → Environment Variables
-#    - Edit PATH and add C:\ffmpeg\bin
-# 4. Restart Command Prompt and verify:
-ffmpeg -version
-```
+**Run the app**
 
-6. **Verify microphone permissions**
-```cmd
-# Windows 10/11: Settings → Privacy → Microphone
-# Ensure "Allow apps to access your microphone" is ON
-```
-
-## 🚀 Running the Application
-
-1. **Activate virtual environment (if using)**
-```cmd
-venv\Scripts\activate
-```
-
-2. **Start the main application**
-```cmd
-python main.py
-```
-
-3. **Alternative: Run with uvicorn directly**
-```cmd
+```bash
 uvicorn main:app --host 127.0.0.1 --port 8060 --reload
 ```
 
-4. **Access the interface**
+Open browser: [http://localhost:8060](http://localhost:8060)
+
+---
+
+### 🅱️ Docker Setup (No Python Needed)
+
+**Steps:**
+
+1. Install Docker Desktop
+2. Add `.env` file with API keys:
+
 ```
-http://localhost:8060
-```
-
-5. **Individual module access**
-- Daily Standup: `http://localhost:8060/daily_standup`
-- Weekend Mock Test: `http://localhost:8060/weekend_mocktest`  
-- Weekly Interview: `http://localhost:8060/weekly_interview`
-
-## 📊 Database Configuration
-
-The system requires MongoDB with specific collections:
-
-```javascript
-// Database: test
-// Collection: drive
-{
-  "_id": ObjectId("..."),
-  "summary": "Lecture content summary for question generation",
-  "timestamp": ISODate("...")
-}
+OPENAI_API_KEY=your_openai_key
+GROQ_API_KEY=your_groq_key
 ```
 
-**MongoDB Connection String:**
-```
-mongodb://sa:L%40nc%5Eere%400012@192.168.48.200:27017/?authSource=admin
-```
+3. Run with Docker:
 
-## 🎯 Usage Guide
-
-### Daily Standup Module
-1. Click "Start Test" to begin voice-based assessment
-2. Answer AI-generated questions verbally (10-second limit per response)
-3. Receive real-time feedback and follow-up questions
-4. View comprehensive evaluation report after completion
-
-### Weekend Mock Test Module
-1. Select user type: Developer or Non-Developer
-2. Answer 10 adaptive questions (5 minutes each for dev, 2 minutes for non-dev)
-3. Receive immediate scoring and detailed analytics
-4. Export results as PDF for records
-
-### Weekly Interview Module  
-1. Click "Start Interview" for three-round assessment
-2. Complete Technical, Communication, and HR rounds sequentially
-3. Engage in natural voice conversations with AI interviewers
-4. Receive comprehensive evaluation across all competency areas
-
-## 🔧 Configuration
-
-### Audio Settings
-```python
-SAMPLE_RATE = 16000           # Audio sample rate
-SILENCE_THRESHOLD = 0.01      # Voice activity detection
-SILENCE_DURATION = 3.0        # Silence before auto-stop
-MAX_RECORDING_DURATION = 15.0 # Maximum recording time
-TTS_SPEED = 1.2              # Text-to-speech playback speed
+```bash
+docker-compose up --build
 ```
 
-### Test Parameters
-```python
-TEST_DURATION_SEC = 15000      # Daily standup time limit
-INACTIVITY_TIMEOUT = 180    # Session timeout
+Open: [http://localhost:8060](http://localhost:8060)
+
+---
+
+## 🐳 Docker Files
+
+**Dockerfile**
+
+```dockerfile
+FROM python:3.10-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install -r requirements.txt \
+ && pip install torch==2.6.0+cu118 torchvision==0.21.0+cu118 torchaudio==2.6.0+cu118 --index-url https://download.pytorch.org/whl/cu118
+COPY . .
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8060"] || ["python", "main.py"]
+
 ```
 
-## 🔌 API Endpoints
+**docker-compose.yml**
 
-### Daily Standup (`/daily_standup/`)
-- `GET /` - Serve standup interface
-- `GET /start_test` - Initialize voice test session
-- `POST /record_and_respond` - Process audio and generate response
-- `GET /summary` - Get test evaluation
+```yaml
+version: '3.8'
+services:
+  interview_app:
+    build: .
+    ports:
+      - "8060:8060"
+    env_file:
+      - .env
+    depends_on:
+      - mongo
 
-### Weekend Mock Test (`/weekend_mocktest/`)
-- `GET /` - Serve test interface  
-- `POST /start-test` - Begin mock test session
-- `POST /submit-answer` - Submit question response
-- `GET /export-results` - Download PDF results
+  mongo:
+    image: mongo:6.0
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
 
-### Weekly Interview (`/weekly_interview/`)
-- `GET /` - Serve interview interface
-- `GET /start_interview` - Initialize interview session
-- `POST /record_and_respond` - Process audio interaction
-- `GET /start_next_round` - Transition between rounds
-- `GET /evaluate` - Generate final evaluation
-
-## 🔍 Monitoring & Maintenance
-
-### Health Checks
-```cmd
-curl http://localhost:8060/healthz
+volumes:
+  mongo_data:
 ```
 
-**Or using PowerShell:**
-```powershell
-Invoke-WebRequest -Uri "http://localhost:8060/healthz"
-```
+---
 
-### Cleanup Operations
-```cmd
-# Clean expired sessions and audio files
-curl http://localhost:8060/daily_standup/cleanup
-curl http://localhost:8060/weekly_interview/cleanup
-```
+## 🛠️ APIs (Selected)
 
-**Or using PowerShell:**
-```powershell
-Invoke-WebRequest -Uri "http://localhost:8060/daily_standup/cleanup"
-Invoke-WebRequest -Uri "http://localhost:8060/weekly_interview/cleanup"
-```
+**Daily Standup**
 
-### Logs
-- Application logs available via standard Python logging
-- Audio files automatically cleaned after 1 hour
-- Sessions expire after 2 hours of inactivity
+* `GET /daily_standup/`
+* `POST /daily_standup/record_and_respond`
+* `GET /daily_standup/summary`
 
-## 🚨 Troubleshooting
+**Mock Test**
 
-### Common Windows Issues
+* `POST /weekend_mocktest/start-test`
+* `POST /weekend_mocktest/submit-answer`
 
-**Audio Recording Problems:**
-```cmd
-# Test microphone access
-python -c "import sounddevice as sd; print(sd.query_devices())"
+**Weekly Interview**
 
-# Check FFmpeg installation
-ffmpeg -version
+* `GET /weekly_interview/start_interview`
+* `POST /weekly_interview/record_and_respond`
+* `GET /weekly_interview/start_next_round`
 
-# Windows microphone permissions:
-# Settings → Privacy & Security → Microphone → Allow apps to access microphone
-```
+---
 
-**Virtual Environment Issues:**
-```cmd
-# If activation fails
-venv\Scripts\activate.bat
+## 📊 Usage Flow
 
-# If still fails, recreate environment
-rmdir /s venv
-python -m venv venv
-venv\Scripts\activate
-pip install -r requirements.txt
-```
+### Daily Standup
 
-**Port Already in Use:**
-```cmd
-# Find process using port 8060
-netstat -ano | findstr :8060
+1. Start voice-based questioning
+2. Real-time transcript + reply
+3. Evaluation shown + PDF export
 
-# Kill process (replace PID with actual process ID)
-taskkill /PID <PID> /F
+### Mock Test
 
-# Or use different port
-python main.py --port 8061
-```
+1. Choose user type
+2. Answer 10 dynamic questions
+3. Score + answers shown
 
-**TTS/Transcription Failures:**
-```cmd
-# Test API keys
-python -c "import os; print('OpenAI:', bool(os.getenv('OPENAI_API_KEY'))); print('Groq:', bool(os.getenv('GROQ_API_KEY')))"
+### Interview
 
-# Check internet connectivity
-ping api.openai.com
-ping api.groq.com
-```
+1. Tech → Comm → HR rounds
+2. Voice interaction throughout
+3. Final evaluation generated
 
-**File Permission Errors:**
-```cmd
-# Run Command Prompt as Administrator if needed
-# Or change audio directory permissions
-icacls daily_standup\audio /grant Users:F
-icacls weekly_interview\audio /grant Users:F
-```
+---
 
-## 📈 Performance Notes
+## 🔍 Troubleshooting
 
-- **Concurrent Users**: Tested up to 10 simultaneous sessions
-- **Audio Processing**: ~2-3 second latency for transcription
-- **TTS Generation**: ~1-2 seconds for speech synthesis
-- **Database Queries**: Optimized for quick content retrieval
+| Issue              | Solution                                        |                                             |
+| ------------------ | ----------------------------------------------- | ------------------------------------------- |
+| Mic not working    | Check Windows > Settings > Privacy > Microphone |                                             |
+| `ffmpeg not found` | Add to PATH or use `choco install ffmpeg`       |                                             |
+| Port 8060 busy     | Use \`netstat -ano                              | findstr :8060`then`taskkill /PID <pid> /F\` |
+| API error          | Check `.env` values are set properly            |                                             |
 
-## 🔐 Security Considerations
+---
 
-- Audio files are automatically cleaned up
-- Sessions have built-in expiration
-- API keys should be properly secured
-- Consider implementing authentication for production use
+## 🧪 Performance & Security
+
+* Audio auto-deletes after 1 hour
+* Sessions expire after 2 hrs
+* Secured API keys (via .env)
+* Recommend adding auth for production
+
+---
+
+## 📈 Future Add-ons
+
+* ✅ JWT Authentication
+* ✅ Admin dashboard with results
+* ⏳ AI candidate scoring with LLM memory
+* ⏳ Leaderboard & job alerts integration
+
+---
+
