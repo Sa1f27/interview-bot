@@ -113,6 +113,8 @@ choco install ffmpeg
 
 ```bash
 uvicorn main:app --host 127.0.0.1 --port 8060 --reload
+nginx -p C:\tools\nginx-1.29.0 -c conf\nginx.conf
+
 ```
 
 Open browser: [http://localhost:8060](http://localhost:8060)

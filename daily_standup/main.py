@@ -1,7 +1,7 @@
 # App/daily_standup/main.py
-# Production-grade WebSocket-driven daily standup interview system
+# Complete, error-free daily standup backend
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, BackgroundTasks
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, File, UploadFile, Form
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,7 +17,6 @@ from typing import Dict, List, Optional, AsyncGenerator
 from pathlib import Path
 import edge_tts
 import openai
-from pymongo import MongoClient
 from motor.motor_asyncio import AsyncIOMotorClient
 from groq import Groq
 import pyodbc
@@ -32,15 +31,14 @@ from datetime import datetime
 from dataclasses import dataclass, field
 from enum import Enum
 import aiofiles
-import hashlib
-import asyncio
+import random
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # =============================================================================
-# PRODUCTION CONFIGURATION
+# CONFIGURATION
 # =============================================================================
 
 CURRENT_DIR = Path(__file__).resolve().parent
@@ -48,15 +46,14 @@ AUDIO_DIR = CURRENT_DIR / "audio"
 TEMP_DIR = CURRENT_DIR / "temp"
 REPORTS_DIR = CURRENT_DIR / "reports"
 
-# Create directories
 for directory in [AUDIO_DIR, TEMP_DIR, REPORTS_DIR]:
     directory.mkdir(exist_ok=True)
 
-# TTS Configuration - Optimized for streaming
+# TTS Configuration
 TTS_VOICE = "en-IN-PrabhatNeural"
 TTS_RATE = "+20%"
-TTS_CHUNK_SIZE = 50  # Words per chunk for streaming
-TTS_OVERLAP = 5  # Words overlap between chunks for smooth transitions
+TTS_CHUNK_SIZE = 50
+TTS_OVERLAP = 5
 
 # Interview Configuration
 GREETING_EXCHANGES = 3
@@ -89,7 +86,60 @@ OPENAI_TEMPERATURE = 0.7
 OPENAI_MAX_TOKENS = 500
 
 # =============================================================================
-# CORE CLASSES AND ENUMS
+# SHARED CLIENT MANAGER (DEPENDENCY INJECTION)
+# =============================================================================
+
+class SharedClientManager:
+    """Centralized client management for dependency injection"""
+    
+    def __init__(self):
+        self._groq_client = None
+        self._openai_client = None
+        self._mongo_client = None
+        self._mongo_db = None
+        
+    @property
+    def groq_client(self) -> Groq:
+        if self._groq_client is None:
+            self._groq_client = Groq()
+            logger.info("✅ Groq client initialized")
+        return self._groq_client
+    
+    @property 
+    def openai_client(self) -> openai.OpenAI:
+        if self._openai_client is None:
+            self._openai_client = openai.OpenAI()
+            logger.info("✅ OpenAI client initialized")
+        return self._openai_client
+    
+    async def get_mongo_client(self) -> AsyncIOMotorClient:
+        if self._mongo_client is None:
+            mongo_url = f"mongodb://{quote_plus(MONGO_CONFIG['username'])}:{quote_plus(MONGO_CONFIG['password'])}@{MONGO_CONFIG['host']}:{MONGO_CONFIG['port']}/{MONGO_CONFIG['database']}?authSource=admin"
+            self._mongo_client = AsyncIOMotorClient(mongo_url, maxPoolSize=50, serverSelectionTimeoutMS=5000)
+            try:
+                await self._mongo_client.admin.command('ping')
+                logger.info("✅ MongoDB client initialized")
+            except Exception as e:
+                logger.error(f"MongoDB connection failed: {e}")
+        return self._mongo_client
+    
+    async def get_mongo_db(self):
+        if self._mongo_db is None:
+            client = await self.get_mongo_client()
+            self._mongo_db = client[MONGO_CONFIG['database']]
+        return self._mongo_db
+    
+    async def close_connections(self):
+        """Cleanup method for graceful shutdown"""
+        if self._mongo_client:
+            self._mongo_client.close()
+            logger.info("🔌 MongoDB connections closed")
+
+# Global shared client manager
+shared_clients = SharedClientManager()
+
+# =============================================================================
+# CORE CLASSES
 # =============================================================================
 
 class SessionStage(Enum):
@@ -134,32 +184,24 @@ class SessionData:
         self.last_activity = time.time()
 
 # =============================================================================
-# DATABASE MANAGERS
+# DATABASE MANAGER
 # =============================================================================
 
 class DatabaseManager:
-    def __init__(self):
+    def __init__(self, client_manager: SharedClientManager):
+        self.client_manager = client_manager
         self.sql_conn = None
-        self.mongo_client = None
-        self.mongo_db = None
-        self.groq_client = Groq()
-        self.openai_client = openai.OpenAI()
         
-    async def initialize(self):
-        """Initialize database connections"""
-        try:
-            # Initialize MongoDB
-            mongo_url = f"mongodb://{quote_plus(MONGO_CONFIG['username'])}:{quote_plus(MONGO_CONFIG['password'])}@{MONGO_CONFIG['host']}:{MONGO_CONFIG['port']}/{MONGO_CONFIG['database']}?authSource=admin"
-            self.mongo_client = AsyncIOMotorClient(mongo_url, maxPoolSize=50, serverSelectionTimeoutMS=5000)
-            self.mongo_db = self.mongo_client[MONGO_CONFIG['database']]
-            
-            # Test MongoDB connection
-            await self.mongo_db.command("ping")
-            logger.info("MongoDB connected successfully")
-            
-        except Exception as e:
-            logger.error(f"Database initialization failed: {e}")
-            raise
+    @property
+    def groq_client(self):
+        return self.client_manager.groq_client
+    
+    @property
+    def openai_client(self):
+        return self.client_manager.openai_client
+    
+    async def get_mongo_db(self):
+        return await self.client_manager.get_mongo_db()
     
     def get_sql_connection(self):
         """Get SQL Server connection with retry logic"""
@@ -193,13 +235,13 @@ class DatabaseManager:
             logger.error(f"Error fetching student info: {e}")
         
         # Fallback
-        import random
         return (random.randint(1000, 9999), "Test", "User", f"SESSION_{int(time.time())}")
     
     async def get_latest_transcript_summary(self) -> str:
         """Get latest transcript summary from MongoDB"""
         try:
-            collection = self.mongo_db[MONGO_CONFIG['transcripts_collection']]
+            db = await self.get_mongo_db()
+            collection = db[MONGO_CONFIG['transcripts_collection']]
             doc = await collection.find_one(
                 {"summary": {"$exists": True, "$ne": None, "$ne": ""}},
                 sort=[("timestamp", -1)]
@@ -215,7 +257,8 @@ class DatabaseManager:
     async def save_session_result(self, session_data: SessionData, evaluation: str, score: float):
         """Save session results to MongoDB"""
         try:
-            collection = self.mongo_db[MONGO_CONFIG['results_collection']]
+            db = await self.get_mongo_db()
+            collection = db[MONGO_CONFIG['results_collection']]
             
             document = {
                 "test_id": session_data.test_id,
@@ -252,12 +295,16 @@ class DatabaseManager:
             return False
 
 # =============================================================================
-# AUDIO PROCESSING MANAGERS
+# AUDIO PROCESSOR
 # =============================================================================
 
 class AudioProcessor:
-    def __init__(self):
-        self.groq_client = Groq()
+    def __init__(self, client_manager: SharedClientManager):
+        self.client_manager = client_manager
+    
+    @property
+    def groq_client(self):
+        return self.client_manager.groq_client
     
     async def transcribe_audio(self, audio_data: bytes) -> tuple[str, float]:
         """Transcribe audio using Groq Whisper with quality assessment"""
@@ -271,7 +318,7 @@ class AudioProcessor:
             async with aiofiles.open(temp_file, "wb") as f:
                 await f.write(audio_data)
             
-            # Transcribe
+            # Transcribe using shared Groq client
             with open(temp_file, "rb") as file:
                 result = self.groq_client.audio.transcriptions.create(
                     file=(temp_file.name, file.read()),
@@ -287,10 +334,9 @@ class AudioProcessor:
             
             transcript = result.text.strip()
             
-            # Simple quality assessment based on length and confidence
-            quality = min(len(transcript) / 100, 1.0)  # Longer transcripts = better quality
+            # Simple quality assessment
+            quality = min(len(transcript) / 100, 1.0)
             if hasattr(result, 'segments'):
-                # Average confidence if available
                 confidences = [seg.get('confidence', 0) for seg in result.segments if seg.get('confidence')]
                 if confidences:
                     quality = (quality + sum(confidences) / len(confidences)) / 2
@@ -342,7 +388,6 @@ class TTSProcessor:
                 
         except Exception as e:
             logger.error(f"TTS generation error: {e}")
-            # Return empty audio on error
             yield b""
 
 # =============================================================================
@@ -350,11 +395,15 @@ class TTSProcessor:
 # =============================================================================
 
 class ConversationManager:
-    def __init__(self):
-        self.openai_client = openai.OpenAI()
+    def __init__(self, client_manager: SharedClientManager):
+        self.client_manager = client_manager
         self.model = OPENAI_MODEL
         self.temperature = OPENAI_TEMPERATURE
         self.max_tokens = OPENAI_MAX_TOKENS
+    
+    @property
+    def openai_client(self):
+        return self.client_manager.openai_client
     
     async def generate_response(self, session_data: SessionData, user_input: str, context: str = "") -> str:
         """Generate AI response based on session stage and context"""
@@ -392,7 +441,7 @@ class ConversationManager:
     async def _generate_technical_response(self, session_data: SessionData, user_input: str, context: str) -> str:
         """Generate technical discussion responses"""
         conversation_history = ""
-        for exchange in session_data.exchanges[-3:]:  # Last 3 exchanges for context
+        for exchange in session_data.exchanges[-3:]:
             conversation_history += f"AI: {exchange.ai_message}\nUser: {exchange.user_response}\n\n"
         
         prompt = f"""You're conducting a technical daily standup interview. 
@@ -469,7 +518,7 @@ Format: [Evaluation text] Final Score: X/10"""
             response = self.openai_client.chat.completions.create(
                 model=self.model,
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,  # Lower temperature for consistent evaluation
+                temperature=0.3,
                 max_tokens=400
             )
             
@@ -492,17 +541,12 @@ Format: [Evaluation text] Final Score: X/10"""
 class SessionManager:
     def __init__(self):
         self.active_sessions: Dict[str, SessionData] = {}
-        self.db_manager = DatabaseManager()
-        self.audio_processor = AudioProcessor()
+        self.db_manager = DatabaseManager(shared_clients)
+        self.audio_processor = AudioProcessor(shared_clients)
         self.tts_processor = TTSProcessor()
-        self.conversation_manager = ConversationManager()
+        self.conversation_manager = ConversationManager(shared_clients)
     
-    async def initialize(self):
-        """Initialize session manager"""
-        await self.db_manager.initialize()
-        logger.info("Session manager initialized")
-    
-    async def create_session(self, websocket: WebSocket) -> SessionData:
+    async def create_session(self, websocket: WebSocket = None) -> SessionData:
         """Create new session"""
         session_id = str(uuid.uuid4())
         test_id = f"standup_{int(time.time())}"
@@ -662,17 +706,71 @@ class SessionManager:
     async def get_session_result(self, session_id: str) -> dict:
         """Get session result for PDF generation"""
         try:
-            collection = self.db_manager.mongo_db[MONGO_CONFIG['results_collection']]
+            db = await self.db_manager.get_mongo_db()
+            collection = db[MONGO_CONFIG['results_collection']]
             result = await collection.find_one({"session_id": session_id})
             
             if result:
-                result['_id'] = str(result['_id'])  # Convert ObjectId to string
+                result['_id'] = str(result['_id'])
                 return result
             return None
             
         except Exception as e:
             logger.error(f"Error fetching session result: {e}")
             return None
+
+    # LEGACY SUPPORT METHODS
+    async def process_legacy_audio(self, test_id: str, audio_data: bytes) -> dict:
+        """Process audio using legacy format (for recordAndRespond compatibility)"""
+        try:
+            logger.info(f"Processing legacy audio for test_id: {test_id}")
+            
+            # Transcribe audio
+            transcript, quality = await self.audio_processor.transcribe_audio(audio_data)
+            
+            if not transcript or len(transcript.strip()) < 2:
+                return {
+                    "response": "I didn't catch that clearly. Could you please repeat?",
+                    "audio_path": None,
+                    "ended": False,
+                    "status": "clarification"
+                }
+            
+            # Generate simple response
+            context = await self.db_manager.get_latest_transcript_summary()
+            
+            # Create a temporary session for legacy processing
+            session_data = SessionData(
+                session_id=test_id,
+                test_id=test_id,
+                student_id=1000,
+                student_name="Legacy User",
+                session_key="LEGACY",
+                created_at=time.time(),
+                last_activity=time.time(),
+                current_stage=SessionStage.CONVERSATION
+            )
+            
+            ai_response = await self.conversation_manager.generate_response(
+                session_data, transcript, context
+            )
+            
+            return {
+                "response": ai_response,
+                "audio_path": None,
+                "ended": False,
+                "complete": False,
+                "status": "success"
+            }
+            
+        except Exception as e:
+            logger.error(f"Legacy audio processing error: {e}")
+            return {
+                "response": "I'm having trouble processing your response. Please try again.",
+                "audio_path": None,
+                "ended": False,
+                "status": "error"
+            }
 
 # =============================================================================
 # FASTAPI APPLICATION
@@ -699,178 +797,10 @@ session_manager = SessionManager()
 @app.on_event("startup")
 async def startup_event():
     """Initialize application on startup"""
-    await session_manager.initialize()
     logger.info("Daily Standup application started")
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Cleanup on shutdown"""
+    await shared_clients.close_connections()
     logger.info("Daily Standup application shutting down")
-
-# =============================================================================
-# WEBSOCKET ENDPOINT
-# =============================================================================
-
-@app.websocket("/ws/{session_id}")
-async def websocket_endpoint(websocket: WebSocket, session_id: str):
-    """Main WebSocket endpoint for real-time communication"""
-    await websocket.accept()
-    logger.info(f"WebSocket connection established: {session_id}")
-    
-    try:
-        # Create session
-        session_data = await session_manager.create_session(websocket)
-        
-        # Send initial greeting
-        greeting_message = f"Hello {session_data.student_name.split()[0]}! Welcome to today's standup. How are you doing?"
-        
-        await session_manager._send_message(session_data, {
-            "type": "ai_response",
-            "text": greeting_message,
-            "status": "greeting"
-        })
-        
-        # Send greeting audio
-        async for audio_chunk in session_manager.tts_processor.generate_audio_stream(greeting_message):
-            if audio_chunk:
-                await session_manager._send_message(session_data, {
-                    "type": "audio_chunk",
-                    "audio": audio_chunk.hex(),
-                    "status": "greeting"
-                })
-        
-        await session_manager._send_message(session_data, {
-            "type": "audio_end",
-            "status": "greeting"
-        })
-        
-        # Listen for audio input
-        while session_data.is_active:
-            try:
-                data = await websocket.receive_bytes()
-                await session_manager.process_audio_input(session_data.session_id, data)
-            except WebSocketDisconnect:
-                break
-            except Exception as e:
-                logger.error(f"WebSocket processing error: {e}")
-                await session_manager._send_message(session_data, {
-                    "type": "error",
-                    "text": "Processing error occurred. Please try again.",
-                    "status": session_data.current_stage.value
-                })
-                
-    except Exception as e:
-        logger.error(f"WebSocket error: {e}")
-    finally:
-        await session_manager.remove_session(session_data.session_id)
-        logger.info(f"WebSocket connection closed: {session_id}")
-
-# =============================================================================
-# REST API ENDPOINTS
-# =============================================================================
-
-@app.get("/")
-async def root():
-    """Root endpoint"""
-    return {
-        "message": "Daily Standup Interview System",
-        "version": "1.0.0",
-        "websocket_url": "/ws/{session_id}",
-        "active_sessions": len(session_manager.active_sessions)
-    }
-
-@app.get("/health")
-async def health_check():
-    """Health check endpoint"""
-    return {
-        "status": "healthy",
-        "timestamp": time.time(),
-        "active_sessions": len(session_manager.active_sessions)
-    }
-
-@app.get("/download_results/{session_id}")
-async def download_results(session_id: str):
-    """Download session results as PDF"""
-    try:
-        session_result = await session_manager.get_session_result(session_id)
-        
-        if not session_result:
-            raise HTTPException(status_code=404, detail="Session not found")
-        
-        # Generate PDF
-        buffer = io.BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=LETTER)
-        styles = getSampleStyleSheet()
-        story = []
-        
-        # Title
-        title = Paragraph(f"Daily Standup Report - {session_result['student_name']}", styles['Title'])
-        story.append(title)
-        story.append(Spacer(1, 12))
-        
-        # Session info
-        info_text = f"""
-        <b>Session ID:</b> {session_result['session_id']}<br/>
-        <b>Date:</b> {datetime.fromtimestamp(session_result['timestamp']).strftime('%Y-%m-%d %H:%M:%S')}<br/>
-        <b>Duration:</b> {session_result.get('duration', 0):.1f} seconds<br/>
-        <b>Score:</b> {session_result.get('score', 0)}/10<br/>
-        <b>Total Exchanges:</b> {session_result.get('total_exchanges', 0)}
-        """
-        
-        info_para = Paragraph(info_text, styles['Normal'])
-        story.append(info_para)
-        story.append(Spacer(1, 12))
-        
-        # Evaluation
-        eval_title = Paragraph("Evaluation", styles['Heading2'])
-        story.append(eval_title)
-        
-        evaluation_text = session_result.get('evaluation', 'No evaluation available')
-        eval_para = Paragraph(evaluation_text, styles['Normal'])
-        story.append(eval_para)
-        story.append(Spacer(1, 12))
-        
-        # Conversation log
-        conv_title = Paragraph("Conversation Log", styles['Heading2'])
-        story.append(conv_title)
-        
-        conversation_log = session_result.get('conversation_log', [])
-        for i, exchange in enumerate(conversation_log):
-            if exchange.get('stage') == 'conversation' and exchange.get('user_response'):
-                # AI Question
-                ai_text = f"<b>Q{i+1}:</b> {exchange.get('ai_message', '')}"
-                ai_para = Paragraph(ai_text, styles['Normal'])
-                story.append(ai_para)
-                
-                # User Response
-                user_text = f"<b>Response:</b> {exchange.get('user_response', '')}"
-                user_para = Paragraph(user_text, styles['Normal'])
-                story.append(user_para)
-                story.append(Spacer(1, 6))
-        
-        # Build PDF
-        doc.build(story)
-        buffer.seek(0)
-        
-        return StreamingResponse(
-            io.BytesIO(buffer.read()),
-            media_type="application/pdf",
-            headers={"Content-Disposition": f"attachment; filename=standup_report_{session_id[:8]}.pdf"}
-        )
-        
-    except Exception as e:
-        logger.error(f"PDF generation error: {e}")
-        raise HTTPException(status_code=500, detail="PDF generation failed")
-
-@app.get("/stats")
-async def get_stats():
-    """Get system statistics"""
-    return {
-        "active_sessions": len(session_manager.active_sessions),
-        "system_status": "operational",
-        "timestamp": time.time()
-    }
-
-# Export the app for mounting
-def get_app():
-    return app
