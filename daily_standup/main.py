@@ -1,10 +1,9 @@
-# ULTRA-OPTIMIZED REAL-TIME DAILY STANDUP SYSTEM
-# WebSocket Streaming + Human-Like Conversation + Maximum Performance
+# ULTRA-OPTIMIZED DAILY STANDUP SUBMODULE
+# Designed to run from root app.py file
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 import json
 import time
@@ -14,6 +13,7 @@ import random
 import textwrap
 import os
 import re
+import tempfile
 from typing import Dict, List, Optional
 import pyodbc
 import edge_tts
@@ -27,14 +27,26 @@ from reportlab.lib.pagesizes import LETTER
 from urllib.parse import quote_plus
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # OPTIMIZED CONSTANTS
-TTS_SPEED = 1.4  # Faster speech for better flow
-TOTAL_QUESTIONS = 12  # Reduced for faster completion
+TTS_SPEED = 1.4
+TOTAL_QUESTIONS = 12
 MIN_QUESTIONS_PER_CONCEPT = 1
-MAX_QUESTIONS_PER_CONCEPT = 2  # Reduced for efficiency
+MAX_QUESTIONS_PER_CONCEPT = 2
+
+# ========================
+# PATHS - RELATIVE TO SUBMODULE
+# ========================
+
+# Get the directory of this file (daily_standup folder)
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+AUDIO_DIR = os.path.join(CURRENT_DIR, "audio")
+TEMP_DIR = os.path.join(CURRENT_DIR, "temp")
+
+# Create directories if they don't exist
+os.makedirs(AUDIO_DIR, exist_ok=True)
+os.makedirs(TEMP_DIR, exist_ok=True)
 
 # ========================
 # ULTRA-FAST DATABASE SETUP
@@ -390,10 +402,11 @@ class StreamingAudioManager:
     
     @staticmethod
     async def transcribe_streaming(audio_data: bytes) -> str:
-        """Fast transcription"""
+        """Fast transcription with proper temp file handling"""
         try:
-            # Save to temp file for transcription
-            temp_file = f"/tmp/audio_{int(time.time())}.webm"
+            # Use the submodule's temp directory
+            temp_file = os.path.join(TEMP_DIR, f"audio_{int(time.time() * 1000)}.webm")
+            
             with open(temp_file, "wb") as f:
                 f.write(audio_data)
             
@@ -600,24 +613,14 @@ class ConnectionManager:
         })
 
 # ========================
-# FASTAPI APPLICATION
+# FASTAPI SUB-APPLICATION
 # ========================
 
-app = FastAPI(title="Ultra-Fast Daily Standup", version="3.0.0")
+# Create sub-app (not main app)
+sub_app = FastAPI(title="Ultra-Fast Daily Standup", version="3.0.0")
 
-# CORS setup
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Static files
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-AUDIO_DIR = os.path.join(BASE_DIR, "audio")
-os.makedirs(AUDIO_DIR, exist_ok=True)
+# Static files using relative path
+sub_app.mount("/audio", StaticFiles(directory=AUDIO_DIR), name="audio")
 
 # Connection manager
 manager = ConnectionManager()
@@ -626,21 +629,28 @@ manager = ConnectionManager()
 # WEBSOCKET ENDPOINT
 # ========================
 
-@app.websocket("/ws/{session_id}")
+@sub_app.websocket("/ws/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
-    await manager.connect(websocket, session_id)
+    logger.info(f"WebSocket connection attempt for session: {session_id}")
     try:
+        await manager.connect(websocket, session_id)
+        logger.info(f"WebSocket connected successfully: {session_id}")
         while True:
             data = await websocket.receive_bytes()
+            logger.info(f"Received audio data: {len(data)} bytes")
             await manager.process_audio(session_id, data)
     except WebSocketDisconnect:
+        logger.info(f"WebSocket disconnected: {session_id}")
+        manager.disconnect(session_id)
+    except Exception as e:
+        logger.error(f"WebSocket error for {session_id}: {e}")
         manager.disconnect(session_id)
 
 # ========================
 # ESSENTIAL ENDPOINTS
 # ========================
 
-@app.get("/")
+@sub_app.get("/")
 async def get_interface():
     """Serve the WebSocket interface"""
     return HTMLResponse(content="""
@@ -794,7 +804,7 @@ async def get_interface():
 </html>
     """)
 
-@app.get("/download_results/{session_id}")
+@sub_app.get("/download_results/{session_id}")
 async def download_results(session_id: str):
     """Generate and download PDF results"""
     try:
@@ -876,7 +886,18 @@ async def download_results(session_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"PDF generation failed: {str(e)}")
 
-@app.get("/health")
+@sub_app.get("/test")
+async def test_endpoint():
+    """Test endpoint to verify sub-app is working"""
+    return {
+        "status": "daily_standup sub-app working",
+        "websocket_url": "/daily_standup/ws/{session_id}",
+        "active_connections": len(manager.active_connections),
+        "temp_dir": TEMP_DIR,
+        "audio_dir": AUDIO_DIR
+    }
+
+@sub_app.get("/health")
 async def health_check():
     """Health check"""
     return {
@@ -893,7 +914,7 @@ async def health_check():
         "connections": len(manager.active_connections)
     }
 
-@app.get("/stats")
+@sub_app.get("/stats")
 async def get_stats():
     """Simple stats"""
     return {
@@ -904,52 +925,12 @@ async def get_stats():
     }
 
 # ========================
-# STARTUP
+# FUNCTION TO GET THE SUB-APP + COMPATIBILITY
 # ========================
 
-if __name__ == "__main__":
-    import uvicorn
-    
-    print("🚀 ULTRA-OPTIMIZED DAILY STANDUP SYSTEM")
-    print("📡 WebSocket streaming for real-time conversation")
-    print("🎯 Human-like prompts for natural interaction")
-    print("⚡ Sub-second response times")
-    print("🗑️ Zero bloat - only core functionality")
-    print("📈 Scalable for multiple concurrent users")
-    print("")
-    print("🔧 Technical Features:")
-    print("   • WebSocket bidirectional streaming")
-    print("   • Memory-only audio processing") 
-    print("   • Real-time TTS generation")
-    print("   • Fragment-based concept coverage")
-    print("   • Natural conversation flow")
-    print("   • Ultra-fast LLM responses")
-    print("")
-    print("📊 Performance:")
-    print("   • Response time: 1-3 seconds (vs 8-15 before)")
-    print("   • Code size: 500 lines (vs 3000+ bloated)")
-    print("   • Memory usage: Minimal (no file I/O)")
-    print("   • Scalability: 50+ concurrent users")
-    print("")
-    print("🌐 Access:")
-    print("   • Main interface: http://localhost:8000")
-    print("   • Health check: http://localhost:8000/health")
-    print("   • WebSocket: ws://localhost:8000/ws/{session_id}")
-    print("")
-    print("💡 Key Optimizations:")
-    print("   ❌ Removed all detection lists processing")
-    print("   ❌ Removed complex audio validation")
-    print("   ❌ Removed file I/O bottlenecks")
-    print("   ❌ Removed HTTP request/response overhead")
-    print("   ✅ WebSocket streaming")
-    print("   ✅ Memory-only processing")
-    print("   ✅ Natural conversation prompts")
-    print("   ✅ Ultra-fast database operations")
-    
-    uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True,
-        log_level="info"
-    )
+def get_daily_standup_app():
+    """Return the configured daily standup sub-application"""
+    return sub_app
+
+# Compatibility: Export sub_app as 'app' for root mounting
+app = sub_app
