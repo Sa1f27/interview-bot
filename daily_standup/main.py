@@ -1,936 +1,876 @@
-# ULTRA-OPTIMIZED DAILY STANDUP SUBMODULE
-# Designed to run from root app.py file
+# App/daily_standup/main.py
+# Production-grade WebSocket-driven daily standup interview system
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
-from fastapi.responses import FileResponse, StreamingResponse, HTMLResponse
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, BackgroundTasks
+from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 import json
 import time
 import uuid
 import logging
-import random
-import textwrap
 import os
-import re
 import tempfile
-from typing import Dict, List, Optional
-import pyodbc
-import edge_tts
-import pymongo
-from langchain_core.prompts import PromptTemplate
-from langchain_core.output_parsers import StrOutputParser
-from langchain_openai import ChatOpenAI
 import io
+from typing import Dict, List, Optional, AsyncGenerator
+from pathlib import Path
+import edge_tts
+import openai
+from pymongo import MongoClient
+from motor.motor_asyncio import AsyncIOMotorClient
+from groq import Groq
+import pyodbc
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import LETTER
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
 from urllib.parse import quote_plus
+import textwrap
+import re
+from datetime import datetime
+from dataclasses import dataclass, field
+from enum import Enum
+import aiofiles
+import hashlib
+import asyncio
 
 # Configure logging
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# OPTIMIZED CONSTANTS
-TTS_SPEED = 1.4
-TOTAL_QUESTIONS = 12
-MIN_QUESTIONS_PER_CONCEPT = 1
-MAX_QUESTIONS_PER_CONCEPT = 2
+# =============================================================================
+# PRODUCTION CONFIGURATION
+# =============================================================================
 
-# ========================
-# PATHS - RELATIVE TO SUBMODULE
-# ========================
+CURRENT_DIR = Path(__file__).resolve().parent
+AUDIO_DIR = CURRENT_DIR / "audio"
+TEMP_DIR = CURRENT_DIR / "temp"
+REPORTS_DIR = CURRENT_DIR / "reports"
 
-# Get the directory of this file (daily_standup folder)
-CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-AUDIO_DIR = os.path.join(CURRENT_DIR, "audio")
-TEMP_DIR = os.path.join(CURRENT_DIR, "temp")
+# Create directories
+for directory in [AUDIO_DIR, TEMP_DIR, REPORTS_DIR]:
+    directory.mkdir(exist_ok=True)
 
-# Create directories if they don't exist
-os.makedirs(AUDIO_DIR, exist_ok=True)
-os.makedirs(TEMP_DIR, exist_ok=True)
+# TTS Configuration - Optimized for streaming
+TTS_VOICE = "en-IN-PrabhatNeural"
+TTS_RATE = "+20%"
+TTS_CHUNK_SIZE = 50  # Words per chunk for streaming
+TTS_OVERLAP = 5  # Words overlap between chunks for smooth transitions
 
-# ========================
-# ULTRA-FAST DATABASE SETUP
-# ========================
+# Interview Configuration
+GREETING_EXCHANGES = 3
+TECHNICAL_QUESTIONS = 5
+MAX_RECORDING_TIME = 30.0
 
-# SQL Server with fallback
+# Database Configuration
 DB_CONFIG = {
     "DRIVER": "ODBC Driver 17 for SQL Server",
     "SERVER": "192.168.48.200",
     "DATABASE": "SuperDB",
     "UID": "sa",
     "PWD": "Welcome@123",
+    "timeout": 5
 }
 
-def fetch_random_student_info():
-    """Fast student info fetch with fallback"""
-    try:
-        conn = pyodbc.connect(
-            f"DRIVER={{{DB_CONFIG['DRIVER']}}};"
-            f"SERVER={DB_CONFIG['SERVER']};"
-            f"DATABASE={DB_CONFIG['DATABASE']};"
-            f"UID={DB_CONFIG['UID']};"
-            f"PWD={DB_CONFIG['PWD']}",
-            timeout=3  # Fast timeout
+MONGO_CONFIG = {
+    "host": "192.168.48.201",
+    "port": 27017,
+    "username": "LanTech",
+    "password": "L@nc^ere@0012",
+    "database": "Api-1",
+    "transcripts_collection": "original-1",
+    "results_collection": "daily_standup_results-1"
+}
+
+# OpenAI Configuration
+OPENAI_MODEL = "gpt-4o-mini"
+OPENAI_TEMPERATURE = 0.7
+OPENAI_MAX_TOKENS = 500
+
+# =============================================================================
+# CORE CLASSES AND ENUMS
+# =============================================================================
+
+class SessionStage(Enum):
+    GREETING = "greeting"
+    CONVERSATION = "conversation"
+    COMPLETE = "complete"
+    ERROR = "error"
+
+@dataclass
+class ConversationExchange:
+    timestamp: float
+    stage: SessionStage
+    ai_message: str
+    user_response: str
+    transcript_quality: float = 0.0
+
+@dataclass
+class SessionData:
+    session_id: str
+    test_id: str
+    student_id: int
+    student_name: str
+    session_key: str
+    created_at: float
+    last_activity: float
+    current_stage: SessionStage
+    exchanges: List[ConversationExchange] = field(default_factory=list)
+    greeting_count: int = 0
+    technical_count: int = 0
+    is_active: bool = True
+    websocket: Optional[WebSocket] = None
+    
+    def add_exchange(self, ai_message: str, user_response: str, quality: float = 0.0):
+        exchange = ConversationExchange(
+            timestamp=time.time(),
+            stage=self.current_stage,
+            ai_message=ai_message,
+            user_response=user_response,
+            transcript_quality=quality
         )
-        cursor = conn.cursor()
-        cursor.execute("SELECT TOP 1 ID, First_Name, Last_Name FROM tbl_Student ORDER BY NEWID()")
-        row = cursor.fetchone()
-        cursor.close()
-        conn.close()
-        return (row[0], row[1], row[2], f"SESSION_{random.randint(100, 999)}")
-    except:
-        # Fast fallback
-        return (random.randint(1000, 9999), "Test", "User", f"SESSION_{random.randint(100, 999)}")
+        self.exchanges.append(exchange)
+        self.last_activity = time.time()
 
-def parse_summary_fragments(summary: str) -> Dict[str, str]:
-    """Fast summary parsing"""
-    if not summary or not summary.strip():
-        return {"General": "Technical discussion topics"}
-    
-    lines = summary.strip().split('\n')
-    section_pattern = re.compile(r'^\s*(\d+)\.\s+(.+)')
-    
-    fragments = {}
-    current_section = None
-    current_content = []
-    
-    for line in lines:
-        match = section_pattern.match(line)
-        if match:
-            if current_section and current_content:
-                fragments[current_section] = '\n'.join(current_content).strip()
-            section_num = match.group(1)
-            section_title = match.group(2).strip()
-            current_section = f"{section_num}. {section_title}"
-            current_content = [line]
-        else:
-            if current_section:
-                current_content.append(line)
-            else:
-                if "Introduction" not in fragments:
-                    fragments["Introduction"] = line
-                else:
-                    fragments["Introduction"] += '\n' + line
-    
-    if current_section and current_content:
-        fragments[current_section] = '\n'.join(current_content).strip()
-    
-    if not fragments:
-        fragments["General"] = summary
-    
-    return fragments
+# =============================================================================
+# DATABASE MANAGERS
+# =============================================================================
 
-# MongoDB - Ultra-fast connection
-MONGO_USER = "LanTech"
-MONGO_PASS = "L@nc^ere@0012"
-MONGO_HOST = "192.168.48.201:27017"
-MONGO_DB_NAME = "Api-1"
-
-class FastDatabaseManager:
+class DatabaseManager:
     def __init__(self):
-        self.client = pymongo.MongoClient(
-            f"mongodb://{quote_plus(MONGO_USER)}:{quote_plus(MONGO_PASS)}@{MONGO_HOST}/{MONGO_DB_NAME}?authSource=admin",
-            maxPoolSize=50,  # Connection pooling
-            serverSelectionTimeoutMS=3000  # Fast timeout
-        )
-        self.db = self.client[MONGO_DB_NAME]
-        self.transcripts = self.db["original-1"]
-        self.conversations = self.db["daily_standup_results-1"]
-    
-    def get_latest_summary(self) -> str:
+        self.sql_conn = None
+        self.mongo_client = None
+        self.mongo_db = None
+        self.groq_client = Groq()
+        self.openai_client = openai.OpenAI()
+        
+    async def initialize(self):
+        """Initialize database connections"""
         try:
-            doc = self.transcripts.find_one(
+            # Initialize MongoDB
+            mongo_url = f"mongodb://{quote_plus(MONGO_CONFIG['username'])}:{quote_plus(MONGO_CONFIG['password'])}@{MONGO_CONFIG['host']}:{MONGO_CONFIG['port']}/{MONGO_CONFIG['database']}?authSource=admin"
+            self.mongo_client = AsyncIOMotorClient(mongo_url, maxPoolSize=50, serverSelectionTimeoutMS=5000)
+            self.mongo_db = self.mongo_client[MONGO_CONFIG['database']]
+            
+            # Test MongoDB connection
+            await self.mongo_db.command("ping")
+            logger.info("MongoDB connected successfully")
+            
+        except Exception as e:
+            logger.error(f"Database initialization failed: {e}")
+            raise
+    
+    def get_sql_connection(self):
+        """Get SQL Server connection with retry logic"""
+        try:
+            conn_str = f"DRIVER={{{DB_CONFIG['DRIVER']}}};"
+            conn_str += f"SERVER={DB_CONFIG['SERVER']};"
+            conn_str += f"DATABASE={DB_CONFIG['DATABASE']};"
+            conn_str += f"UID={DB_CONFIG['UID']};"
+            conn_str += f"PWD={DB_CONFIG['PWD']};"
+            
+            conn = pyodbc.connect(conn_str, timeout=DB_CONFIG['timeout'])
+            return conn
+        except Exception as e:
+            logger.error(f"SQL connection failed: {e}")
+            return None
+    
+    async def get_student_info(self) -> tuple:
+        """Get random student info with fallback"""
+        try:
+            conn = self.get_sql_connection()
+            if conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT TOP 1 ID, First_Name, Last_Name FROM tbl_Student ORDER BY NEWID()")
+                row = cursor.fetchone()
+                cursor.close()
+                conn.close()
+                
+                if row:
+                    return (row[0], row[1], row[2], f"SESSION_{int(time.time())}")
+        except Exception as e:
+            logger.error(f"Error fetching student info: {e}")
+        
+        # Fallback
+        import random
+        return (random.randint(1000, 9999), "Test", "User", f"SESSION_{int(time.time())}")
+    
+    async def get_latest_transcript_summary(self) -> str:
+        """Get latest transcript summary from MongoDB"""
+        try:
+            collection = self.mongo_db[MONGO_CONFIG['transcripts_collection']]
+            doc = await collection.find_one(
                 {"summary": {"$exists": True, "$ne": None, "$ne": ""}},
                 sort=[("timestamp", -1)]
             )
-            return doc["summary"] if doc else "Technical interview topics and concepts"
-        except:
-            return "Technical interview topics and concepts"
-    
-    async def save_test_data_async(self, test_id: str, conversation_log: List, evaluation: str, session_data: Dict):
-        """Async save for better performance"""
-        try:
-            student_info = fetch_random_student_info()
-            student_id, first_name, last_name, session_id = student_info
             
-            # Extract score
-            score_match = re.search(r'(\d+(?:\.\d+)?)\s*/\s*10', evaluation)
-            score = float(score_match.group(1)) if score_match else 5.0
+            if doc and doc.get("summary"):
+                return doc["summary"]
+        except Exception as e:
+            logger.error(f"Error fetching transcript summary: {e}")
+        
+        return "Technical discussion about software development, coding practices, and project management."
+    
+    async def save_session_result(self, session_data: SessionData, evaluation: str, score: float):
+        """Save session results to MongoDB"""
+        try:
+            collection = self.mongo_db[MONGO_CONFIG['results_collection']]
             
             document = {
-                "test_id": test_id,
-                "Student_ID": student_id,
-                "name": f"{first_name} {last_name}",
-                "session_id": session_id,
+                "test_id": session_data.test_id,
+                "session_id": session_data.session_id,
+                "student_id": session_data.student_id,
+                "student_name": session_data.student_name,
+                "session_key": session_data.session_key,
                 "timestamp": time.time(),
-                "conversation_log": conversation_log,
+                "created_at": session_data.created_at,
+                "conversation_log": [
+                    {
+                        "timestamp": exchange.timestamp,
+                        "stage": exchange.stage.value,
+                        "ai_message": exchange.ai_message,
+                        "user_response": exchange.user_response,
+                        "transcript_quality": exchange.transcript_quality
+                    }
+                    for exchange in session_data.exchanges
+                ],
                 "evaluation": evaluation,
                 "score": score,
-                "session_data": session_data
+                "total_exchanges": len(session_data.exchanges),
+                "greeting_exchanges": session_data.greeting_count,
+                "technical_exchanges": session_data.technical_count,
+                "duration": time.time() - session_data.created_at
             }
             
-            await asyncio.get_event_loop().run_in_executor(
-                None, self.conversations.insert_one, document
-            )
+            await collection.insert_one(document)
+            logger.info(f"Session {session_data.session_id} saved successfully")
             return True
+            
         except Exception as e:
-            logger.error(f"Save error: {e}")
+            logger.error(f"Error saving session result: {e}")
             return False
 
-db_manager = FastDatabaseManager()
+# =============================================================================
+# AUDIO PROCESSING MANAGERS
+# =============================================================================
 
-# ========================
-# HUMAN-LIKE CONVERSATION MANAGER
-# ========================
-
-class HumanConversationManager:
+class AudioProcessor:
     def __init__(self):
-        # Ultra-fast LLM setup
-        self.llm = ChatOpenAI(
-            model="gpt-4o-mini", 
-            temperature=0.8, 
-            timeout=8,  # Fast timeout
-            max_retries=1
-        )
-        self.parser = StrOutputParser()
-        
-        # HUMAN-LIKE GREETING PROMPTS
-        self.greeting_prompt = PromptTemplate.from_template("""
-You're starting a friendly voice conversation with someone joining a technical check-in.
-
-Be natural and warm - like you're genuinely happy to talk to them. Don't sound scripted.
-
-Based on the step:
-- greeting_start: Just say hello naturally (like "Hey there!" or "Hi! Good to see you")
-- greeting_checkin: Ask how they're doing (like "How's your day going?" or "How are things?")  
-- greeting_ready: See if they're ready to start (like "Ready to dive in?" or "Shall we get started?")
-
-Keep it conversational and genuine - like talking to a colleague.
-
-Step: {step}
-Previous response: {user_response}
-
-Just respond naturally:
-""")
-        
-        # ULTRA-NATURAL CONVERSATION PROMPT
-        self.conversation_prompt = PromptTemplate.from_template("""
-You're having a natural technical conversation with a colleague about their work. 
-
-Current topic we're exploring:
-{concept_title}
-
-What this topic covers:
-{concept_content}
-
-Recent conversation flow:
-{conversation_history}
-
-They just said: "{user_response}"
-
----
-
-Respond like a curious, engaged colleague who genuinely wants to understand their work. 
-
-- If they gave a good answer, acknowledge it naturally and either dig deeper or move to a related aspect
-- If they seem unsure, encourage them gently and maybe rephrase or ask something easier
-- If they're clearly finished with this topic, naturally transition to something new
-- Keep the conversation flowing like real people talking
-
-Be genuinely interested in what they're saying. Ask follow-ups that show you're listening.
-
-Don't be robotic or follow a script - just have a natural technical discussion.
-
-Your response:
-""")
-        
-        # NATURAL EVALUATION PROMPT  
-        self.evaluation_prompt = PromptTemplate.from_template("""
-You just finished a friendly technical conversation with someone about their work.
-
-Here's what you talked about:
-{conversation}
-
-Give them honest, constructive feedback like a supportive colleague would. 
-
-Cover:
-- What they did well technically
-- Areas where they could grow
-- How well they explained concepts
-- Overall technical understanding
-
-Be encouraging but honest. Keep it conversational, not like a formal report.
-
-End with: "Final Score: X/10"
-
-Keep it under 200 words and sound like a real person giving feedback:
-""")
+        self.groq_client = Groq()
     
-    async def get_greeting_response(self, step: str, user_response: str = "") -> str:
-        """Generate natural greeting"""
+    async def transcribe_audio(self, audio_data: bytes) -> tuple[str, float]:
+        """Transcribe audio using Groq Whisper with quality assessment"""
         try:
-            chain = self.greeting_prompt | self.llm | self.parser
-            response = await chain.ainvoke({
-                "step": step,
-                "user_response": user_response
-            })
-            return response.strip()
-        except:
-            # Fast fallbacks
-            if step == "greeting_start":
-                return "Hey there! Good to see you."
-            elif step == "greeting_checkin":
-                return "How's your day going?"
-            else:
-                return "Ready to dive in?"
-    
-    async def get_conversation_response(self, concept_title: str, concept_content: str, 
-                                     conversation_history: str, user_response: str) -> tuple[str, bool]:
-        """Generate natural conversation response"""
-        try:
-            chain = self.conversation_prompt | self.llm | self.parser
-            response = await chain.ainvoke({
-                "concept_title": concept_title,
-                "concept_content": concept_content,
-                "conversation_history": conversation_history,
-                "user_response": user_response
-            })
+            if len(audio_data) < 1000:
+                return "", 0.0
             
-            # Simple check if we should move on (look for transition words)
-            move_on = any(phrase in response.lower() for phrase in [
-                "let's move", "next topic", "another area", "switching to", "new question"
-            ])
+            # Create temporary file
+            temp_file = TEMP_DIR / f"audio_{int(time.time() * 1000)}.webm"
             
-            return response.strip(), move_on
-        except Exception as e:
-            logger.error(f"Conversation error: {e}")
-            return "That's interesting! Can you tell me more about that?", False
-    
-    async def generate_evaluation(self, conversation: str) -> str:
-        """Generate natural evaluation"""
-        try:
-            chain = self.evaluation_prompt | self.llm | self.parser
-            return await chain.ainvoke({"conversation": conversation})
-        except:
-            return "Great conversation! You showed good technical understanding. Final Score: 7/10"
-
-# ========================
-# REAL-TIME SESSION MANAGER
-# ========================
-
-class RealtimeSession:
-    def __init__(self, summary: str):
-        self.session_id = str(uuid.uuid4())
-        self.created_at = time.time()
-        self.last_activity = time.time()
-        
-        # Fragment-based concepts
-        self.fragments = parse_summary_fragments(summary)
-        self.fragment_keys = list(self.fragments.keys())
-        self.current_fragment_index = 0
-        self.questions_per_fragment = max(1, TOTAL_QUESTIONS // len(self.fragment_keys) if self.fragment_keys else 1)
-        
-        # Conversation state
-        self.greeting_step = 0  # 0=start, 1=checkin, 2=ready, 3=conversation
-        self.conversation_log = []
-        self.current_conversation_history = ""
-        
-        logger.info(f"Session {self.session_id}: {len(self.fragment_keys)} concepts, "
-                   f"{self.questions_per_fragment} questions per concept")
-    
-    def get_current_concept(self) -> tuple[str, str]:
-        """Get current concept info"""
-        if not self.fragment_keys:
-            return "General Discussion", "Technical topics and concepts"
-        
-        index = self.current_fragment_index % len(self.fragment_keys)
-        concept_title = self.fragment_keys[index]
-        concept_content = self.fragments[concept_title]
-        return concept_title, concept_content
-    
-    def should_continue(self) -> bool:
-        """Simple continuation check"""
-        if self.greeting_step < 3:
-            return True
-        
-        # Count actual conversation exchanges (not greetings)
-        actual_exchanges = len([entry for entry in self.conversation_log 
-                              if not entry.get("concept", "").startswith("greeting")])
-        
-        return actual_exchanges < TOTAL_QUESTIONS
-    
-    def add_exchange(self, question: str, answer: str, concept: str):
-        """Add Q&A exchange"""
-        self.conversation_log.append({
-            "question": question,
-            "answer": answer,  
-            "concept": concept,
-            "timestamp": time.time()
-        })
-        
-        # Update conversation history for context
-        if not concept.startswith("greeting"):
-            self.current_conversation_history += f"Q: {question}\nA: {answer}\n\n"
-            # Keep only last 3 exchanges for context
-            lines = self.current_conversation_history.split('\n\n')
-            if len(lines) > 6:  # 3 exchanges = 6 lines
-                self.current_conversation_history = '\n\n'.join(lines[-6:])
-    
-    def move_to_next_concept(self):
-        """Move to next concept"""
-        self.current_fragment_index += 1
-
-# ========================
-# ULTRA-FAST AUDIO STREAMING
-# ========================
-
-class StreamingAudioManager:
-    @staticmethod
-    async def stream_tts(text: str, voice: str = "en-IN-PrabhatNeural") -> bytes:
-        """Stream TTS directly to memory"""
-        try:
-            # Stream TTS with speed optimization
-            tts = edge_tts.Communicate(text, voice, rate=f"+{int((TTS_SPEED-1)*100)}%")
-            audio_data = b""
-            async for chunk in tts.stream():
-                if chunk["type"] == "audio":
-                    audio_data += chunk["data"]
-            return audio_data
-        except Exception as e:
-            logger.error(f"TTS streaming error: {e}")
-            return b""
-    
-    @staticmethod
-    async def transcribe_streaming(audio_data: bytes) -> str:
-        """Fast transcription with proper temp file handling"""
-        try:
-            # Use the submodule's temp directory
-            temp_file = os.path.join(TEMP_DIR, f"audio_{int(time.time() * 1000)}.webm")
+            async with aiofiles.open(temp_file, "wb") as f:
+                await f.write(audio_data)
             
-            with open(temp_file, "wb") as f:
-                f.write(audio_data)
-            
-            # Fast transcription
-            from groq import Groq
-            client = Groq()
-            
+            # Transcribe
             with open(temp_file, "rb") as file:
-                result = client.audio.transcriptions.create(
-                    file=(temp_file, file.read()),
-                    model="whisper-large-v3-turbo"
+                result = self.groq_client.audio.transcriptions.create(
+                    file=(temp_file.name, file.read()),
+                    model="whisper-large-v3-turbo",
+                    response_format="verbose_json"
                 )
             
-            # Cleanup
+            # Clean up
             try:
                 os.remove(temp_file)
             except:
                 pass
-                
-            return result.text.strip()
+            
+            transcript = result.text.strip()
+            
+            # Simple quality assessment based on length and confidence
+            quality = min(len(transcript) / 100, 1.0)  # Longer transcripts = better quality
+            if hasattr(result, 'segments'):
+                # Average confidence if available
+                confidences = [seg.get('confidence', 0) for seg in result.segments if seg.get('confidence')]
+                if confidences:
+                    quality = (quality + sum(confidences) / len(confidences)) / 2
+            
+            return transcript, quality
+            
         except Exception as e:
             logger.error(f"Transcription error: {e}")
-            return ""
+            return "", 0.0
 
-# ========================
-# WEBSOCKET CONNECTION MANAGER
-# ========================
-
-class ConnectionManager:
+class TTSProcessor:
     def __init__(self):
-        self.active_connections: Dict[str, WebSocket] = {}
-        self.sessions: Dict[str, RealtimeSession] = {}
-        self.conversation_manager = HumanConversationManager()
-        self.audio_manager = StreamingAudioManager()
+        self.voice = TTS_VOICE
+        self.rate = TTS_RATE
     
-    async def connect(self, websocket: WebSocket, session_id: str):
-        await websocket.accept()
-        self.active_connections[session_id] = websocket
+    def split_text_into_chunks(self, text: str) -> List[str]:
+        """Split text into manageable chunks for streaming"""
+        words = text.split()
+        chunks = []
         
-        # Initialize session
-        summary = db_manager.get_latest_summary()
-        self.sessions[session_id] = RealtimeSession(summary)
+        for i in range(0, len(words), TTS_CHUNK_SIZE - TTS_OVERLAP):
+            chunk_words = words[i:i + TTS_CHUNK_SIZE]
+            chunks.append(' '.join(chunk_words))
         
-        logger.info(f"Connected: {session_id}")
+        return chunks if chunks else [text]
+    
+    async def generate_audio_stream(self, text: str) -> AsyncGenerator[bytes, None]:
+        """Generate audio stream in chunks for low-latency playback"""
+        try:
+            chunks = self.split_text_into_chunks(text)
+            
+            for chunk in chunks:
+                if not chunk.strip():
+                    continue
+                
+                # Generate TTS for this chunk
+                tts = edge_tts.Communicate(chunk, self.voice, rate=self.rate)
+                audio_data = b""
+                
+                async for tts_chunk in tts.stream():
+                    if tts_chunk["type"] == "audio":
+                        audio_data += tts_chunk["data"]
+                
+                if audio_data:
+                    yield audio_data
+                    
+                # Small delay between chunks for smooth playback
+                await asyncio.sleep(0.1)
+                
+        except Exception as e:
+            logger.error(f"TTS generation error: {e}")
+            # Return empty audio on error
+            yield b""
+
+# =============================================================================
+# CONVERSATION MANAGER
+# =============================================================================
+
+class ConversationManager:
+    def __init__(self):
+        self.openai_client = openai.OpenAI()
+        self.model = OPENAI_MODEL
+        self.temperature = OPENAI_TEMPERATURE
+        self.max_tokens = OPENAI_MAX_TOKENS
+    
+    async def generate_response(self, session_data: SessionData, user_input: str, context: str = "") -> str:
+        """Generate AI response based on session stage and context"""
+        try:
+            if session_data.current_stage == SessionStage.GREETING:
+                return await self._generate_greeting_response(session_data, user_input)
+            elif session_data.current_stage == SessionStage.CONVERSATION:
+                return await self._generate_technical_response(session_data, user_input, context)
+            else:
+                return await self._generate_conclusion_response(session_data, user_input)
+                
+        except Exception as e:
+            logger.error(f"Response generation error: {e}")
+            return self._get_fallback_response(session_data.current_stage)
+    
+    async def _generate_greeting_response(self, session_data: SessionData, user_input: str) -> str:
+        """Generate greeting stage responses"""
+        prompts = [
+            f"You're a friendly interviewer starting a daily standup. The participant just said: '{user_input}'. Respond warmly and naturally, then ask how their day is going. Keep it conversational and genuine.",
+            f"The participant said: '{user_input}'. Acknowledge their response about their day and ask if they're ready to discuss their work progress. Be encouraging and supportive.",
+            f"The participant said: '{user_input}'. Great! Now transition naturally into asking about their recent work accomplishments. Start the technical discussion in a friendly way."
+        ]
+        
+        prompt = prompts[min(session_data.greeting_count, len(prompts) - 1)]
+        
+        response = self.openai_client.chat.completions.create(
+            model=self.model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=self.temperature,
+            max_tokens=self.max_tokens
+        )
+        
+        return response.choices[0].message.content.strip()
+    
+    async def _generate_technical_response(self, session_data: SessionData, user_input: str, context: str) -> str:
+        """Generate technical discussion responses"""
+        conversation_history = ""
+        for exchange in session_data.exchanges[-3:]:  # Last 3 exchanges for context
+            conversation_history += f"AI: {exchange.ai_message}\nUser: {exchange.user_response}\n\n"
+        
+        prompt = f"""You're conducting a technical daily standup interview. 
+
+Context about current topics: {context}
+
+Recent conversation:
+{conversation_history}
+
+The participant just said: "{user_input}"
+
+Respond as a knowledgeable, curious interviewer. Ask follow-up questions about their technical work, challenges, and achievements. Keep the conversation natural and engaging. Focus on understanding their current projects, technical decisions, and any blockers they're facing.
+
+Be genuinely interested in their work and ask questions that help them elaborate on their technical experiences."""
+
+        response = self.openai_client.chat.completions.create(
+            model=self.model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=self.temperature,
+            max_tokens=self.max_tokens
+        )
+        
+        return response.choices[0].message.content.strip()
+    
+    async def _generate_conclusion_response(self, session_data: SessionData, user_input: str) -> str:
+        """Generate conclusion responses"""
+        prompt = f"""The participant just said: "{user_input}". 
+
+This is the end of the daily standup interview. Thank them for their time and provide a brief, encouraging summary of what they shared. Keep it warm and professional.
+
+Then naturally conclude the session."""
+
+        response = self.openai_client.chat.completions.create(
+            model=self.model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=self.temperature,
+            max_tokens=self.max_tokens
+        )
+        
+        return response.choices[0].message.content.strip()
+    
+    def _get_fallback_response(self, stage: SessionStage) -> str:
+        """Fallback responses for error cases"""
+        fallbacks = {
+            SessionStage.GREETING: "Hello! Welcome to today's standup. How are you doing?",
+            SessionStage.CONVERSATION: "That's interesting! Can you tell me more about the technical challenges you're facing?",
+            SessionStage.COMPLETE: "Thank you for sharing your progress. Have a great day!"
+        }
+        return fallbacks.get(stage, "I'm having trouble processing that. Could you please repeat?")
+    
+    async def generate_evaluation(self, session_data: SessionData) -> tuple[str, float]:
+        """Generate final evaluation and score"""
+        try:
+            conversation_text = ""
+            for exchange in session_data.exchanges:
+                if exchange.stage == SessionStage.CONVERSATION:
+                    conversation_text += f"Q: {exchange.ai_message}\nA: {exchange.user_response}\n\n"
+            
+            prompt = f"""Evaluate this daily standup interview conversation:
+
+{conversation_text}
+
+Provide a constructive evaluation focusing on:
+1. Technical communication clarity
+2. Understanding of their work and challenges
+3. Ability to articulate progress and blockers
+4. Overall engagement and professionalism
+
+Give specific feedback and suggestions for improvement.
+End with a score out of 10.
+
+Format: [Evaluation text] Final Score: X/10"""
+
+            response = self.openai_client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,  # Lower temperature for consistent evaluation
+                max_tokens=400
+            )
+            
+            evaluation = response.choices[0].message.content.strip()
+            
+            # Extract score
+            score_match = re.search(r'Final Score:\s*(\d+(?:\.\d+)?)/10', evaluation)
+            score = float(score_match.group(1)) if score_match else 7.0
+            
+            return evaluation, score
+            
+        except Exception as e:
+            logger.error(f"Evaluation generation error: {e}")
+            return "Good participation in the standup discussion. Continue sharing your technical progress and challenges. Final Score: 7/10", 7.0
+
+# =============================================================================
+# SESSION MANAGER
+# =============================================================================
+
+class SessionManager:
+    def __init__(self):
+        self.active_sessions: Dict[str, SessionData] = {}
+        self.db_manager = DatabaseManager()
+        self.audio_processor = AudioProcessor()
+        self.tts_processor = TTSProcessor()
+        self.conversation_manager = ConversationManager()
+    
+    async def initialize(self):
+        """Initialize session manager"""
+        await self.db_manager.initialize()
+        logger.info("Session manager initialized")
+    
+    async def create_session(self, websocket: WebSocket) -> SessionData:
+        """Create new session"""
+        session_id = str(uuid.uuid4())
+        test_id = f"standup_{int(time.time())}"
+        
+        # Get student info
+        student_id, first_name, last_name, session_key = await self.db_manager.get_student_info()
+        
+        session_data = SessionData(
+            session_id=session_id,
+            test_id=test_id,
+            student_id=student_id,
+            student_name=f"{first_name} {last_name}",
+            session_key=session_key,
+            created_at=time.time(),
+            last_activity=time.time(),
+            current_stage=SessionStage.GREETING,
+            websocket=websocket
+        )
+        
+        self.active_sessions[session_id] = session_data
+        logger.info(f"Created session {session_id} for {session_data.student_name}")
+        
+        return session_data
+    
+    async def remove_session(self, session_id: str):
+        """Remove session"""
+        if session_id in self.active_sessions:
+            del self.active_sessions[session_id]
+            logger.info(f"Removed session {session_id}")
+    
+    async def process_audio_input(self, session_id: str, audio_data: bytes):
+        """Process audio input from frontend"""
+        session_data = self.active_sessions.get(session_id)
+        if not session_data or not session_data.is_active:
+            return
+        
+        # Transcribe audio
+        transcript, quality = await self.audio_processor.transcribe_audio(audio_data)
+        
+        if not transcript or len(transcript.strip()) < 2:
+            await self._send_message(session_data, {
+                "type": "clarification",
+                "text": "I didn't catch that clearly. Could you please repeat?",
+                "status": session_data.current_stage.value
+            })
+            return
+        
+        logger.info(f"Session {session_id}: User said: {transcript}")
+        
+        # Get context for technical discussions
+        context = ""
+        if session_data.current_stage == SessionStage.CONVERSATION:
+            context = await self.db_manager.get_latest_transcript_summary()
+        
+        # Generate AI response
+        ai_response = await self.conversation_manager.generate_response(
+            session_data, transcript, context
+        )
+        
+        # Add exchange to session
+        session_data.add_exchange(ai_response, transcript, quality)
+        
+        # Update session state
+        await self._update_session_state(session_data)
+        
+        # Send response with streaming audio
+        await self._send_response_with_audio(session_data, ai_response)
+    
+    async def _update_session_state(self, session_data: SessionData):
+        """Update session state based on current progress"""
+        if session_data.current_stage == SessionStage.GREETING:
+            session_data.greeting_count += 1
+            if session_data.greeting_count >= GREETING_EXCHANGES:
+                session_data.current_stage = SessionStage.CONVERSATION
+                logger.info(f"Session {session_data.session_id} moved to CONVERSATION stage")
+        
+        elif session_data.current_stage == SessionStage.CONVERSATION:
+            session_data.technical_count += 1
+            if session_data.technical_count >= TECHNICAL_QUESTIONS:
+                session_data.current_stage = SessionStage.COMPLETE
+                logger.info(f"Session {session_data.session_id} moved to COMPLETE stage")
+                
+                # Generate evaluation and save session
+                await self._finalize_session(session_data)
+    
+    async def _finalize_session(self, session_data: SessionData):
+        """Finalize session with evaluation"""
+        try:
+            # Generate evaluation
+            evaluation, score = await self.conversation_manager.generate_evaluation(session_data)
+            
+            # Save to database
+            await self.db_manager.save_session_result(session_data, evaluation, score)
+            
+            # Send completion message
+            completion_message = "Thank you for participating in today's standup! Your responses have been recorded."
+            
+            await self._send_message(session_data, {
+                "type": "conversation_end",
+                "text": completion_message,
+                "evaluation": evaluation,
+                "score": score,
+                "pdf_url": f"/download_results/{session_data.session_id}",
+                "status": "complete"
+            })
+            
+            # Generate and send final audio
+            async for audio_chunk in self.tts_processor.generate_audio_stream(completion_message):
+                if audio_chunk:
+                    await self._send_message(session_data, {
+                        "type": "audio_chunk",
+                        "audio": audio_chunk.hex(),
+                        "status": "complete"
+                    })
+            
+            session_data.is_active = False
+            
+        except Exception as e:
+            logger.error(f"Session finalization error: {e}")
+    
+    async def _send_response_with_audio(self, session_data: SessionData, text: str):
+        """Send text response with streaming audio"""
+        try:
+            # Send text response first
+            await self._send_message(session_data, {
+                "type": "ai_response",
+                "text": text,
+                "status": session_data.current_stage.value
+            })
+            
+            # Stream audio chunks
+            async for audio_chunk in self.tts_processor.generate_audio_stream(text):
+                if audio_chunk and session_data.is_active:
+                    await self._send_message(session_data, {
+                        "type": "audio_chunk",
+                        "audio": audio_chunk.hex(),
+                        "status": session_data.current_stage.value
+                    })
+            
+            # Send audio end signal
+            await self._send_message(session_data, {
+                "type": "audio_end",
+                "status": session_data.current_stage.value
+            })
+            
+        except Exception as e:
+            logger.error(f"Audio streaming error: {e}")
+    
+    async def _send_message(self, session_data: SessionData, message: dict):
+        """Send message to WebSocket"""
+        try:
+            if session_data.websocket:
+                await session_data.websocket.send_text(json.dumps(message))
+        except Exception as e:
+            logger.error(f"WebSocket send error: {e}")
+    
+    async def get_session_result(self, session_id: str) -> dict:
+        """Get session result for PDF generation"""
+        try:
+            collection = self.db_manager.mongo_db[MONGO_CONFIG['results_collection']]
+            result = await collection.find_one({"session_id": session_id})
+            
+            if result:
+                result['_id'] = str(result['_id'])  # Convert ObjectId to string
+                return result
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error fetching session result: {e}")
+            return None
+
+# =============================================================================
+# FASTAPI APPLICATION
+# =============================================================================
+
+# Create FastAPI sub-application
+app = FastAPI(title="Daily Standup Interview System", version="1.0.0")
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Mount static files
+app.mount("/audio", StaticFiles(directory=str(AUDIO_DIR)), name="audio")
+
+# Initialize session manager
+session_manager = SessionManager()
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize application on startup"""
+    await session_manager.initialize()
+    logger.info("Daily Standup application started")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup on shutdown"""
+    logger.info("Daily Standup application shutting down")
+
+# =============================================================================
+# WEBSOCKET ENDPOINT
+# =============================================================================
+
+@app.websocket("/ws/{session_id}")
+async def websocket_endpoint(websocket: WebSocket, session_id: str):
+    """Main WebSocket endpoint for real-time communication"""
+    await websocket.accept()
+    logger.info(f"WebSocket connection established: {session_id}")
+    
+    try:
+        # Create session
+        session_data = await session_manager.create_session(websocket)
         
         # Send initial greeting
-        await self.send_greeting(session_id)
-    
-    def disconnect(self, session_id: str):
-        self.active_connections.pop(session_id, None)
-        self.sessions.pop(session_id, None)
-        logger.info(f"Disconnected: {session_id}")
-    
-    async def send_message(self, session_id: str, message: dict):
-        if session_id in self.active_connections:
-            await self.active_connections[session_id].send_text(json.dumps(message))
-    
-    async def send_greeting(self, session_id: str):
-        """Send initial greeting"""
-        greeting = await self.conversation_manager.get_greeting_response("greeting_start")
-        audio_data = await self.audio_manager.stream_tts(greeting)
+        greeting_message = f"Hello {session_data.student_name.split()[0]}! Welcome to today's standup. How are you doing?"
         
-        await self.send_message(session_id, {
+        await session_manager._send_message(session_data, {
             "type": "ai_response",
-            "text": greeting,
-            "audio": audio_data.hex() if audio_data else "",
+            "text": greeting_message,
             "status": "greeting"
         })
-    
-    async def process_audio(self, session_id: str, audio_data: bytes):
-        """Process incoming audio"""
-        session = self.sessions.get(session_id)
-        if not session:
-            return
         
-        # Quick validation
-        if len(audio_data) < 1000:
-            await self.send_message(session_id, {
-                "type": "error",
-                "message": "Audio too short, please speak again"
-            })
-            return
+        # Send greeting audio
+        async for audio_chunk in session_manager.tts_processor.generate_audio_stream(greeting_message):
+            if audio_chunk:
+                await session_manager._send_message(session_data, {
+                    "type": "audio_chunk",
+                    "audio": audio_chunk.hex(),
+                    "status": "greeting"
+                })
         
-        # Transcribe
-        user_response = await self.audio_manager.transcribe_streaming(audio_data)
-        if not user_response or len(user_response.strip()) < 2:
-            await self.send_message(session_id, {
-                "type": "clarification",
-                "message": "I didn't catch that. Could you repeat?"
-            })
-            return
-        
-        logger.info(f"Session {session_id}: User said: {user_response}")
-        
-        # Handle based on conversation stage
-        if session.greeting_step < 3:
-            await self.handle_greeting(session_id, user_response)
-        else:
-            await self.handle_conversation(session_id, user_response)
-    
-    async def handle_greeting(self, session_id: str, user_response: str):
-        """Handle greeting flow"""
-        session = self.sessions[session_id]
-        
-        if session.greeting_step == 0:
-            # User responded to initial greeting
-            session.greeting_step = 1
-            response = await self.conversation_manager.get_greeting_response("greeting_checkin", user_response)
-            session.add_exchange("Hello!", user_response, "greeting_initial")
-            
-        elif session.greeting_step == 1:
-            # User shared how they're doing
-            session.greeting_step = 2
-            response = await self.conversation_manager.get_greeting_response("greeting_ready", user_response)
-            session.add_exchange("How are you doing?", user_response, "greeting_checkin")
-            
-        else:
-            # Ready to start main conversation
-            session.greeting_step = 3
-            concept_title, concept_content = session.get_current_concept()
-            response, _ = await self.conversation_manager.get_conversation_response(
-                concept_title, concept_content, "", user_response
-            )
-            session.add_exchange("Ready to start?", user_response, "greeting_ready")
-        
-        # Send response
-        audio_data = await self.audio_manager.stream_tts(response)
-        await self.send_message(session_id, {
-            "type": "ai_response",
-            "text": response,
-            "audio": audio_data.hex() if audio_data else "",
-            "status": "greeting" if session.greeting_step < 3 else "conversation"
-        })
-    
-    async def handle_conversation(self, session_id: str, user_response: str):
-        """Handle main conversation"""
-        session = self.sessions[session_id]
-        
-        # Get current concept
-        concept_title, concept_content = session.get_current_concept()
-        
-        # Generate response
-        ai_response, should_move_on = await self.conversation_manager.get_conversation_response(
-            concept_title, concept_content, session.current_conversation_history, user_response
-        )
-        
-        # Add to conversation log
-        last_question = session.conversation_log[-1]["question"] if session.conversation_log else "Previous question"
-        session.add_exchange(last_question, user_response, concept_title)
-        
-        # Check if should continue or end
-        if should_move_on:
-            session.move_to_next_concept()
-        
-        if not session.should_continue():
-            await self.end_conversation(session_id)
-            return
-        
-        # Send response
-        audio_data = await self.audio_manager.stream_tts(ai_response)
-        await self.send_message(session_id, {
-            "type": "ai_response", 
-            "text": ai_response,
-            "audio": audio_data.hex() if audio_data else "",
-            "status": "conversation"
+        await session_manager._send_message(session_data, {
+            "type": "audio_end",
+            "status": "greeting"
         })
         
-        # Update for next question
-        session.add_exchange(ai_response, "", concept_title)
-    
-    async def end_conversation(self, session_id: str):
-        """End conversation and generate evaluation"""
-        session = self.sessions[session_id]
-        
-        # Generate evaluation
-        full_conversation = ""
-        for entry in session.conversation_log:
-            if not entry["concept"].startswith("greeting") and entry["answer"]:
-                full_conversation += f"Q: {entry['question']}\nA: {entry['answer']}\n\n"
-        
-        evaluation = await self.conversation_manager.generate_evaluation(full_conversation)
-        
-        # Save to database
-        await db_manager.save_test_data_async(
-            session.session_id,
-            session.conversation_log,
-            evaluation,
-            {
-                "fragments_covered": len(session.fragment_keys),
-                "total_exchanges": len(session.conversation_log)
-            }
-        )
-        
-        # Send final message
-        closing_message = "Great conversation! Thanks for sharing your technical insights."
-        audio_data = await self.audio_manager.stream_tts(closing_message)
-        
-        await self.send_message(session_id, {
-            "type": "conversation_end",
-            "text": closing_message,
-            "audio": audio_data.hex() if audio_data else "",
-            "evaluation": evaluation,
-            "pdf_url": f"/download_results/{session.session_id}"
-        })
-
-# ========================
-# FASTAPI SUB-APPLICATION
-# ========================
-
-# Create sub-app (not main app)
-sub_app = FastAPI(title="Ultra-Fast Daily Standup", version="3.0.0")
-
-# Static files using relative path
-sub_app.mount("/audio", StaticFiles(directory=AUDIO_DIR), name="audio")
-
-# Connection manager
-manager = ConnectionManager()
-
-# ========================
-# WEBSOCKET ENDPOINT
-# ========================
-
-@sub_app.websocket("/ws/{session_id}")
-async def websocket_endpoint(websocket: WebSocket, session_id: str):
-    logger.info(f"WebSocket connection attempt for session: {session_id}")
-    try:
-        await manager.connect(websocket, session_id)
-        logger.info(f"WebSocket connected successfully: {session_id}")
-        while True:
-            data = await websocket.receive_bytes()
-            logger.info(f"Received audio data: {len(data)} bytes")
-            await manager.process_audio(session_id, data)
-    except WebSocketDisconnect:
-        logger.info(f"WebSocket disconnected: {session_id}")
-        manager.disconnect(session_id)
+        # Listen for audio input
+        while session_data.is_active:
+            try:
+                data = await websocket.receive_bytes()
+                await session_manager.process_audio_input(session_data.session_id, data)
+            except WebSocketDisconnect:
+                break
+            except Exception as e:
+                logger.error(f"WebSocket processing error: {e}")
+                await session_manager._send_message(session_data, {
+                    "type": "error",
+                    "text": "Processing error occurred. Please try again.",
+                    "status": session_data.current_stage.value
+                })
+                
     except Exception as e:
-        logger.error(f"WebSocket error for {session_id}: {e}")
-        manager.disconnect(session_id)
+        logger.error(f"WebSocket error: {e}")
+    finally:
+        await session_manager.remove_session(session_data.session_id)
+        logger.info(f"WebSocket connection closed: {session_id}")
 
-# ========================
-# ESSENTIAL ENDPOINTS
-# ========================
+# =============================================================================
+# REST API ENDPOINTS
+# =============================================================================
 
-@sub_app.get("/")
-async def get_interface():
-    """Serve the WebSocket interface"""
-    return HTMLResponse(content="""
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Ultra-Fast Daily Standup</title>
-    <style>
-        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
-        .container { background: #f5f5f5; padding: 30px; border-radius: 15px; }
-        .status { padding: 20px; margin: 20px 0; border-radius: 10px; text-align: center; }
-        .ready { background: #d4edda; }
-        .listening { background: #fff3cd; }
-        .speaking { background: #d1ecf1; }
-        button { padding: 15px 30px; font-size: 16px; border: none; border-radius: 8px; cursor: pointer; }
-        .start { background: #28a745; color: white; }
-        .recording { background: #dc3545; color: white; }
-        .log { background: #2c3e50; color: #2ecc71; padding: 15px; border-radius: 8px; height: 200px; overflow-y: auto; font-family: monospace; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>🚀 Ultra-Fast Daily Standup</h1>
-        <p><strong>Real-time WebSocket streaming for instant conversation</strong></p>
-        
-        <div id="status" class="status ready">
-            <h3>Ready to Start</h3>
-            <p>Click Start for ultra-fast conversation experience</p>
-        </div>
-        
-        <button id="controlBtn" class="start" onclick="startConversation()">Start Conversation</button>
-        
-        <div class="log" id="log"></div>
-    </div>
+@app.get("/")
+async def root():
+    """Root endpoint"""
+    return {
+        "message": "Daily Standup Interview System",
+        "version": "1.0.0",
+        "websocket_url": "/ws/{session_id}",
+        "active_sessions": len(session_manager.active_sessions)
+    }
 
-    <script>
-        let ws = null;
-        let mediaRecorder = null;
-        let isRecording = false;
-        let sessionId = 'session_' + Date.now();
-        
-        function log(message) {
-            const logEl = document.getElementById('log');
-            logEl.innerHTML += '<div>' + new Date().toLocaleTimeString() + ': ' + message + '</div>';
-            logEl.scrollTop = logEl.scrollHeight;
-        }
-        
-        function updateStatus(title, message, className) {
-            const statusEl = document.getElementById('status');
-            statusEl.innerHTML = '<h3>' + title + '</h3><p>' + message + '</p>';
-            statusEl.className = 'status ' + className;
-        }
-        
-        async function startConversation() {
-            try {
-                // Connect WebSocket
-                ws = new WebSocket('ws://localhost:8000/ws/' + sessionId);
-                
-                ws.onopen = () => {
-                    log('Connected to ultra-fast server');
-                    updateStatus('Connected', 'Starting conversation...', 'ready');
-                };
-                
-                ws.onmessage = async (event) => {
-                    const data = JSON.parse(event.data);
-                    
-                    if (data.type === 'ai_response') {
-                        log('AI: ' + data.text);
-                        updateStatus('AI Speaking', data.text, 'speaking');
-                        
-                        // Play audio if available
-                        if (data.audio) {
-                            const audioData = new Uint8Array(data.audio.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
-                            const audioBlob = new Blob([audioData], { type: 'audio/mp3' });
-                            const audio = new Audio(URL.createObjectURL(audioBlob));
-                            await audio.play();
-                        }
-                        
-                        // Start listening after AI finishes
-                        setTimeout(startListening, 1000);
-                        
-                    } else if (data.type === 'conversation_end') {
-                        log('Conversation completed!');
-                        log('Evaluation: ' + data.evaluation);
-                        updateStatus('Complete', 'Great conversation! Check log for evaluation.', 'ready');
-                        document.getElementById('controlBtn').textContent = 'Start New Conversation';
-                        
-                    } else if (data.type === 'error') {
-                        log('Error: ' + data.message);
-                        setTimeout(startListening, 1000);
-                    }
-                };
-                
-                document.getElementById('controlBtn').textContent = 'Connecting...';
-                document.getElementById('controlBtn').disabled = true;
-                
-            } catch (error) {
-                log('Connection error: ' + error.message);
-            }
-        }
-        
-        async function startListening() {
-            if (isRecording) return;
-            
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                mediaRecorder = new MediaRecorder(stream);
-                
-                let audioChunks = [];
-                mediaRecorder.ondataavailable = (event) => {
-                    audioChunks.push(event.data);
-                };
-                
-                mediaRecorder.onstop = () => {
-                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                    
-                    // Send audio via WebSocket
-                    audioBlob.arrayBuffer().then(buffer => {
-                        if (ws && ws.readyState === WebSocket.OPEN) {
-                            ws.send(buffer);
-                        }
-                    });
-                    
-                    updateStatus('Processing', 'Ultra-fast processing...', 'ready');
-                    stream.getTracks().forEach(track => track.stop());
-                };
-                
-                isRecording = true;
-                mediaRecorder.start();
-                updateStatus('Listening', 'Speak now...', 'listening');
-                document.getElementById('controlBtn').textContent = 'Recording...';
-                document.getElementById('controlBtn').className = 'recording';
-                
-                // Auto-stop after 10 seconds
-                setTimeout(() => {
-                    if (isRecording) {
-                        mediaRecorder.stop();
-                        isRecording = false;
-                    }
-                }, 10000);
-                
-            } catch (error) {
-                log('Microphone error: ' + error.message);
-            }
-        }
-        
-        log('Ultra-fast conversation system loaded');
-        log('WebSocket streaming for real-time interaction');
-    </script>
-</body>
-</html>
-    """)
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    return {
+        "status": "healthy",
+        "timestamp": time.time(),
+        "active_sessions": len(session_manager.active_sessions)
+    }
 
-@sub_app.get("/download_results/{session_id}")
+@app.get("/download_results/{session_id}")
 async def download_results(session_id: str):
-    """Generate and download PDF results"""
+    """Download session results as PDF"""
     try:
-        # Get test from database
-        doc = db_manager.conversations.find_one({"test_id": session_id}, {"_id": 0})
-        if not doc:
+        session_result = await session_manager.get_session_result(session_id)
+        
+        if not session_result:
             raise HTTPException(status_code=404, detail="Session not found")
-
-        # Create PDF
+        
+        # Generate PDF
         buffer = io.BytesIO()
-        p = canvas.Canvas(buffer, pagesize=LETTER)
+        doc = SimpleDocTemplate(buffer, pagesize=LETTER)
+        styles = getSampleStyleSheet()
+        story = []
         
-        # Header
-        p.setFont("Helvetica-Bold", 16)
-        p.drawString(50, 750, f"Daily Standup Results - {session_id}")
+        # Title
+        title = Paragraph(f"Daily Standup Report - {session_result['student_name']}", styles['Title'])
+        story.append(title)
+        story.append(Spacer(1, 12))
         
-        # Basic info
-        p.setFont("Helvetica", 12)
-        p.drawString(50, 720, f"Participant: {doc.get('name', 'N/A')}")
-        p.drawString(50, 700, f"Score: {doc.get('score', 'N/A')}/10")
-        p.drawString(50, 680, f"Date: {time.strftime('%Y-%m-%d %H:%M', time.localtime(doc.get('timestamp', time.time())))}")
+        # Session info
+        info_text = f"""
+        <b>Session ID:</b> {session_result['session_id']}<br/>
+        <b>Date:</b> {datetime.fromtimestamp(session_result['timestamp']).strftime('%Y-%m-%d %H:%M:%S')}<br/>
+        <b>Duration:</b> {session_result.get('duration', 0):.1f} seconds<br/>
+        <b>Score:</b> {session_result.get('score', 0)}/10<br/>
+        <b>Total Exchanges:</b> {session_result.get('total_exchanges', 0)}
+        """
+        
+        info_para = Paragraph(info_text, styles['Normal'])
+        story.append(info_para)
+        story.append(Spacer(1, 12))
         
         # Evaluation
-        p.setFont("Helvetica-Bold", 14)
-        p.drawString(50, 650, "Evaluation:")
+        eval_title = Paragraph("Evaluation", styles['Heading2'])
+        story.append(eval_title)
         
-        p.setFont("Helvetica", 11)
-        evaluation = doc.get('evaluation', 'No evaluation available')
-        lines = textwrap.wrap(evaluation, 80)
-        y = 630
-        for line in lines:
-            if y < 100:
-                p.showPage()
-                p.setFont("Helvetica", 11)
-                y = 750
-            p.drawString(50, y, line)
-            y -= 15
+        evaluation_text = session_result.get('evaluation', 'No evaluation available')
+        eval_para = Paragraph(evaluation_text, styles['Normal'])
+        story.append(eval_para)
+        story.append(Spacer(1, 12))
         
         # Conversation log
-        y -= 20
-        p.setFont("Helvetica-Bold", 14)
-        if y < 100:
-            p.showPage()
-            y = 750
-        p.drawString(50, y, "Conversation:")
-        y -= 20
+        conv_title = Paragraph("Conversation Log", styles['Heading2'])
+        story.append(conv_title)
         
-        p.setFont("Helvetica", 10)
-        conversation_log = doc.get('conversation_log', [])
-        for i, entry in enumerate(conversation_log):
-            if not entry.get('concept', '').startswith('greeting') and entry.get('answer'):
-                if y < 120:
-                    p.showPage()
-                    p.setFont("Helvetica", 10)
-                    y = 750
+        conversation_log = session_result.get('conversation_log', [])
+        for i, exchange in enumerate(conversation_log):
+            if exchange.get('stage') == 'conversation' and exchange.get('user_response'):
+                # AI Question
+                ai_text = f"<b>Q{i+1}:</b> {exchange.get('ai_message', '')}"
+                ai_para = Paragraph(ai_text, styles['Normal'])
+                story.append(ai_para)
                 
-                # Question
-                q_lines = textwrap.wrap(f"Q{i}: {entry.get('question', '')}", 85)
-                for line in q_lines:
-                    p.drawString(50, y, line)
-                    y -= 12
-                
-                # Answer
-                a_lines = textwrap.wrap(f"A: {entry.get('answer', '')}", 85)
-                for line in a_lines:
-                    p.drawString(60, y, line)
-                    y -= 12
-                y -= 5
+                # User Response
+                user_text = f"<b>Response:</b> {exchange.get('user_response', '')}"
+                user_para = Paragraph(user_text, styles['Normal'])
+                story.append(user_para)
+                story.append(Spacer(1, 6))
         
-        p.save()
+        # Build PDF
+        doc.build(story)
         buffer.seek(0)
         
         return StreamingResponse(
-            buffer,
+            io.BytesIO(buffer.read()),
             media_type="application/pdf",
-            headers={"Content-Disposition": f"attachment; filename=standup_results_{session_id[:8]}.pdf"}
+            headers={"Content-Disposition": f"attachment; filename=standup_report_{session_id[:8]}.pdf"}
         )
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"PDF generation failed: {str(e)}")
+        logger.error(f"PDF generation error: {e}")
+        raise HTTPException(status_code=500, detail="PDF generation failed")
 
-@sub_app.get("/test")
-async def test_endpoint():
-    """Test endpoint to verify sub-app is working"""
-    return {
-        "status": "daily_standup sub-app working",
-        "websocket_url": "/daily_standup/ws/{session_id}",
-        "active_connections": len(manager.active_connections),
-        "temp_dir": TEMP_DIR,
-        "audio_dir": AUDIO_DIR
-    }
-
-@sub_app.get("/health")
-async def health_check():
-    """Health check"""
-    return {
-        "status": "healthy",
-        "version": "3.0.0 - Ultra-Optimized Real-Time",
-        "features": [
-            "WebSocket streaming",
-            "Real-time audio processing", 
-            "Human-like conversation",
-            "Memory-only processing",
-            "Ultra-fast responses"
-        ],
-        "performance": "Sub-second response times",
-        "connections": len(manager.active_connections)
-    }
-
-@sub_app.get("/stats")
+@app.get("/stats")
 async def get_stats():
-    """Simple stats"""
+    """Get system statistics"""
     return {
-        "active_sessions": len(manager.sessions),
-        "total_connections": len(manager.active_connections),
-        "uptime": time.time(),
-        "performance": "Ultra-optimized for speed"
+        "active_sessions": len(session_manager.active_sessions),
+        "system_status": "operational",
+        "timestamp": time.time()
     }
 
-# ========================
-# FUNCTION TO GET THE SUB-APP + COMPATIBILITY
-# ========================
-
-def get_daily_standup_app():
-    """Return the configured daily standup sub-application"""
-    return sub_app
-
-# Compatibility: Export sub_app as 'app' for root mounting
-app = sub_app
+# Export the app for mounting
+def get_app():
+    return app

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Box,
   Paper,
@@ -16,30 +16,26 @@ import {
   alpha,
   styled,
   keyframes,
-  Grid
+  Grid,
+  CircularProgress
 } from '@mui/material';
 import {
   Mic,
   VolumeUp,
   ArrowBack,
-  Summarize,
+  Assignment,
   CheckCircle,
   RadioButtonChecked,
   GraphicEq,
   Timer,
   PlayArrow,
   Stop,
-  RecordVoiceOver
+  RecordVoiceOver,
+  Warning,
+  Refresh
 } from '@mui/icons-material';
 import { useParams, useNavigate } from 'react-router-dom';
-
-// Import the standup API
 import { standupCallAPI } from '../../../services/API/studentstandup';
-
-// ==================== CONFIGURATION ====================
-// **FIXED: Set your specific backend server details**
-const API_BASE_URL = 'https://192.168.48.42:8060';
-console.log('🔗 Using API Base URL:', API_BASE_URL);
 
 // ==================== STYLED COMPONENTS ====================
 
@@ -58,158 +54,38 @@ const pulse = keyframes`
   }
 `;
 
-const recording = keyframes`
-  0%, 100% { transform: scaleY(0.5); opacity: 0.5; }
-  50% { transform: scaleY(1.5); opacity: 1; }
-`;
-
-const audioWave = keyframes`
-  0%, 100% { transform: scaleY(0.3); }
-  25% { transform: scaleY(0.8); }
-  50% { transform: scaleY(1.2); }
-  75% { transform: scaleY(0.6); }
-`;
-
-const blinkMic = keyframes`
-  0%, 50% { 
-    opacity: 1; 
-    transform: scale(1);
-    box-shadow: 0 0 0 0 rgba(33, 150, 243, 0.7);
-  }
-  25% { 
-    opacity: 0.7; 
-    transform: scale(1.1);
-    box-shadow: 0 0 0 5px rgba(33, 150, 243, 0.4);
-  }
-  75% { 
-    opacity: 0.9; 
-    transform: scale(1.05);
-    box-shadow: 0 0 0 8px rgba(33, 150, 243, 0.2);
-  }
-  100% { 
-    opacity: 1; 
-    transform: scale(1);
-    box-shadow: 0 0 0 0 rgba(33, 150, 243, 0);
-  }
-`;
-
-const speakingCardPulse = keyframes`
+const aiSpeaking = keyframes`
   0%, 100% { 
-    background: linear-gradient(135deg, rgba(33, 150, 243, 0.1), rgba(33, 150, 243, 0.05));
-    box-shadow: 0 4px 20px rgba(33, 150, 243, 0.1);
+    opacity: 1; 
+    transform: scale(1);
   }
   50% { 
-    background: linear-gradient(135deg, rgba(33, 150, 243, 0.2), rgba(33, 150, 243, 0.1));
-    box-shadow: 0 8px 25px rgba(33, 150, 243, 0.2);
+    opacity: 0.8; 
+    transform: scale(1.05);
   }
 `;
 
-const VoiceLevelIndicator = styled(Box)(({ theme, level }) => ({
-  width: '100%',
-  height: '8px',
-  backgroundColor: alpha(theme.palette.success.main, 0.2),
-  borderRadius: '4px',
-  position: 'relative',
-  overflow: 'hidden',
-  '&::after': {
-    content: '""',
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    height: '100%',
-    width: `${level * 100}%`,
-    backgroundColor: level > 0.05 ? theme.palette.success.main : theme.palette.grey[400],
-    borderRadius: '4px',
-    transition: 'width 0.1s ease-out, background-color 0.2s ease',
-  }
-}));
-
-const RecordingIndicator = styled(Box)(({ theme }) => ({
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  gap: '6px',
-  marginTop: theme.spacing(2),
-  '& .bar': {
-    width: '6px',
-    height: '30px',
-    backgroundColor: theme.palette.error.main,
-    borderRadius: '3px',
-    animation: `${recording} 1.2s ease-in-out infinite`,
-    '&:nth-of-type(1)': { animationDelay: '0s' },
-    '&:nth-of-type(2)': { animationDelay: '0.2s' },
-    '&:nth-of-type(3)': { animationDelay: '0.4s' },
-    '&:nth-of-type(4)': { animationDelay: '0.6s' },
-    '&:nth-of-type(5)': { animationDelay: '0.8s' },
-    '&:nth-of-type(6)': { animationDelay: '1s' },
-  }
-}));
-
-const AudioWaveIndicator = styled(Box)(({ theme }) => ({
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  gap: '4px',
-  marginTop: theme.spacing(2),
-  '& .wave': {
-    width: '4px',
-    height: '20px',
-    backgroundColor: theme.palette.info.main,
-    borderRadius: '2px',
-    animation: `${audioWave} 1.5s ease-in-out infinite`,
-    '&:nth-of-type(1)': { animationDelay: '0s' },
-    '&:nth-of-type(2)': { animationDelay: '0.1s' },
-    '&:nth-of-type(3)': { animationDelay: '0.2s' },
-    '&:nth-of-type(4)': { animationDelay: '0.3s' },
-    '&:nth-of-type(5)': { animationDelay: '0.4s' },
-    '&:nth-of-type(6)': { animationDelay: '0.5s' },
-    '&:nth-of-type(7)': { animationDelay: '0.6s' },
-  }
-}));
-
-const InterviewerSpeakingCard = styled(Card)(({ theme }) => ({
-  marginBottom: theme.spacing(3),
-  animation: `${speakingCardPulse} 2s ease-in-out infinite`,
-  border: `2px solid ${theme.palette.info.main}`,
-  overflow: 'visible',
-  position: 'relative',
-  '&::before': {
-    content: '""',
-    position: 'absolute',
-    top: -2,
-    left: -2,
-    right: -2,
-    bottom: -2,
-    background: `linear-gradient(45deg, ${theme.palette.info.main}, ${theme.palette.info.light})`,
-    borderRadius: 'inherit',
-    zIndex: -1,
-    opacity: 0.3,
-    animation: `${pulse} 2s ease-in-out infinite`,
-  }
-}));
-
-const BlinkingMicAvatar = styled(Avatar)(({ theme }) => ({
-  width: 64,
-  height: 64,
-  backgroundColor: theme.palette.info.main,
-  animation: `${blinkMic} 1.5s ease-in-out infinite`,
-  border: `3px solid ${theme.palette.background.paper}`,
-}));
+const voiceWave = keyframes`
+  0%, 100% { transform: scaleY(0.5); }
+  50% { transform: scaleY(1.5); }
+`;
 
 const MainAvatar = styled(Avatar)(({ theme, status }) => ({
-  width: 140,
-  height: 140,
+  width: 160,
+  height: 160,
   margin: '0 auto',
   marginBottom: theme.spacing(3),
-  fontSize: '3rem',
+  fontSize: '4rem',
   boxShadow: theme.shadows[12],
   border: `4px solid ${alpha(theme.palette.background.paper, 0.8)}`,
+  transition: 'all 0.3s ease-in-out',
   ...(status === 'recording' && {
     animation: `${pulse} 1.5s infinite`,
     backgroundColor: theme.palette.error.main,
     borderColor: theme.palette.error.light,
   }),
-  ...(status === 'speaking' && {
+  ...(status === 'ai_speaking' && {
+    animation: `${aiSpeaking} 2s infinite`,
     backgroundColor: theme.palette.info.main,
     borderColor: theme.palette.info.light,
   }),
@@ -223,13 +99,43 @@ const MainAvatar = styled(Avatar)(({ theme, status }) => ({
   }),
 }));
 
-const TimerBox = styled(Paper)(({ theme }) => ({
-  padding: theme.spacing(2),
-  backgroundColor: alpha(theme.palette.error.main, 0.1),
-  border: `2px solid ${theme.palette.error.main}`,
-  borderRadius: theme.spacing(2),
-  textAlign: 'center',
-  minWidth: '120px',
+const VoiceWaveBox = styled(Box)(({ theme }) => ({
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: '4px',
+  height: '40px',
+  '& .wave': {
+    width: '4px',
+    height: '20px',
+    backgroundColor: theme.palette.primary.main,
+    borderRadius: '2px',
+    animation: `${voiceWave} 0.8s ease-in-out infinite`,
+    '&:nth-of-type(1)': { animationDelay: '0s' },
+    '&:nth-of-type(2)': { animationDelay: '0.1s' },
+    '&:nth-of-type(3)': { animationDelay: '0.2s' },
+    '&:nth-of-type(4)': { animationDelay: '0.3s' },
+    '&:nth-of-type(5)': { animationDelay: '0.4s' },
+    '&:nth-of-type(6)': { animationDelay: '0.5s' },
+    '&:nth-of-type(7)': { animationDelay: '0.6s' },
+  }
+}));
+
+const PersonaCard = styled(Card)(({ theme, isActive }) => ({
+  borderRadius: 20,
+  overflow: 'hidden',
+  background: isActive 
+    ? `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.1)}, ${alpha(theme.palette.secondary.main, 0.1)})` 
+    : `linear-gradient(135deg, ${alpha(theme.palette.grey[100], 0.8)}, ${alpha(theme.palette.grey[50], 0.8)})`,
+  border: isActive 
+    ? `2px solid ${theme.palette.primary.main}` 
+    : `1px solid ${alpha(theme.palette.grey[300], 0.5)}`,
+  boxShadow: isActive ? theme.shadows[8] : theme.shadows[2],
+  transition: 'all 0.3s ease-in-out',
+  '&:hover': {
+    transform: 'translateY(-2px)',
+    boxShadow: theme.shadows[12]
+  }
 }));
 
 // ==================== MAIN COMPONENT ====================
@@ -241,724 +147,393 @@ const StandupCallSession = () => {
   
   // ==================== STATE MANAGEMENT ====================
   
+  const [sessionState, setSessionState] = useState('initializing'); // initializing, ready, connecting, ai_speaking, recording, processing, complete, error
+  const [currentStage, setCurrentStage] = useState('greeting'); // greeting, conversation, complete
   const [testId, setTestId] = useState(null);
-  const [status, setStatus] = useState('Ready to start your daily standup');
-  const [recording, setRecording] = useState(false);
-  const [evaluation, setEvaluation] = useState(null);
   const [error, setError] = useState(null);
-  const [questionCount, setQuestionCount] = useState(1);
-  const [totalQuestions] = useState(5);
-  const [sessionComplete, setSessionComplete] = useState(false);
-  const [isInitialized, setIsInitialized] = useState(false);
-  const [isStarting, setIsStarting] = useState(false);
-  const [voiceLevel, setVoiceLevel] = useState(0);
-  const [aiSpeaking, setAiSpeaking] = useState(false);
+  const [isConnected, setIsConnected] = useState(false);
+  const [currentMessage, setCurrentMessage] = useState('');
+  const [conversationHistory, setConversationHistory] = useState([]);
+  const [progressValue, setProgressValue] = useState(0);
+  const [sessionDuration, setSessionDuration] = useState(0);
   const [recordingDuration, setRecordingDuration] = useState(0);
-  const [currentQuestion, setCurrentQuestion] = useState('');
+  const [evaluation, setEvaluation] = useState(null);
+  const [score, setScore] = useState(null);
   
   // ==================== REFS ====================
   
-  const mediaRecorderRef = useRef(null);
-  const audioChunksRef = useRef([]);
-  const audioContextRef = useRef(null);
-  const analyserRef = useRef(null);
-  const micSourceRef = useRef(null);
-  const dataArrayRef = useRef(null);
-  const silenceStartRef = useRef(null);
-  const hasSpokenRef = useRef(false);
+  const sessionStartTime = useRef(null);
+  const recordingStartTime = useRef(null);
+  const durationTimerRef = useRef(null);
   const recordingTimerRef = useRef(null);
-  const currentStreamRef = useRef(null);
-  const testIdRef = useRef(null);
-  const currentAudioRef = useRef(null);
-  const ttsTimeoutRef = useRef(null);
+  const isInitialized = useRef(false);
   
-  // ==================== CONSTANTS ====================
-  
-  const SILENCE_THRESHOLD = 0.01;
-  const SILENCE_DURATION = 2000;
-  const MAX_DURATION = 15000;
-
   // ==================== EFFECTS ====================
   
   useEffect(() => {
-    setIsInitialized(true);
-    setTestId(null);
-    testIdRef.current = null;
-    setStatus('Ready to start your daily standup');
+    if (!isInitialized.current) {
+      isInitialized.current = true;
+      initializeSession();
+    }
     
     return () => {
       cleanup();
     };
   }, []);
-
+  
+  useEffect(() => {
+    // Start session duration timer
+    if (sessionState === 'connecting' && !durationTimerRef.current) {
+      sessionStartTime.current = Date.now();
+      durationTimerRef.current = setInterval(() => {
+        setSessionDuration(Math.floor((Date.now() - sessionStartTime.current) / 1000));
+      }, 1000);
+    }
+    
+    // Start recording timer
+    if (sessionState === 'recording' && !recordingTimerRef.current) {
+      recordingStartTime.current = Date.now();
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingDuration(Math.floor((Date.now() - recordingStartTime.current) / 1000));
+      }, 1000);
+    } else if (sessionState !== 'recording' && recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+      setRecordingDuration(0);
+    }
+  }, [sessionState]);
+  
   // ==================== MAIN FUNCTIONS ====================
   
-  const startTest = async () => {
-    if (isStarting) {
-      console.log('Already starting, ignoring duplicate call');
-      return;
-    }
-
+  const initializeSession = async () => {
     try {
-      setIsStarting(true);
-      setStatus('Starting your standup session...');
+      setSessionState('initializing');
       setError(null);
-      setSessionComplete(false);
-      setQuestionCount(1);
       
-      console.log('Starting new standup test...');
+      console.log('🚀 Initializing standup session...');
+      
+      // Set up event handlers
+      standupCallAPI.setEventHandlers({
+        onMessage: handleWebSocketMessage,
+        onError: handleWebSocketError,
+        onClose: handleWebSocketClose,
+        onAudioEnd: handleAudioEnd
+      });
+      
+      setCurrentMessage('Starting your standup session...');
+      setSessionState('ready');
+      
+    } catch (error) {
+      console.error('❌ Session initialization error:', error);
+      setError(error.message);
+      setSessionState('error');
+    }
+  };
+  
+  const startStandup = async () => {
+    try {
+      setSessionState('connecting');
+      setError(null);
+      setCurrentMessage('Connecting to standup session...');
+      
+      console.log('📞 Starting standup...');
+      
+      // Start standup session
       const response = await standupCallAPI.startStandup();
-      console.log('Start test response:', response);
       
-      if (!response || !response.test_id) {
-        throw new Error('Invalid response from server - missing test_id');
+      if (response && response.test_id) {
+        setTestId(response.test_id);
+        setIsConnected(true);
+        setCurrentMessage('Connected! Waiting for interviewer...');
+        setSessionState('ai_speaking');
+        
+        console.log('✅ Standup session started:', response.test_id);
+      } else {
+        throw new Error('Failed to start standup session');
       }
       
-      console.log('📝 Setting testId to:', response.test_id);
-      setTestId(response.test_id);
-      testIdRef.current = response.test_id;
-      console.log('📝 testId set successfully in both state and ref');
-      
-      const questionText = response.question || 'Please share your progress from yesterday.';
-      setStatus(questionText);
-      setCurrentQuestion(questionText);
-      
-      // **FIXED: Improved audio playback with better fallback**
-      await playAudioWithFallback(response.audio_path, questionText);
-      
-      // **FIXED: Start recording after audio completes**
-      console.log('⏳ Waiting 2 seconds before starting recording...');
-      setTimeout(() => {
-        if (!sessionComplete && (testIdRef.current || testId)) {
-          console.log('🎤 Now starting recording');
-          startRecording();
-        }
-      }, 2000);
-      
-    } catch (err) {
-      console.error('Error starting test:', err);
-      setError(`Failed to start test: ${err.message}`);
-      setStatus('Ready to start your daily standup');
-    } finally {
-      setIsStarting(false);
+    } catch (error) {
+      console.error('❌ Error starting standup:', error);
+      setError(error.message);
+      setSessionState('error');
     }
   };
-
-  // **FIXED: Completely rewritten audio system with proper URL handling**
-  const playAudioWithFallback = async (audioPath, fallbackText) => {
-    console.log('🎵 playAudioWithFallback called:', { audioPath, fallbackText: fallbackText?.substring(0, 50) + '...' });
+  
+  // ==================== WEBSOCKET HANDLERS ====================
+  
+  const handleWebSocketMessage = useCallback((data) => {
+    console.log('📨 WebSocket message:', data.type, data.status);
     
-    // If no audio path provided, use TTS directly
-    if (!audioPath) {
-      console.log('📢 No audio path provided, using TTS fallback');
-      return await speakTextOptimized(fallbackText);
+    switch (data.type) {
+      case 'ai_response':
+        handleAIResponse(data);
+        break;
+        
+      case 'audio_chunk':
+        // Audio chunks are handled automatically by the API
+        break;
+        
+      case 'audio_end':
+        handleAudioEnd(data);
+        break;
+        
+      case 'conversation_end':
+        handleConversationEnd(data);
+        break;
+        
+      case 'error':
+        handleServerError(data);
+        break;
+        
+      case 'clarification':
+        handleClarification(data);
+        break;
+        
+      default:
+        console.warn('Unknown message type:', data.type);
     }
     
-    try {
-      console.log('🎵 Attempting backend audio first:', audioPath);
-      await playBackendAudio(audioPath);
-      console.log('✅ Backend audio played successfully');
-    } catch (audioError) {
-      console.warn('❌ Backend audio failed, falling back to TTS:', audioError.message);
-      await speakTextOptimized(fallbackText);
-      console.log('✅ TTS fallback completed');
+    // Update stage if provided
+    if (data.status) {
+      setCurrentStage(data.status);
     }
+    
+    // Update progress
+    updateProgress(data.status);
+    
+  }, []);
+  
+  const handleAIResponse = (data) => {
+    console.log('🤖 AI Response received:', data.text);
+    
+    setCurrentMessage(data.text);
+    setSessionState('ai_speaking');
+    
+    // Add to conversation history
+    addToConversationHistory('ai', data.text);
+    
+    // Update progress based on stage
+    updateProgress(data.status);
   };
-
-  // **FIXED: Completely rewritten backend audio playback**
-  const playBackendAudio = (audioPath) => {
-    return new Promise((resolve, reject) => {
-      console.log('🎵 Starting backend audio playback for:', audioPath);
-      setAiSpeaking(true);
-      
-      // Clean up any existing audio
-      if (currentAudioRef.current) {
-        currentAudioRef.current.pause();
-        currentAudioRef.current.src = '';
-        currentAudioRef.current = null;
+  
+  const handleAudioEnd = (data) => {
+    console.log('🎵 Audio ended, starting recording...');
+    
+    setTimeout(() => {
+      if (sessionState !== 'complete' && sessionState !== 'error') {
+        startRecording();
       }
-      
-      // **FIXED: Proper URL construction with multiple fallbacks**
-      const constructAudioUrl = (path) => {
-        console.log('🔗 Constructing URL for path:', path);
-        
-        // If it's already a full URL, use it
-        if (path.startsWith('http://') || path.startsWith('https://')) {
-          console.log('🔗 Using provided full URL:', path);
-          return path;
-        }
-        
-        // If it starts with /audio/, use API base + path
-        if (path.startsWith('/audio/')) {
-          const url = `${API_BASE_URL}${path}`;
-          console.log('🔗 Constructed API URL:', url);
-          return url;
-        }
-        
-        // If it starts with ./audio/, replace with API base
-        if (path.startsWith('./audio/')) {
-          const url = path.replace('./audio/', `${API_BASE_URL}/audio/`);
-          console.log('🔗 Replaced relative URL:', url);
-          return url;
-        }
-        
-        // If it's just a filename, assume it's in /audio/
-        const url = `${API_BASE_URL}/audio/${path}`;
-        console.log('🔗 Assumed filename, constructed URL:', url);
-        return url;
-      };
-      
-      const audioUrl = constructAudioUrl(audioPath);
-      console.log('🔗 Final audio URL:', audioUrl);
-      
-      const audio = new Audio();
-      currentAudioRef.current = audio;
-      let hasResolved = false;
-      let loadStartTime = Date.now();
-      
-      const cleanup = (success = false, errorMsg = '') => {
-        if (!hasResolved) {
-          hasResolved = true;
-          setAiSpeaking(false);
-          
-          if (currentAudioRef.current) {
-            currentAudioRef.current.pause();
-            currentAudioRef.current.src = '';
-            currentAudioRef.current = null;
-          }
-          
-          const duration = Date.now() - loadStartTime;
-          console.log(`🎵 Audio operation completed in ${duration}ms:`, success ? 'SUCCESS' : 'FAILED');
-          
-          if (success) {
-            resolve();
-          } else {
-            reject(new Error(errorMsg || 'Audio playback failed'));
-          }
-        }
-      };
-      
-      // **FIXED: More comprehensive event handling**
-      audio.onloadstart = () => {
-        console.log('📀 Audio loading started...');
-      };
-      
-      audio.oncanplay = () => {
-        console.log('📀 Audio can play, starting playback...');
-        audio.play()
-          .then(() => {
-            console.log('🎵 Audio playback started successfully');
-          })
-          .catch((playError) => {
-            console.warn('❌ Audio play() failed:', playError);
-            cleanupWithTimeout(false, `Play error: ${playError.message}`);
-          });
-      };
-      
-      audio.onended = () => {
-        console.log('✅ Backend audio completed successfully');
-        cleanupWithTimeout(true);
-      };
-      
-      audio.onerror = (e) => {
-        const errorCode = e.target?.error?.code;
-        const errorMessage = e.target?.error?.message;
-        let detailedError = 'Unknown audio error';
-        
-        // Provide more specific error messages
-        switch (errorCode) {
-          case 1: // MEDIA_ERR_ABORTED
-            detailedError = 'Audio loading was aborted';
-            break;
-          case 2: // MEDIA_ERR_NETWORK
-            detailedError = 'Network error while loading audio';
-            break;
-          case 3: // MEDIA_ERR_DECODE
-            detailedError = 'Audio decoding error';
-            break;
-          case 4: // MEDIA_ERR_SRC_NOT_SUPPORTED
-            detailedError = 'Audio format not supported or file not found';
-            break;
-          default:
-            detailedError = errorMessage || 'Audio error occurred';
-        }
-        
-        console.warn('❌ Audio error:', { errorCode, errorMessage, detailedError });
-        cleanupWithTimeout(false, detailedError);
-      };
-      
-      audio.onabort = () => {
-        console.warn('📀 Audio loading aborted');
-        cleanupWithTimeout(false, 'Audio loading aborted');
-      };
-      
-      audio.onstalled = () => {
-        console.warn('📀 Audio loading stalled');
-      };
-      
-      audio.onwaiting = () => {
-        console.log('📀 Audio waiting for data...');
-      };
-      
-      // **FIXED: Progressive timeout with multiple attempts**
-      const timeoutId = setTimeout(() => {
-        if (!hasResolved) {
-          console.warn('⏰ Audio loading timeout after 8 seconds');
-          cleanupWithTimeout(false, 'Audio loading timeout - file may not exist or network issue');
-        }
-      }, 8000); // 8 second timeout
-      
-      // Cleanup timeout when audio resolves
-      const cleanupWithTimeout = (success, errorMsg) => {
-        clearTimeout(timeoutId);
-        cleanup(success, errorMsg);
-      };
-      
-      // **FIXED: Set audio properties for better compatibility**
-      audio.volume = 0.8;
-      audio.preload = 'auto';
-      audio.crossOrigin = 'anonymous'; // Handle CORS issues
-      
-      // **FIXED: Add error handling for URL validation**
-      try {
-        new URL(audioUrl); // Validate URL format
-        audio.src = audioUrl;
-        audio.load(); // Explicitly start loading
-      } catch (urlError) {
-        console.error('❌ Invalid audio URL:', urlError);
-        cleanup(false, 'Invalid audio URL format');
-      }
-    });
+    }, 1000); // 1 second delay after audio ends
   };
-
-  // **FIXED: Optimized TTS with better error handling**
-  const speakTextOptimized = (text) => {
-    return new Promise((resolve) => {
-      if (!('speechSynthesis' in window) || !text?.trim()) {
-        console.warn('❌ TTS not available or no text provided');
-        setAiSpeaking(false);
-        resolve();
-        return;
-      }
-      
-      console.log('🗣 Starting TTS for:', text.substring(0, 50) + '...');
-      setAiSpeaking(true);
-      
-      // **FIXED: Immediate cleanup and restart**
-      window.speechSynthesis.cancel();
-      
-      const startSpeech = () => {
-        // Quick check for ongoing speech
-        if (window.speechSynthesis.speaking) {
-          window.speechSynthesis.cancel();
-          setTimeout(startSpeech, 200);
-          return;
-        }
-        
-        const utterance = new SpeechSynthesisUtterance(text);
-        
-        // **FIXED: Optimal TTS settings**
-        utterance.rate = 0.9;
-        utterance.pitch = 1.0;
-        utterance.volume = 1.0;
-        
-        // **FIXED: Better voice selection**
-        const voices = window.speechSynthesis.getVoices();
-        const preferredVoice = voices.find(v => 
-          v.lang.includes('en') && 
-          (v.name.includes('Google') || v.name.includes('Microsoft') || v.name.includes('Natural'))
-        ) || voices.find(v => v.lang.includes('en')) || voices[0];
-        
-        if (preferredVoice) {
-          utterance.voice = preferredVoice;
-          console.log('🎤 Using TTS voice:', preferredVoice.name);
-        }
-        
-        let hasCompleted = false;
-        
-        const completeTTS = () => {
-          if (!hasCompleted) {
-            hasCompleted = true;
-            setAiSpeaking(false);
-            if (ttsTimeoutRef.current) {
-              clearTimeout(ttsTimeoutRef.current);
-              ttsTimeoutRef.current = null;
-            }
-            console.log('✅ TTS completed');
-            resolve();
-          }
-        };
-        
-        utterance.onend = completeTTS;
-        utterance.onerror = (event) => {
-          console.error('❌ TTS error:', event.error);
-          completeTTS();
-        };
-        
-        // **FIXED: Smarter timeout based on text length**
-        const estimatedDuration = Math.max(text.split(' ').length * 500, 3000); // 500ms per word, min 3s
-        ttsTimeoutRef.current = setTimeout(() => {
-          console.log('⏰ TTS timeout reached');
-          window.speechSynthesis.cancel();
-          completeTTS();
-        }, estimatedDuration);
-        
-        try {
-          window.speechSynthesis.speak(utterance);
-          console.log('🎤 TTS started successfully');
-        } catch (error) {
-          console.error('❌ TTS speak() failed:', error);
-          completeTTS();
-        }
-      };
-      
-      // **FIXED: Reduced initial delay**
-      setTimeout(startSpeech, 300);
-    });
-  };
-
-  const startRecording = async () => {
-    if (recording) {
-      console.log('Already recording, skipping...');
-      return;
-    }
-
-    try {
-      setError(null);
-      console.log('Starting recording...');
-      
-      if (currentStreamRef.current) {
-        currentStreamRef.current.getTracks().forEach(track => track.stop());
-      }
-      
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          sampleRate: 16000
-        } 
-      });
-      
-      currentStreamRef.current = stream;
-      
-      // Set up audio analysis
-      audioContextRef.current = new AudioContext({ sampleRate: 16000 });
-      analyserRef.current = audioContextRef.current.createAnalyser();
-      micSourceRef.current = audioContextRef.current.createMediaStreamSource(stream);
-      analyserRef.current.fftSize = 256;
-      dataArrayRef.current = new Float32Array(analyserRef.current.frequencyBinCount);
-      micSourceRef.current.connect(analyserRef.current);
-
-      // Set up media recorder
-      mediaRecorderRef.current = new MediaRecorder(stream, { 
-        mimeType: 'audio/webm;codecs=opus' 
-      });
-      audioChunksRef.current = [];
-      silenceStartRef.current = null;
-      hasSpokenRef.current = false;
-
-      mediaRecorderRef.current.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
-      };
-
-      mediaRecorderRef.current.onstop = async () => {
-        console.log('Recording stopped');
-        
-        if (currentStreamRef.current) {
-          currentStreamRef.current.getTracks().forEach(track => track.stop());
-          currentStreamRef.current = null;
-        }
-        
-        if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-          await audioContextRef.current.close();
-        }
-        
-        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        console.log('Audio blob size:', blob.size);
-        
-        if (blob.size < 1000) {
-          console.warn('Audio too small, restarting recording...');
-          setTimeout(() => {
-            if (!sessionComplete && testId) {
-              startRecording();
-            }
-          }, 1000);
-          return;
-        }
-        
-        await sendAudio(blob);
-      };
-
-      setRecording(true);
-      setRecordingDuration(0);
-      
-      recordingTimerRef.current = setInterval(() => {
-        setRecordingDuration(prev => prev + 1);
-      }, 1000);
-      
-      mediaRecorderRef.current.start(100);
-      detectSilence();
-
-      setTimeout(() => {
-        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-          console.log('Stopping recording due to time limit');
-          mediaRecorderRef.current.stop();
-        }
-      }, MAX_DURATION);
-      
-    } catch (err) {
-      console.error('Microphone error:', err);
-      setError(`Microphone error: ${err.message}`);
-      setRecording(false);
-    }
-  };
-
-  const detectSilence = () => {
-    if (!analyserRef.current || !recording) return;
+  
+  const handleConversationEnd = (data) => {
+    console.log('🏁 Conversation ended');
     
-    analyserRef.current.getFloatTimeDomainData(dataArrayRef.current);
+    setCurrentMessage(data.text);
+    setEvaluation(data.evaluation);
+    setScore(data.score);
+    setSessionState('complete');
+    setProgressValue(100);
     
-    const rms = Math.sqrt(
-      dataArrayRef.current.reduce((acc, val) => acc + val * val, 0) / dataArrayRef.current.length
-    );
+    // Add final message to history
+    addToConversationHistory('ai', data.text);
     
-    setVoiceLevel(Math.min(rms * 10, 1));
-    
-    const now = Date.now();
-
-    if (rms < SILENCE_THRESHOLD) {
-      if (!silenceStartRef.current) {
-        silenceStartRef.current = now;
-      } else if (hasSpokenRef.current && now - silenceStartRef.current > SILENCE_DURATION) {
-        console.log('Auto-stopping due to silence');
-        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-          mediaRecorderRef.current.stop();
-        }
-        return;
-      }
-    } else {
-      silenceStartRef.current = null;
-      if (!hasSpokenRef.current && rms > SILENCE_THRESHOLD * 3) {
-        hasSpokenRef.current = true;
-        console.log('User started speaking');
-      }
-    }
-
-    if (recording) {
-      requestAnimationFrame(detectSilence);
-    }
-  };
-
-  const sendAudio = async (blob) => {
-    try {
-      setRecording(false);
-      setStatus('Processing your response...');
-      
-      if (recordingTimerRef.current) {
-        clearInterval(recordingTimerRef.current);
-      }
-      
-      const currentTestId = testIdRef.current || testId;
-      console.log('🔍 Using testId:', currentTestId);
-      
-      if (!currentTestId) {
-        console.error('❌ No test ID available in sendAudio');
-        throw new Error('No test ID available. Please restart the standup.');
-      }
-      
-      console.log('Sending audio response for testId:', currentTestId);
-      
-      const response = await standupCallAPI.recordAndRespond(currentTestId, blob);
-      console.log('Response received:', response);
-
-      if (!response) {
-        throw new Error('No response received from server');
-      }
-
-      const responseText = response.response || response.question || 'Processing...';
-      setStatus(responseText);
-      setCurrentQuestion(responseText);
-      
-      if (response.ended || response.complete) {
-        setSessionComplete(true);
-        
-        const finalMessage = response.response || response.message || 'Thank you for completing the standup!';
-        
-        // **FIXED: Use smart audio with fallback for final message**
-        await playAudioWithFallback(response.audio_path, finalMessage);
-        
-        setTimeout(getSummary, 2000);
-        return;
-      }
-
-      setQuestionCount(prev => prev + 1);
-      
-      const nextQuestion = response.response || response.question;
-      
-      // **FIXED: Use smart audio with fallback for next question**
-      await playAudioWithFallback(response.audio_path, nextQuestion);
-      
-      // **FIXED: Reduced delay from 8 to 2 seconds**
-      console.log('⏳ Waiting 2 seconds before next recording...');
-      setTimeout(() => {
-        const currentTestId = testIdRef.current || testId;
-        if (!sessionComplete && currentTestId) {
-          console.log('🎤 Starting next recording');
-          startRecording();
-        }
-      }, 2000);
-      
-    } catch (err) {
-      console.error('Error processing response:', err);
-      setError(`Error processing response: ${err.message}`);
-      setStatus('Error occurred. Please try again.');
-      
-      setTimeout(() => {
-        if (!sessionComplete) {
-          setStatus('Ready to start your daily standup');
-        }
-      }, 3000);
-    }
-  };
-
-  const getSummary = async () => {
-    try {
-      const currentTestId = testIdRef.current || testId;
-      console.log('🔍 Getting standup summary for test ID:', currentTestId);
-      
-      if (!currentTestId) {
-        console.error('❌ No test ID available for summary');
-        setError('Cannot get summary - no test ID available');
-        return;
-      }
-      
-      const summary = await standupCallAPI.getStandupSummary(currentTestId);
-      console.log('✅ Summary received:', summary);
-      
-      setEvaluation(summary);
-      
-      if (summary) {
-        navigate(`/student/daily-standups/summary/${currentTestId}`, { 
-          state: { 
-            summary: summary.summary || summary,
-            analytics: summary.analytics || {},
-            pdf_url: summary.pdf_url
-          } 
-        });
-      }
-      
-    } catch (err) {
-      console.error('❌ Error getting summary:', err);
-      setError('Failed to get summary, but your standup was recorded successfully.');
-      setSessionComplete(true);
-      setStatus('Standup completed successfully! Summary unavailable.');
-    }
-  };
-
-  // **FIXED: Improved cleanup function**
-  const cleanup = () => {
-    console.log('🧹 Cleaning up resources...');
-    
-    if (recording && mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
-    }
-    
-    if (currentStreamRef.current) {
-      currentStreamRef.current.getTracks().forEach(track => track.stop());
-      currentStreamRef.current = null;
-    }
-    
-    // **FIXED: Cleanup TTS**
-    if (window.speechSynthesis && window.speechSynthesis.speaking) {
-      window.speechSynthesis.cancel();
-    }
-    
-    // **FIXED: Cleanup backend audio**
-    if (currentAudioRef.current) {
-      currentAudioRef.current.pause();
-      currentAudioRef.current.src = '';
-      currentAudioRef.current = null;
+    // Stop all timers
+    if (durationTimerRef.current) {
+      clearInterval(durationTimerRef.current);
+      durationTimerRef.current = null;
     }
     
     if (recordingTimerRef.current) {
       clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
     }
-    
-    if (ttsTimeoutRef.current) {
-      clearTimeout(ttsTimeoutRef.current);
-    }
-    
-    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-      audioContextRef.current.close();
-    }
-    
-    setRecording(false);
-    setAiSpeaking(false);
-    setIsStarting(false);
   };
-
-  const handleGoBack = () => {
-    cleanup();
-    navigate('/student/daily-standups');
+  
+  const handleServerError = (data) => {
+    console.error('❌ Server error:', data.text);
+    setError(data.text);
+    setSessionState('error');
   };
-
+  
+  const handleClarification = (data) => {
+    console.log('❓ Clarification requested:', data.text);
+    setCurrentMessage(data.text);
+    setSessionState('ai_speaking');
+    
+    // Add to conversation history
+    addToConversationHistory('ai', data.text);
+    
+    // Restart recording after clarification
+    setTimeout(() => {
+      if (sessionState !== 'complete' && sessionState !== 'error') {
+        startRecording();
+      }
+    }, 2000);
+  };
+  
+  const handleWebSocketError = (error) => {
+    console.error('❌ WebSocket error:', error);
+    setError('Connection error. Please try again.');
+    setSessionState('error');
+    setIsConnected(false);
+  };
+  
+  const handleWebSocketClose = (event) => {
+    console.log('🔌 WebSocket closed:', event.code, event.reason);
+    setIsConnected(false);
+    
+    if (sessionState !== 'complete' && event.code !== 1000) {
+      setError('Connection lost. Please try again.');
+      setSessionState('error');
+    }
+  };
+  
+  // ==================== RECORDING FUNCTIONS ====================
+  
+  const startRecording = async () => {
+    try {
+      console.log('🎤 Starting recording...');
+      
+      setSessionState('recording');
+      setCurrentMessage('Listening... Please speak your response');
+      
+      await standupCallAPI.startRecording();
+      
+    } catch (error) {
+      console.error('❌ Recording error:', error);
+      setError(`Recording failed: ${error.message}`);
+      setSessionState('error');
+    }
+  };
+  
+  const stopRecording = () => {
+    console.log('⏹️ Stopping recording...');
+    
+    standupCallAPI.stopRecording();
+    setSessionState('processing');
+    setCurrentMessage('Processing your response...');
+  };
+  
   // ==================== HELPER FUNCTIONS ====================
   
-  const getSessionStatus = () => {
-    if (sessionComplete) return 'complete';
-    if (aiSpeaking) return 'speaking';
-    if (recording) return 'recording';
-    if (status.includes('Processing')) return 'processing';
-    if (status.includes('Starting') || isStarting) return 'initializing';
-    return 'ready';
+  const addToConversationHistory = (type, message) => {
+    const timestamp = new Date().toLocaleTimeString();
+    setConversationHistory(prev => [...prev, {
+      type,
+      message,
+      timestamp,
+      id: Date.now()
+    }]);
   };
-
-  const getStatusMessage = () => {
-    const sessionStatus = getSessionStatus();
-    switch (sessionStatus) {
-      case 'complete':
-        return 'Standup Complete! 🎉';
-      case 'speaking':
-        return '🤖 AI Speaking...';
-      case 'recording':
-        return '🎤 Recording Your Response';
-      case 'processing':
-        return 'Processing your response...';
-      case 'initializing':
-        return 'Starting your standup...';
-      default:
-        return 'Ready to start your daily standup';
-    }
+  
+  const updateProgress = (status) => {
+    const progressMap = {
+      'greeting': 20,
+      'conversation': 70,
+      'complete': 100
+    };
+    
+    const newProgress = progressMap[status] || progressValue;
+    setProgressValue(newProgress);
   };
-
-  const getStatusIcon = () => {
-    const sessionStatus = getSessionStatus();
-    switch (sessionStatus) {
-      case 'speaking':
-        return <VolumeUp fontSize="inherit" />;
-      case 'recording':
-        return <GraphicEq fontSize="inherit" />;
-      case 'processing':
-        return <Timer fontSize="inherit" />;
-      case 'complete':
-        return <CheckCircle fontSize="inherit" />;
-      default:
-        return <Mic fontSize="inherit" />;
-    }
-  };
-
+  
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
-
+  
+  const getStatusMessage = () => {
+    switch (sessionState) {
+      case 'initializing':
+        return 'Initializing system...';
+      case 'ready':
+        return 'Ready to start your standup';
+      case 'connecting':
+        return 'Connecting to interviewer...';
+      case 'ai_speaking':
+        return 'Interviewer is speaking...';
+      case 'recording':
+        return 'Recording your response...';
+      case 'processing':
+        return 'Processing your response...';
+      case 'complete':
+        return 'Standup complete!';
+      case 'error':
+        return 'Error occurred';
+      default:
+        return 'Loading...';
+    }
+  };
+  
+  const getStatusIcon = () => {
+    switch (sessionState) {
+      case 'ai_speaking':
+        return <VolumeUp fontSize="inherit" />;
+      case 'recording':
+        return <Mic fontSize="inherit" />;
+      case 'processing':
+        return <Timer fontSize="inherit" />;
+      case 'complete':
+        return <CheckCircle fontSize="inherit" />;
+      case 'error':
+        return <Warning fontSize="inherit" />;
+      default:
+        return <RadioButtonChecked fontSize="inherit" />;
+    }
+  };
+  
+  const cleanup = () => {
+    console.log('🧹 Cleaning up session...');
+    
+    if (durationTimerRef.current) {
+      clearInterval(durationTimerRef.current);
+      durationTimerRef.current = null;
+    }
+    
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+    
+    standupCallAPI.disconnect();
+  };
+  
+  const handleGoBack = () => {
+    cleanup();
+    navigate('/student/daily-standups');
+  };
+  
+  const handleViewSummary = async () => {
+    try {
+      if (testId) {
+        const summary = await standupCallAPI.getStandupSummary(testId);
+        navigate(`/student/daily-standups/summary/${testId}`, {
+          state: { summary, evaluation, score }
+        });
+      }
+    } catch (error) {
+      console.error('❌ Error getting summary:', error);
+    }
+  };
+  
+  const handleRetry = () => {
+    setError(null);
+    setSessionState('ready');
+    setCurrentMessage('');
+    setConversationHistory([]);
+    setProgressValue(0);
+    setSessionDuration(0);
+    setRecordingDuration(0);
+    setEvaluation(null);
+    setScore(null);
+    setTestId(null);
+    setIsConnected(false);
+  };
+  
   // ==================== RENDER ====================
   
-  const sessionStatus = getSessionStatus();
-
   return (
     <Fade in={true}>
       <Box sx={{ p: 3, minHeight: '100vh', backgroundColor: alpha(theme.palette.primary.main, 0.02) }}>
@@ -982,7 +557,7 @@ const StandupCallSession = () => {
             </IconButton>
             <Avatar 
               sx={{ 
-                bgcolor: sessionComplete ? theme.palette.success.main : theme.palette.primary.main,
+                bgcolor: sessionState === 'complete' ? theme.palette.success.main : theme.palette.primary.main,
                 width: 56,
                 height: 56,
                 boxShadow: theme.shadows[8]
@@ -1005,97 +580,70 @@ const StandupCallSession = () => {
                 Daily Standup Session
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                Question {questionCount} of {totalQuestions} {(testIdRef.current || testId) && `• Test ID: ${(testIdRef.current || testId).slice(-8)}`}
+                {formatTime(sessionDuration)} {testId && `• ${testId.slice(-8)}`}
               </Typography>
             </Box>
           </Box>
           
           <Box display="flex" alignItems="center" gap={1}>
             <Chip 
-              label={sessionComplete ? "Complete" : "In Progress"}
-              color={sessionComplete ? "success" : "primary"}
-              icon={sessionComplete ? <CheckCircle /> : <RadioButtonChecked />}
+              label={isConnected ? "Connected" : "Disconnected"}
+              color={isConnected ? "success" : "default"}
+              icon={isConnected ? <CheckCircle /> : <RadioButtonChecked />}
               size="medium"
             />
           </Box>
         </Box>
 
-        {/* Interviewer Speaking Card */}
-        {aiSpeaking && (
-          <Fade in={true}>
-            <InterviewerSpeakingCard elevation={8}>
-              <CardContent sx={{ p: 3 }}>
-                <Box display="flex" alignItems="center" gap={3}>
-                  <BlinkingMicAvatar>
-                    <RecordVoiceOver fontSize="large" />
-                  </BlinkingMicAvatar>
-                  <Box flex={1}>
-                    <Typography variant="h6" color="info.main" sx={{ fontWeight: 'bold', mb: 1 }}>
-                      🎤 Interviewer Speaking
-                    </Typography>
-                    <Typography variant="body1" sx={{ fontSize: '1.1rem', lineHeight: 1.6 }}>
-                      "{currentQuestion}"
-                    </Typography>
-                    <Box sx={{ mt: 2 }}>
-                      <AudioWaveIndicator>
-                        <div className="wave"></div>
-                        <div className="wave"></div>
-                        <div className="wave"></div>
-                        <div className="wave"></div>
-                        <div className="wave"></div>
-                        <div className="wave"></div>
-                        <div className="wave"></div>
-                      </AudioWaveIndicator>
-                    </Box>
-                  </Box>
-                </Box>
-              </CardContent>
-            </InterviewerSpeakingCard>
-          </Fade>
-        )}
-
-        {/* Progress and Timer Row */}
-        <Grid container spacing={3} sx={{ mb: 3 }}>
-          <Grid item xs={12} md={8}>
-            <Paper sx={{ p: 2, borderRadius: 2 }}>
-              <Typography variant="body2" color="text.secondary" gutterBottom>
-                Progress: {questionCount} / {totalQuestions}
-              </Typography>
-              <LinearProgress 
-                variant="determinate" 
-                value={(questionCount / totalQuestions) * 100} 
-                sx={{ height: 10, borderRadius: 5 }}
-              />
-            </Paper>
-          </Grid>
-          <Grid item xs={12} md={4}>
-            {recording && (
-              <TimerBox elevation={3}>
-                <Typography variant="h6" color="error" sx={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
-                  <Timer />
-                  {formatTime(recordingDuration)}
-                </Typography>
-              </TimerBox>
-            )}
-          </Grid>
-        </Grid>
+        {/* Progress Bar */}
+        <Paper sx={{ p: 2, mb: 3, borderRadius: 2 }}>
+          <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
+            <Typography variant="body2" color="text.secondary">
+              Session Progress
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              {progressValue}%
+            </Typography>
+          </Box>
+          <LinearProgress 
+            variant="determinate" 
+            value={progressValue} 
+            sx={{ height: 8, borderRadius: 4 }}
+          />
+        </Paper>
 
         {/* Error Display */}
         {error && (
-          <Alert severity="error" sx={{ mb: 3, borderRadius: 2 }}>
+          <Alert 
+            severity="error" 
+            sx={{ mb: 3, borderRadius: 2 }}
+            action={
+              <Button color="inherit" size="small" onClick={handleRetry}>
+                <Refresh sx={{ mr: 1 }} />
+                Retry
+              </Button>
+            }
+          >
             {error}
           </Alert>
         )}
 
         {/* Main Interface */}
-        <Card sx={{ borderRadius: 4, boxShadow: theme.shadows[16] }}>
+        <PersonaCard isActive={sessionState !== 'ready' && sessionState !== 'error'} elevation={8}>
           <CardContent sx={{ p: 6 }}>
             <Box textAlign="center">
+              
+              {/* Main Avatar */}
+              <MainAvatar status={sessionState === 'ai_speaking' ? 'ai_speaking' : sessionState}>
+                {getStatusIcon()}
+              </MainAvatar>
+              
+              {/* Status Message */}
               <Typography 
-                variant="h3" 
+                variant="h4" 
                 gutterBottom 
                 sx={{ 
-                  mb: 4,
+                  mb: 3,
                   fontWeight: 'bold',
                   background: `linear-gradient(45deg, ${theme.palette.primary.main}, ${theme.palette.secondary.main})`,
                   backgroundClip: 'text',
@@ -1106,140 +654,91 @@ const StandupCallSession = () => {
                 {getStatusMessage()}
               </Typography>
               
-              {/* Main Visual Indicator */}
+              {/* Current Message */}
+              {currentMessage && (
+                <Box sx={{ mb: 4, maxWidth: 600, mx: 'auto' }}>
+                  <Typography 
+                    variant="h6" 
+                    sx={{ 
+                      mb: 2,
+                      fontStyle: 'italic',
+                      color: theme.palette.text.secondary,
+                      lineHeight: 1.6
+                    }}
+                  >
+                    "{currentMessage}"
+                  </Typography>
+                </Box>
+              )}
+              
+              {/* Visual Indicators */}
               <Box sx={{ mb: 4 }}>
-                <MainAvatar status={sessionStatus}>
-                  {getStatusIcon()}
-                </MainAvatar>
+                {sessionState === 'ai_speaking' && (
+                  <Box>
+                    <VoiceWaveBox>
+                      <div className="wave"></div>
+                      <div className="wave"></div>
+                      <div className="wave"></div>
+                      <div className="wave"></div>
+                      <div className="wave"></div>
+                      <div className="wave"></div>
+                      <div className="wave"></div>
+                    </VoiceWaveBox>
+                    <Typography variant="body2" color="info.main" sx={{ mt: 1 }}>
+                      🎧 AI is speaking...
+                    </Typography>
+                  </Box>
+                )}
                 
-                {/* Recording Visual Indicator */}
-                {recording && (
-                  <Box sx={{ mt: 2 }}>
-                    <RecordingIndicator>
-                      <div className="bar"></div>
-                      <div className="bar"></div>
-                      <div className="bar"></div>
-                      <div className="bar"></div>
-                      <div className="bar"></div>
-                      <div className="bar"></div>
-                    </RecordingIndicator>
-                    
-                    {/* Voice Activity Indicator */}
-                    <Box sx={{ mt: 3, maxWidth: 300, mx: 'auto' }}>
-                      <Typography variant="body2" color="text.secondary" gutterBottom>
-                        Voice Level:
-                      </Typography>
-                      <VoiceLevelIndicator level={voiceLevel} />
-                      <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1 }}>
-                        <Typography variant="caption" color={voiceLevel > 0.05 ? 'success.main' : 'text.secondary'}>
-                          {voiceLevel > 0.05 ? '🎤 Speaking' : (hasSpokenRef.current ? '🔇 Silent' : '🎙 Start speaking')}
-                        </Typography>
-                      </Box>
-                    </Box>
-                    
-                    <Typography variant="h6" color="error" sx={{ mt: 2, fontWeight: 'bold' }}>
+                {sessionState === 'recording' && (
+                  <Box>
+                    <Typography variant="h5" color="error" sx={{ mb: 2, fontWeight: 'bold' }}>
                       🎤 RECORDING • {formatTime(recordingDuration)}
                     </Typography>
-                  </Box>
-                )}
-              </Box>
-
-              {/* Status Indicators */}
-              <Box sx={{ mb: 4, display: 'flex', justifyContent: 'center', gap: 1, flexWrap: 'wrap' }}>
-                {aiSpeaking && (
-                  <Chip 
-                    label="AI Speaking..." 
-                    color="info" 
-                    icon={<VolumeUp />}
-                    size="medium"
-                  />
-                )}
-                {recording && (
-                  <Chip 
-                    label="Recording • Speak naturally"
-                    color="error"
-                    icon={<Mic />}
-                    size="medium"
-                  />
-                )}
-                {status.includes('Processing') && (
-                  <Chip 
-                    label="Processing..." 
-                    color="warning" 
-                    icon={<Timer />}
-                    size="medium"
-                  />
-                )}
-              </Box>
-
-              {/* Instructions based on status */}
-              <Box sx={{ mb: 4 }}>
-                {/* Show start button when ready and not active */}
-                {sessionStatus === 'ready' && !testId && (
-                  <Box>
-                    <Typography variant="h6" color="text.secondary" sx={{ mb: 3 }}>
-                      Ready to start your daily standup?
+                    <Typography variant="body1" color="text.secondary">
+                      Speak clearly and naturally. Recording will stop automatically when you finish.
                     </Typography>
-                    <Button
-                      variant="contained"
-                      size="large"
-                      onClick={startTest}
-                      startIcon={<PlayArrow />}
-                      disabled={isStarting || status.includes('Starting') || status.includes('Processing')}
-                      sx={{ 
-                        px: 4, 
-                        py: 2, 
-                        fontSize: '1.1rem',
-                        borderRadius: 3,
-                        boxShadow: theme.shadows[8]
-                      }}
-                    >
-                      {isStarting ? 'Starting...' : 'Start Standup'}
-                    </Button>
                   </Box>
                 )}
-
-                {/* Show specific messages for each state */}
-                {sessionStatus === 'initializing' && (
-                  <Typography variant="h6" color="warning.main" sx={{ fontWeight: 'medium' }}>
-                    ⏳ Initializing your standup session...
-                  </Typography>
-                )}
-
-                {sessionStatus === 'speaking' && (
-                  <Typography variant="h6" color="info.main" sx={{ fontWeight: 'medium' }}>
-                    🎧 Please listen carefully to the complete question. Recording will start automatically in a few seconds.
-                  </Typography>
-                )}
-
-                {sessionStatus === 'recording' && (
-                  <Typography variant="h6" color="error.main" sx={{ fontWeight: 'medium' }}>
-                    🗣 Now you can speak your answer. Recording will stop automatically when you finish.
-                  </Typography>
-                )}
-
-                {sessionStatus === 'processing' && (
-                  <Typography variant="h6" color="warning.main" sx={{ fontWeight: 'medium' }}>
-                    ⏳ Processing your response. Please wait...
-                  </Typography>
+                
+                {sessionState === 'processing' && (
+                  <Box>
+                    <CircularProgress sx={{ mb: 2 }} />
+                    <Typography variant="body1" color="warning.main">
+                      Processing your response...
+                    </Typography>
+                  </Box>
                 )}
               </Box>
-
-              {/* Session Complete Actions */}
-              {sessionComplete && (
-                <Box sx={{ mt: 4 }}>
-                  <Typography variant="h4" color="success.main" gutterBottom sx={{ fontWeight: 'bold' }}>
-                    🎉 Standup Complete!
-                  </Typography>
-                  <Typography variant="h6" sx={{ mb: 4, color: 'text.secondary' }}>
-                    Great job! Your responses have been recorded successfully.
-                  </Typography>
+              
+              {/* Action Buttons */}
+              <Box sx={{ mb: 4 }}>
+                {sessionState === 'ready' && (
                   <Button
                     variant="contained"
-                    color="success"
-                    onClick={getSummary}
-                    startIcon={<Summarize />}
                     size="large"
+                    onClick={startStandup}
+                    startIcon={<PlayArrow />}
+                    sx={{ 
+                      px: 4, 
+                      py: 2, 
+                      fontSize: '1.1rem',
+                      borderRadius: 3,
+                      background: `linear-gradient(45deg, ${theme.palette.primary.main}, ${theme.palette.secondary.main})`,
+                      boxShadow: theme.shadows[8]
+                    }}
+                  >
+                    Start Standup
+                  </Button>
+                )}
+                
+                {sessionState === 'recording' && (
+                  <Button
+                    variant="contained"
+                    color="error"
+                    size="large"
+                    onClick={stopRecording}
+                    startIcon={<Stop />}
                     sx={{ 
                       px: 4, 
                       py: 2, 
@@ -1248,56 +747,111 @@ const StandupCallSession = () => {
                       boxShadow: theme.shadows[8]
                     }}
                   >
-                    View Summary & Results
+                    Stop Recording
                   </Button>
-                </Box>
-              )}
-
+                )}
+                
+                {sessionState === 'complete' && (
+                  <Button
+                    variant="contained"
+                    color="success"
+                    size="large"
+                    onClick={handleViewSummary}
+                    startIcon={<Assignment />}
+                    sx={{ 
+                      px: 4, 
+                      py: 2, 
+                      fontSize: '1.1rem',
+                      borderRadius: 3,
+                      boxShadow: theme.shadows[8]
+                    }}
+                  >
+                    View Summary
+                  </Button>
+                )}
+              </Box>
+              
               {/* Evaluation Display */}
-              {evaluation && (
-                <Box sx={{ mt: 4, p: 3, backgroundColor: alpha(theme.palette.success.main, 0.1), borderRadius: 2 }}>
-                  <Typography variant="h6" gutterBottom sx={{ fontWeight: 'bold' }}>
-                    📊 Evaluation Results
+              {evaluation && score && (
+                <Box 
+                  sx={{ 
+                    mt: 4, 
+                    p: 3, 
+                    backgroundColor: alpha(theme.palette.success.main, 0.1),
+                    borderRadius: 3,
+                    border: `1px solid ${alpha(theme.palette.success.main, 0.2)}`
+                  }}
+                >
+                  <Typography variant="h6" color="success.main" gutterBottom sx={{ fontWeight: 'bold' }}>
+                    📊 Session Evaluation
                   </Typography>
-                  <Typography variant="body1" sx={{ mb: 2, whiteSpace: 'pre-wrap' }}>
-                    {evaluation.summary || evaluation}
+                  <Typography variant="body1" sx={{ mb: 2, whiteSpace: 'pre-wrap', textAlign: 'left' }}>
+                    {evaluation}
                   </Typography>
-                  {evaluation.analytics && (
-                    <Box>
-                      <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 'bold' }}>
-                        Analytics:
-                      </Typography>
-                      <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-                        {evaluation.analytics.num_questions && (
-                          <Chip label={`Questions: ${evaluation.analytics.num_questions}`} size="small" />
-                        )}
-                        {evaluation.analytics.avg_response_length && (
-                          <Chip label={`Avg Length: ${evaluation.analytics.avg_response_length}`} size="small" />
-                        )}
-                        {evaluation.analytics.concept_coverage && (
-                          <Chip label={`Concepts: ${evaluation.analytics.concept_coverage}`} size="small" />
-                        )}
-                      </Box>
-                    </Box>
-                  )}
-                  {evaluation.pdf_url && (
-                    <Box sx={{ mt: 2 }}>
-                      <Button
-                        variant="outlined"
-                        size="small"
-                        href={evaluation.pdf_url}
-                        download
-                        sx={{ borderRadius: 2 }}
-                      >
-                        Download PDF Report
-                      </Button>
-                    </Box>
-                  )}
+                  <Chip 
+                    label={`Score: ${score}/10`}
+                    color="success"
+                    size="large"
+                    sx={{ fontWeight: 'bold' }}
+                  />
                 </Box>
               )}
+              
+              {/* Instructions */}
+              <Box 
+                sx={{ 
+                  mt: 4, 
+                  p: 3, 
+                  backgroundColor: alpha(theme.palette.info.main, 0.05),
+                  borderRadius: 2,
+                  border: `1px solid ${alpha(theme.palette.info.main, 0.2)}`
+                }}
+              >
+                <Typography variant="h6" color="info.main" gutterBottom>
+                  💡 Tips for a Great Standup:
+                </Typography>
+                <Grid container spacing={2}>
+                  <Grid item xs={12} sm={4}>
+                    <Typography variant="body2" color="text.secondary">
+                      <strong>Speak Clearly:</strong> Use a clear, natural speaking voice
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} sm={4}>
+                    <Typography variant="body2" color="text.secondary">
+                      <strong>Be Specific:</strong> Mention specific tasks and challenges
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} sm={4}>
+                    <Typography variant="body2" color="text.secondary">
+                      <strong>Stay Focused:</strong> Keep responses relevant and concise
+                    </Typography>
+                  </Grid>
+                </Grid>
+              </Box>
             </Box>
           </CardContent>
-        </Card>
+        </PersonaCard>
+        
+        {/* Conversation History */}
+        {conversationHistory.length > 0 && (
+          <Paper sx={{ mt: 3, p: 3, borderRadius: 2 }}>
+            <Typography variant="h6" gutterBottom>
+              Conversation History
+            </Typography>
+            <Box sx={{ maxHeight: 200, overflowY: 'auto' }}>
+              {conversationHistory.map((item) => (
+                <Box key={item.id} sx={{ mb: 2 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    {item.timestamp} • {item.type === 'ai' ? 'Interviewer' : 'You'}
+                  </Typography>
+                  <Typography variant="body1" sx={{ fontStyle: item.type === 'ai' ? 'italic' : 'normal' }}>
+                    {item.message}
+                  </Typography>
+                </Box>
+              ))}
+            </Box>
+          </Paper>
+        )}
       </Box>
     </Fade>
   );
