@@ -2,7 +2,7 @@
 // Assessment API configuration for Daily Standups, Mock Interviews, and Mock Tests
 
 // Assessment API Base URL
-const ASSESSMENT_API_BASE_URL = import.meta.env.VITE_ASSESSMENT_API_URL || 'https://192.168.48.57:8060';
+const ASSESSMENT_API_BASE_URL = import.meta.env.VITE_ASSESSMENT_API_URL || 'http://192.168.48.57:8060';
 
 // Get authentication token from localStorage
 const getAuthToken = () => {

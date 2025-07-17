@@ -5,10 +5,10 @@ import random
 # Copied from your main.py for consistency
 DB_CONFIG = {
     "DRIVER": "ODBC Driver 17 for SQL Server",
-    "SERVER": "192.168.48.200",
+    "SERVER": "183.82.108.211",
     "DATABASE": "SuperDB",
-    "UID": "sa",
-    "PWD": "Welcome@123",
+    "UID": "Connectly",
+    "PWD": "LT@connect25",
 }
 
 CONNECTION_STRING = (
@@ -65,4 +65,3 @@ def check_sql_server_connection():
 
 if __name__ == "__main__":
     check_sql_server_connection()
-
