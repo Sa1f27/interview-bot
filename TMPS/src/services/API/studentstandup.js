@@ -1,5 +1,6 @@
-// App/daily_standup/TMPS/src/services/API/studentstandup.js
-// REALISTIC implementation with automatic voice detection - NO FALLBACKS!
+// =============================================================================
+// FINAL VERSION - NO FALLBACKS, REAL AI RESPONSES, BACKEND TTS STREAMING
+// =============================================================================
 
 import { assessmentApiRequest } from './index2';
 
@@ -230,10 +231,13 @@ class RealisticAudioManager {
         const audioUrl = URL.createObjectURL(audioBlob);
         const audio = new Audio(audioUrl);
         
+        // FASTER playback - reduce delays
+        audio.playbackRate = 1.1; // Slightly faster speech
+        
         audio.onended = () => {
           URL.revokeObjectURL(audioUrl);
           this.isPlayingAudio = false;
-          console.log('🎵 Audio playback finished');
+          console.log('🎵 Audio chunk finished');
           resolve();
         };
         
@@ -245,7 +249,7 @@ class RealisticAudioManager {
         };
         
         audio.play().then(() => {
-          console.log('🎵 Playing AI response...');
+          console.log('🎵 Playing AI response chunk...');
         }).catch(reject);
         
       } catch (error) {
@@ -500,18 +504,23 @@ class RealisticStandupAPIService {
     try {
       this.conversationState = 'speaking';
       
-      // Play all collected audio chunks
+      // Play all collected audio chunks FAST
       if (this.audioChunksBuffer.length > 0) {
         await this.audioManager.playAudioStream(this.audioChunksBuffer);
       }
       
-      // Ready for next user input
+      // IMMEDIATELY restart voice detection - NO DELAY!
       this.conversationState = 'idle';
-      console.log('✅ Ready for your response - speak naturally');
+      console.log('✅ Ready for your response - restarting voice detection NOW');
+      
+      // Restart voice detection immediately
+      this.audioManager.vad.startListening();
       
     } catch (error) {
       console.error('❌ Audio playback failed:', error);
       this.conversationState = 'idle';
+      // Still restart voice detection even on error
+      this.audioManager.vad.startListening();
     }
   }
 
@@ -520,12 +529,17 @@ class RealisticStandupAPIService {
       this.conversationState = 'processing';
       console.log('📤 Sending your response to AI...');
       
+      // IMMEDIATELY stop voice detection while processing
+      this.audioManager.vad.stopListening();
+      
       // Send audio to server via WebSocket
       this.wsManager.sendAudioData(audioBlob);
       
     } catch (error) {
       console.error('❌ Failed to send audio:', error);
       this.conversationState = 'idle';
+      // Restart voice detection on error
+      this.audioManager.vad.startListening();
       throw error;
     }
   }
