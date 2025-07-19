@@ -27,11 +27,11 @@ class DatabaseManager:
     def mongo_config(self) -> Dict[str, Any]:
         """Get MongoDB configuration from environment"""
         return {
-            "host": os.getenv("MONGODB_HOST", "192.168.48.201"),
+            "host": os.getenv("MONGODB_HOST"),
             "port": int(os.getenv("MONGODB_PORT", "27017")),
-            "username": os.getenv("MONGODB_USERNAME", "LanTech"),
-            "password": os.getenv("MONGODB_PASSWORD", "L@nc^ere@0012"),
-            "database": os.getenv("MONGODB_DATABASE", "Api-1")
+            "username": os.getenv("MONGODB_USERNAME"),
+            "password": os.getenv("MONGODB_PASSWORD"),
+            "database": os.getenv("MONGODB_DATABASE")
         }
     
     @property
@@ -39,10 +39,10 @@ class DatabaseManager:
         """Get SQL Server configuration from environment"""
         return {
             "DRIVER": os.getenv("SQL_DRIVER", "ODBC Driver 17 for SQL Server"),
-            "SERVER": os.getenv("SQL_SERVER", "183.82.108.211"),
-            "DATABASE": os.getenv("SQL_DATABASE", "SuperDB"),
-            "UID": os.getenv("SQL_USERNAME", "Connectly"),
-            "PWD": os.getenv("SQL_PASSWORD", "LT@connect25"),
+            "SERVER": os.getenv("SQL_SERVER"),
+            "DATABASE": os.getenv("SQL_DATABASE"),
+            "UID": os.getenv("SQL_USERNAME"),
+            "PWD": os.getenv("SQL_PASSWORD"),
             "timeout": int(os.getenv("SQL_TIMEOUT", "5"))
         }
     
