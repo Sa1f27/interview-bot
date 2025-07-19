@@ -26,21 +26,23 @@ import {
   Timer,
   PlayArrow,
   Warning,
-  RecordVoiceOver
+  RecordVoiceOver,
+  Error as ErrorIcon,
+  Speed
 } from '@mui/icons-material';
 import { useParams, useNavigate } from 'react-router-dom';
 import { standupCallAPI } from '../../../services/API/studentstandup';
 
-// ==================== STYLED COMPONENTS ====================
+// ==================== ULTRA-FAST STYLED COMPONENTS ====================
 
-const pulse = keyframes`
+const ultraFastPulse = keyframes`
   0% {
     transform: scale(1);
-    box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.7);
+    box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.8);
   }
   70% {
-    transform: scale(1.05);
-    box-shadow: 0 0 0 20px rgba(76, 175, 80, 0);
+    transform: scale(1.03);
+    box-shadow: 0 0 0 15px rgba(76, 175, 80, 0);
   }
   100% {
     transform: scale(1);
@@ -48,25 +50,25 @@ const pulse = keyframes`
   }
 `;
 
-const speaking = keyframes`
+const fastSpeaking = keyframes`
   0%, 100% { 
     opacity: 1; 
     transform: scale(1);
   }
   50% { 
-    opacity: 0.8; 
-    transform: scale(1.1);
+    opacity: 0.85; 
+    transform: scale(1.08);
   }
 `;
 
-const listening = keyframes`
+const ultraFastListening = keyframes`
   0%, 100% { 
     transform: scale(1);
-    box-shadow: 0 0 0 0 rgba(244, 67, 54, 0.5);
+    box-shadow: 0 0 0 0 rgba(244, 67, 54, 0.6);
   }
   50% { 
-    transform: scale(1.02);
-    box-shadow: 0 0 0 15px rgba(244, 67, 54, 0);
+    transform: scale(1.015);
+    box-shadow: 0 0 0 12px rgba(244, 67, 54, 0);
   }
 `;
 
@@ -78,25 +80,29 @@ const MainAvatar = styled(Avatar)(({ theme, status }) => ({
   fontSize: '5rem',
   boxShadow: theme.shadows[16],
   border: `4px solid ${alpha(theme.palette.background.paper, 0.8)}`,
-  transition: 'all 0.3s ease-in-out',
+  transition: 'all 0.2s ease-in-out', // Faster transitions
   ...(status === 'listening' && {
-    animation: `${listening} 2s infinite`,
+    animation: `${ultraFastListening} 1.5s infinite`,
     backgroundColor: theme.palette.error.main,
     borderColor: theme.palette.error.light,
   }),
   ...(status === 'speaking' && {
-    animation: `${speaking} 1.5s infinite`,
+    animation: `${fastSpeaking} 1.2s infinite`,
     backgroundColor: theme.palette.info.main,
     borderColor: theme.palette.info.light,
   }),
   ...(status === 'idle' && {
-    animation: `${pulse} 3s infinite`,
+    animation: `${ultraFastPulse} 2s infinite`,
     backgroundColor: theme.palette.success.main,
     borderColor: theme.palette.success.light,
   }),
   ...(status === 'complete' && {
     backgroundColor: theme.palette.primary.main,
     borderColor: theme.palette.primary.light,
+  }),
+  ...(status === 'error' && {
+    backgroundColor: theme.palette.error.main,
+    borderColor: theme.palette.error.dark,
   }),
 }));
 
@@ -112,42 +118,45 @@ const StatusCard = styled(Card, {
     ? `2px solid ${theme.palette.primary.main}` 
     : `1px solid ${alpha(theme.palette.grey[300], 0.5)}`,
   boxShadow: isActive ? theme.shadows[8] : theme.shadows[2],
-  transition: 'all 0.3s ease-in-out',
+  transition: 'all 0.2s ease-in-out', // Faster transitions
   '&:hover': {
     transform: 'translateY(-2px)',
     boxShadow: theme.shadows[12]
   }
 }));
 
-// ==================== MAIN COMPONENT ====================
+// ==================== ULTRA-FAST MAIN COMPONENT ====================
 
 const StandupCallSession = () => {
   const { testId } = useParams();
   const navigate = useNavigate();
   const theme = useTheme();
   
-  // ==================== STATE MANAGEMENT ====================
+  // ==================== ULTRA-FAST STATE MANAGEMENT ====================
   
   const [sessionState, setSessionState] = useState('initializing'); 
   const [error, setError] = useState(null);
   const [currentMessage, setCurrentMessage] = useState('');
   const [sessionDuration, setSessionDuration] = useState(0);
   const [conversationCount, setConversationCount] = useState(0);
-  const [testIdState, setTestIdState] = useState(testId);
+  const [realSessionId, setRealSessionId] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [summaryChunks, setSummaryChunks] = useState(0);
+  const [processingTime, setProcessingTime] = useState(0);
   
-  // ==================== REFS ====================
+  // ==================== ULTRA-FAST REFS ====================
   
   const sessionStartTime = useRef(null);
   const durationTimerRef = useRef(null);
   const isInitialized = useRef(false);
+  const processingStartTime = useRef(null);
   
-  // ==================== EFFECTS ====================
+  // ==================== ULTRA-FAST EFFECTS ====================
   
   useEffect(() => {
     if (!isInitialized.current) {
       isInitialized.current = true;
-      initializeSession();
+      initializeUltraFastSession();
     }
     
     return () => {
@@ -164,20 +173,19 @@ const StandupCallSession = () => {
     }
   }, [sessionState]);
   
-  // ==================== MAIN FUNCTIONS ====================
+  // ==================== ULTRA-FAST MAIN FUNCTIONS ====================
   
-  const initializeSession = async () => {
+  const initializeUltraFastSession = async () => {
     try {
       setSessionState('initializing');
       setError(null);
-      setCurrentMessage('Preparing your standup session...');
+      setCurrentMessage('Initializing ultra-fast session...');
       
-      console.log('🚀 Initializing standup session...');
+      console.log('🚀 Initializing ultra-fast standup session...');
       
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
+      // NO ARTIFICIAL DELAYS - Initialize immediately
       setSessionState('ready');
-      setCurrentMessage('Ready to start your conversation');
+      setCurrentMessage('Ready to start ultra-fast conversation');
       
     } catch (error) {
       console.error('❌ Session initialization error:', error);
@@ -186,40 +194,56 @@ const StandupCallSession = () => {
     }
   };
   
-  const startConversation = async () => {
+  const startUltraFastConversation = async () => {
     try {
       setSessionState('connecting');
       setError(null);
-      setCurrentMessage('Connecting to your interviewer...');
+      setCurrentMessage('Connecting to ultra-fast AI backend...');
       
-      console.log('🚀 Starting conversation...');
+      console.log('🚀 Starting ultra-fast conversation...');
       
-      // Just start the standup - WebSocket will connect automatically
+      // Start the standup with ultra-fast backend
       const response = await standupCallAPI.startStandup();
       
-      if (response && response.session_id) {
-        setTestIdState(response.test_id);
-        setIsConnected(true);
-        setSessionState('idle');
-        setCurrentMessage('Connected! AI will speak automatically...');
-        setConversationCount(0);
-        
-        console.log('✅ Conversation started - WebSocket should be connected');
-      } else {
-        throw new Error('Failed to start conversation');
+      if (!response) {
+        throw new Error('No response from backend - check if server is running');
       }
       
+      if (!response.session_id) {
+        throw new Error(`Backend response missing session_id: ${JSON.stringify(response)}`);
+      }
+      
+      setRealSessionId(response.session_id);
+      setSummaryChunks(response.summary_chunks || 0);
+      setIsConnected(true);
+      setSessionState('idle');
+      setCurrentMessage('Connected! AI will speak automatically...');
+      setConversationCount(0);
+      
+      console.log('✅ Ultra-fast conversation started:', {
+        testId: response.test_id,
+        sessionId: response.session_id,
+        summaryChunks: response.summary_chunks
+      });
+      
     } catch (error) {
-      console.error('❌ Error starting conversation:', error);
+      console.error('❌ Error starting ultra-fast conversation:', error);
       setError(`Backend connection failed: ${error.message}`);
       setSessionState('error');
     }
   };
   
-  // ==================== WEBSOCKET HANDLERS ====================
+  // ==================== ULTRA-FAST WEBSOCKET HANDLERS ====================
   
   const handleWebSocketMessage = (data) => {
     console.log('📨 WebSocket message:', data.type, data.status);
+    
+    // Track processing time for performance monitoring
+    if (data.type === 'ai_response' && processingStartTime.current) {
+      const elapsed = Date.now() - processingStartTime.current;
+      setProcessingTime(elapsed);
+      console.log(`⚡ AI response time: ${elapsed}ms`);
+    }
     
     switch (data.type) {
       case 'ai_response':
@@ -238,12 +262,20 @@ const StandupCallSession = () => {
         handleConversationEnd(data);
         break;
         
+      case 'clarification':
+        handleClarificationRequest(data);
+        break;
+        
       case 'error':
         handleServerError(data);
         break;
         
+      case 'pong':
+        // Heartbeat response - connection is alive
+        break;
+        
       default:
-        console.log('Unknown message type:', data.type);
+        console.warn('⚠️ Unknown message type:', data.type);
     }
   };
   
@@ -253,43 +285,64 @@ const StandupCallSession = () => {
     setCurrentMessage(data.text);
     setSessionState('speaking');
     setConversationCount(prev => prev + 1);
+    
+    // Reset processing timer
+    processingStartTime.current = null;
   };
   
   const handleAudioEnd = (data) => {
-    console.log('🎵 Audio ended, conversation will continue automatically...');
+    console.log('🎵 Audio ended, voice detection will restart automatically...');
     
-    // Automatically transition to listening state
+    // Automatically transition to listening state after minimal delay
     setTimeout(() => {
       if (sessionState !== 'complete' && sessionState !== 'error') {
         setSessionState('idle');
         setCurrentMessage('Your turn - speak naturally, I\'ll detect when you\'re done');
+        
+        // Track when user starts speaking for performance monitoring
+        processingStartTime.current = Date.now();
       }
-    }, 1000);
+    }, 200); // Ultra-fast 200ms transition
   };
   
   const handleConversationEnd = (data) => {
     console.log('🏁 Conversation ended');
     
-    setCurrentMessage(data.text || 'Standup completed successfully!');
+    setCurrentMessage(data.text || 'Ultra-fast standup completed successfully!');
     setSessionState('complete');
     
-    // Auto-navigate to summary after delay
+    // Auto-navigate to summary after brief delay
     setTimeout(() => {
-      if (testIdState) {
-        navigate(`/student/daily-standups/summary/${testIdState}`);
+      if (realSessionId) {
+        navigate(`/student/daily-standups/summary/${realSessionId}`);
+      } else if (testId) {
+        navigate(`/student/daily-standups/summary/${testId}`);
       }
-    }, 3000);
+    }, 2000); // Faster navigation
+  };
+  
+  const handleClarificationRequest = (data) => {
+    console.log('❓ AI needs clarification:', data.text);
+    
+    setCurrentMessage(data.text);
+    setSessionState('speaking');
+    
+    // Quickly transition back to listening after clarification
+    setTimeout(() => {
+      setSessionState('idle');
+      setCurrentMessage('Please speak more clearly');
+    }, 1000);
   };
   
   const handleServerError = (data) => {
     console.error('❌ Server error:', data.text);
-    setError(data.text);
+    setError(`Backend error: ${data.text}`);
     setSessionState('error');
   };
   
   const handleWebSocketError = (error) => {
     console.error('❌ WebSocket error:', error);
-    setError('Connection error. Please check if backend is running.');
+    setError(`Connection error: ${error.message}`);
     setSessionState('error');
     setIsConnected(false);
   };
@@ -299,7 +352,7 @@ const StandupCallSession = () => {
     setIsConnected(false);
     
     if (sessionState !== 'complete' && event.code !== 1000) {
-      setError('Connection lost. Please refresh and try again.');
+      setError(`Connection lost: Code ${event.code}, Reason: ${event.reason || 'Unknown'}`);
       setSessionState('error');
     }
   };
@@ -313,23 +366,23 @@ const StandupCallSession = () => {
   const getStatusMessage = () => {
     switch (sessionState) {
       case 'initializing':
-        return 'Initializing...';
+        return 'Initializing ultra-fast system...';
       case 'ready':
-        return 'Ready to start';
+        return 'Ready to start ultra-fast conversation';
       case 'connecting':
-        return 'Connecting...';
+        return 'Connecting to AI backend...';
       case 'idle':
-        return 'Listening for your voice';
+        return 'Listening for your voice (800ms detection)';
       case 'listening':
         return 'Recording your response';
       case 'speaking':
         return 'AI is responding';
       case 'processing':
-        return 'Processing your input';
+        return 'Processing ultra-fast...';
       case 'complete':
-        return 'Standup completed!';
+        return 'Ultra-fast standup completed!';
       case 'error':
-        return 'Connection Error';
+        return 'Connection Error - Check Backend';
       default:
         return 'Loading...';
     }
@@ -342,11 +395,11 @@ const StandupCallSession = () => {
       case 'speaking':
         return <VolumeUp fontSize="inherit" />;
       case 'processing':
-        return <Timer fontSize="inherit" />;
+        return <Speed fontSize="inherit" />;
       case 'complete':
         return <CheckCircle fontSize="inherit" />;
       case 'error':
-        return <Warning fontSize="inherit" />;
+        return <ErrorIcon fontSize="inherit" />;
       case 'idle':
         return <RecordVoiceOver fontSize="inherit" />;
       default:
@@ -354,8 +407,25 @@ const StandupCallSession = () => {
     }
   };
   
+  const getStatusColor = () => {
+    switch (sessionState) {
+      case 'complete':
+        return 'success';
+      case 'error':
+        return 'error';
+      case 'listening':
+        return 'warning';
+      case 'speaking':
+        return 'info';
+      case 'processing':
+        return 'secondary';
+      default:
+        return 'primary';
+    }
+  };
+  
   const cleanup = () => {
-    console.log('🧹 Cleaning up session...');
+    console.log('🧹 Cleaning up ultra-fast session...');
     
     if (durationTimerRef.current) {
       clearInterval(durationTimerRef.current);
@@ -376,14 +446,16 @@ const StandupCallSession = () => {
     setCurrentMessage('');
     setConversationCount(0);
     setSessionDuration(0);
+    setProcessingTime(0);
+    setIsConnected(false);
   };
   
-  // ==================== RENDER ====================
+  // ==================== ULTRA-FAST RENDER ====================
   
   return (
     <Fade in={true}>
       <Box sx={{ p: 3, minHeight: '100vh', backgroundColor: alpha(theme.palette.primary.main, 0.02) }}>
-        {/* Header */}
+        {/* Ultra-Fast Header */}
         <Box 
           display="flex" 
           justifyContent="space-between" 
@@ -403,7 +475,9 @@ const StandupCallSession = () => {
             </IconButton>
             <Avatar 
               sx={{ 
-                bgcolor: sessionState === 'complete' ? theme.palette.success.main : theme.palette.primary.main,
+                bgcolor: sessionState === 'complete' ? theme.palette.success.main : 
+                         sessionState === 'error' ? theme.palette.error.main :
+                         theme.palette.primary.main,
                 width: 56,
                 height: 56,
                 boxShadow: theme.shadows[8]
@@ -423,10 +497,13 @@ const StandupCallSession = () => {
                   fontWeight: 'bold'
                 }}
               >
-                Daily Standup Session
+                Ultra-Fast Daily Standup
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                {formatTime(sessionDuration)} {testIdState && `• ${testIdState.slice(-8)}`}
+                {formatTime(sessionDuration)} 
+                {realSessionId && ` • ${realSessionId.slice(-8)}`}
+                {summaryChunks > 0 && ` • ${summaryChunks} topics`}
+                {processingTime > 0 && ` • ${processingTime}ms response`}
               </Typography>
             </Box>
           </Box>
@@ -434,48 +511,80 @@ const StandupCallSession = () => {
           <Box display="flex" alignItems="center" gap={1}>
             <Chip 
               label={getStatusMessage()}
-              color={
-                sessionState === 'complete' ? "success" :
-                sessionState === 'error' ? "error" :
-                sessionState === 'listening' ? "warning" :
-                sessionState === 'speaking' ? "info" :
-                "primary"
-              }
+              color={getStatusColor()}
               icon={getStatusIcon()}
               size="medium"
+              variant={sessionState === 'error' ? 'filled' : 'outlined'}
             />
           </Box>
         </Box>
 
-        {/* Error Display */}
+        {/* Ultra-Fast Error Display */}
         {error && (
           <Alert 
             severity="error" 
             sx={{ mb: 3, borderRadius: 2 }}
             action={
               <Button color="inherit" size="small" onClick={handleRetry}>
-                Try Again
+                Retry Connection
               </Button>
             }
           >
-            <strong>Backend Connection Failed:</strong> {error}
-            <br />
-            <Typography variant="body2" sx={{ mt: 1 }}>
-              Check if the backend server is running properly on port 8060
+            <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
+              Ultra-Fast Backend Connection Failed
             </Typography>
+            <Typography variant="body2" sx={{ mt: 1 }}>
+              <strong>Error:</strong> {error}
+            </Typography>
+            <Typography variant="body2" sx={{ mt: 1 }}>
+              <strong>Troubleshooting:</strong>
+            </Typography>
+            <Box component="ul" sx={{ mt: 1, pl: 2 }}>
+              <li>Check if backend server is running on http://192.168.48.12:8060</li>
+              <li>Verify WebSocket endpoint: ws://192.168.48.12:8060/daily_standup/ws/</li>
+              <li>Check network connectivity and firewall settings</li>
+              <li>Ensure MongoDB and SQL Server connections are active</li>
+            </Box>
           </Alert>
         )}
 
-        {/* Main Interface */}
+        {/* Performance Metrics */}
+        {isConnected && (
+          <Box sx={{ mb: 3 }}>
+            <Card sx={{ p: 2, bgcolor: alpha(theme.palette.success.main, 0.1) }}>
+              <Typography variant="h6" color="success.main" gutterBottom>
+                ⚡ Ultra-Fast Performance Metrics
+              </Typography>
+              <Box display="flex" gap={3} flexWrap="wrap">
+                <Typography variant="body2">
+                  <strong>Voice Detection:</strong> 800ms silence threshold
+                </Typography>
+                <Typography variant="body2">
+                  <strong>Conversations:</strong> {conversationCount}
+                </Typography>
+                <Typography variant="body2">
+                  <strong>Summary Topics:</strong> {summaryChunks}
+                </Typography>
+                {processingTime > 0 && (
+                  <Typography variant="body2">
+                    <strong>Last Response Time:</strong> {processingTime}ms
+                  </Typography>
+                )}
+              </Box>
+            </Card>
+          </Box>
+        )}
+
+        {/* Ultra-Fast Main Interface */}
         <StatusCard isActive={sessionState !== 'ready' && sessionState !== 'error'} elevation={8}>
           <CardContent sx={{ p: 6, textAlign: 'center' }}>
             
-            {/* Main Avatar */}
+            {/* Ultra-Fast Main Avatar */}
             <MainAvatar status={sessionState}>
               {getStatusIcon()}
             </MainAvatar>
             
-            {/* Status Message */}
+            {/* Ultra-Fast Status Message */}
             <Typography 
               variant="h4" 
               gutterBottom 
@@ -491,7 +600,7 @@ const StandupCallSession = () => {
               {getStatusMessage()}
             </Typography>
             
-            {/* Current Message - REAL AI responses only */}
+            {/* Current AI Message */}
             {currentMessage && sessionState !== 'ready' && (
               <Box sx={{ mb: 4, maxWidth: 600, mx: 'auto' }}>
                 <Typography 
@@ -500,7 +609,8 @@ const StandupCallSession = () => {
                     mb: 2,
                     fontStyle: sessionState === 'speaking' ? 'italic' : 'normal',
                     color: sessionState === 'speaking' ? theme.palette.info.main : theme.palette.text.primary,
-                    lineHeight: 1.6
+                    lineHeight: 1.6,
+                    fontSize: '1.1rem'
                   }}
                 >
                   {sessionState === 'speaking' ? `"${currentMessage}"` : currentMessage}
@@ -508,15 +618,15 @@ const StandupCallSession = () => {
               </Box>
             )}
             
-            {/* Visual Indicators - Automatic states only */}
+            {/* Ultra-Fast Visual Indicators */}
             <Box sx={{ mb: 4 }}>
               {sessionState === 'speaking' && (
                 <Box>
                   <Typography variant="h5" color="info.main" sx={{ mb: 2, fontWeight: 'bold' }}>
-                    🎧 AI SPEAKING
+                    🎧 AI SPEAKING (Ultra-Fast TTS)
                   </Typography>
                   <Typography variant="body1" color="text.secondary">
-                    Listen to my response... I'll know when you start talking
+                    Listen to my response... I'll detect when you start talking in 800ms
                   </Typography>
                 </Box>
               )}
@@ -524,33 +634,59 @@ const StandupCallSession = () => {
               {sessionState === 'idle' && isConnected && (
                 <Box>
                   <Typography variant="h5" color="success.main" sx={{ mb: 2, fontWeight: 'bold' }}>
-                    👂 LISTENING
+                    👂 ULTRA-FAST LISTENING (800ms Detection)
                   </Typography>
                   <Typography variant="body1" color="text.secondary">
-                    Speak naturally - I'll automatically detect when you're done talking
+                    Speak naturally - Ultra-fast silence detection active (800ms threshold)
                   </Typography>
+                  <LinearProgress 
+                    variant="indeterminate" 
+                    color="success" 
+                    sx={{ mt: 2, height: 6, borderRadius: 3 }}
+                  />
                 </Box>
               )}
               
               {sessionState === 'connecting' && (
                 <Box>
                   <Typography variant="h5" color="primary.main" sx={{ mb: 2, fontWeight: 'bold' }}>
-                    🔄 CONNECTING
+                    🔄 CONNECTING TO ULTRA-FAST BACKEND
                   </Typography>
                   <Typography variant="body1" color="text.secondary">
-                    Establishing connection to AI interviewer...
+                    Establishing WebSocket connection to AI interviewer...
                   </Typography>
+                  <LinearProgress 
+                    variant="indeterminate" 
+                    color="primary" 
+                    sx={{ mt: 2, height: 6, borderRadius: 3 }}
+                  />
+                </Box>
+              )}
+              
+              {sessionState === 'processing' && (
+                <Box>
+                  <Typography variant="h5" color="secondary.main" sx={{ mb: 2, fontWeight: 'bold' }}>
+                    ⚡ ULTRA-FAST PROCESSING
+                  </Typography>
+                  <Typography variant="body1" color="text.secondary">
+                    AI is generating response using summary-based questions...
+                  </Typography>
+                  <LinearProgress 
+                    variant="indeterminate" 
+                    color="secondary" 
+                    sx={{ mt: 2, height: 6, borderRadius: 3 }}
+                  />
                 </Box>
               )}
             </Box>
             
-            {/* Action Buttons - Start only */}
+            {/* Ultra-Fast Action Buttons */}
             <Box sx={{ mb: 4 }}>
               {sessionState === 'ready' && (
                 <Button
                   variant="contained"
                   size="large"
-                  onClick={startConversation}
+                  onClick={startUltraFastConversation}
                   startIcon={<PlayArrow />}
                   sx={{ 
                     px: 4, 
@@ -565,18 +701,30 @@ const StandupCallSession = () => {
                     }
                   }}
                 >
-                  Start Natural Conversation
+                  Start Ultra-Fast Conversation
                 </Button>
               )}
               
               {sessionState === 'complete' && (
                 <Typography variant="h6" color="success.main" sx={{ fontWeight: 'bold' }}>
-                  ✅ Redirecting to summary...
+                  ✅ Redirecting to ultra-fast summary...
                 </Typography>
+              )}
+              
+              {sessionState === 'error' && (
+                <Button
+                  variant="contained"
+                  color="error"
+                  onClick={handleRetry}
+                  startIcon={<ErrorIcon />}
+                  sx={{ mr: 2 }}
+                >
+                  Retry Connection
+                </Button>
               )}
             </Box>
             
-            {/* Instructions - Completely automatic */}
+            {/* Ultra-Fast Instructions */}
             <Box 
               sx={{ 
                 mt: 4, 
@@ -587,25 +735,49 @@ const StandupCallSession = () => {
               }}
             >
               <Typography variant="h6" color="info.main" gutterBottom>
-                💡 Completely Automatic Conversation:
+                ⚡ Ultra-Fast Conversation Features:
               </Typography>
-              <Box sx={{ textAlign: 'left', maxWidth: 500, mx: 'auto' }}>
+              <Box sx={{ textAlign: 'left', maxWidth: 600, mx: 'auto' }}>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                  <strong>🤖 AI speaks first:</strong> Real AI-generated responses, not static text
+                  <strong>🚀 800ms Silence Detection:</strong> Fastest voice detection for minimal delays
                 </Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                  <strong>🎙️ Voice detection:</strong> Automatically starts recording when you speak
+                  <strong>🤖 Summary-Based Questions:</strong> AI asks questions from real project summaries
                 </Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                  <strong>🤫 Silence detection:</strong> Stops recording when you pause (2 seconds)
+                  <strong>🎙️ Auto Voice Detection:</strong> No manual controls - speaks naturally
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                  <strong>⚡ Parallel Processing:</strong> Ultra-fast transcription and response generation
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  <strong>⚡ Zero buttons:</strong> No manual controls - just speak naturally!
+                  <strong>🔄 Real-time Streaming:</strong> Audio streams while AI generates next response
                 </Typography>
               </Box>
             </Box>
           </CardContent>
         </StatusCard>
+
+        {/* Development Debug Panel */}
+        {process.env.NODE_ENV === 'development' && (
+          <Box sx={{ mt: 3 }}>
+            <Card sx={{ p: 2, bgcolor: alpha(theme.palette.warning.main, 0.1) }}>
+              <Typography variant="h6" color="warning.main" gutterBottom>
+                🛠️ Development Debug Panel
+              </Typography>
+              <Box sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
+                <div>Session State: {sessionState}</div>
+                <div>Test ID: {testId}</div>
+                <div>Real Session ID: {realSessionId}</div>
+                <div>Is Connected: {isConnected.toString()}</div>
+                <div>Conversation Count: {conversationCount}</div>
+                <div>Summary Chunks: {summaryChunks}</div>
+                <div>Processing Time: {processingTime}ms</div>
+                <div>Current Message: {currentMessage.substring(0, 50)}...</div>
+              </Box>
+            </Card>
+          </Box>
+        )}
       </Box>
     </Fade>
   );
