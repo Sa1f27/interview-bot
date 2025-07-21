@@ -24,6 +24,63 @@ from .prompts import prompts
 logger = logging.getLogger(__name__)
 
 # =============================================================================
+# DYNAMIC FRAGMENT PARSING (From Old System)
+# =============================================================================
+
+def parse_summary_into_fragments(summary: str) -> Dict[str, str]:
+    """
+    Parse summary text into fragments based on top-level numbered sections.
+    Returns dict with concept titles as keys and content blocks as values.
+    """
+    if not summary or not summary.strip():
+        return {"General": summary or "No content available"}
+    
+    # Split into lines for processing
+    lines = summary.strip().split('\n')
+    
+    # Pattern to match top-level sections: digit(s) followed by period and space
+    section_pattern = re.compile(r'^\s*(\d+)\.\s+(.+)')
+    
+    fragments = {}
+    current_section = None
+    current_content = []
+    
+    for line in lines:
+        match = section_pattern.match(line)
+        
+        if match:
+            # Save previous section if exists
+            if current_section and current_content:
+                fragments[current_section] = '\n'.join(current_content).strip()
+            
+            # Start new section
+            section_num = match.group(1)
+            section_title = match.group(2).strip()
+            current_section = f"{section_num}. {section_title}"
+            current_content = [line]  # Include the header line
+        else:
+            # Add line to current section
+            if current_section:
+                current_content.append(line)
+            else:
+                # Content before any numbered section - treat as introduction
+                if "Introduction" not in fragments:
+                    fragments["Introduction"] = line
+                else:
+                    fragments["Introduction"] += '\n' + line
+    
+    # Don't forget the last section
+    if current_section and current_content:
+        fragments[current_section] = '\n'.join(current_content).strip()
+    
+    # Fallback if no numbered sections found
+    if not fragments:
+        fragments["General"] = summary
+    
+    logger.info(f"Parsed summary into {len(fragments)} concept fragments: {list(fragments.keys())}")
+    return fragments
+
+# =============================================================================
 # DATA MODELS
 # =============================================================================
 
@@ -128,205 +185,176 @@ class SharedClientManager:
 shared_clients = SharedClientManager()
 
 # =============================================================================
-# SUMMARY MANAGEMENT SYSTEM
+# DYNAMIC FRAGMENT MANAGEMENT SYSTEM (Replacing Fixed Chunk System)
 # =============================================================================
 
-class SummaryManager:
-    def __init__(self, client_manager):
+class FragmentManager:
+    """Dynamic fragment-based question management (from old system)"""
+    
+    def __init__(self, client_manager, session_data: SessionData):
         self.client_manager = client_manager
-        self.chunks: List[SummaryChunk] = []
-        self.current_chunk_index = 0
+        self.session_data = session_data
     
     @property
     def openai_client(self):
         return self.client_manager.openai_client
     
-    async def initialize_chunks(self, summary: str) -> bool:
-        """Initialize summary chunks with base questions"""
+    def initialize_fragments(self, summary: str) -> bool:
+        """Initialize fragments and calculate dynamic question targets"""
         try:
-            raw_chunks = await self._split_summary_semantically(summary)
+            # Parse summary into fragments
+            self.session_data.fragments = parse_summary_into_fragments(summary)
+            self.session_data.fragment_keys = list(self.session_data.fragments.keys())
             
-            for i, chunk_content in enumerate(raw_chunks):
-                base_questions = await self._generate_base_questions(chunk_content)
-                
-                chunk = SummaryChunk(
-                    id=i,
-                    content=chunk_content,
-                    base_questions=base_questions
-                )
-                self.chunks.append(chunk)
+            # Initialize concept question counts
+            self.session_data.concept_question_counts = {
+                key: 0 for key in self.session_data.fragment_keys
+            }
             
-            logger.info(f"✅ Initialized {len(self.chunks)} summary chunks")
+            # Calculate dynamic questions per concept
+            self.session_data.questions_per_concept = max(
+                config.MIN_QUESTIONS_PER_CONCEPT,
+                min(config.MAX_QUESTIONS_PER_CONCEPT,
+                    config.TOTAL_QUESTIONS // len(self.session_data.fragment_keys) 
+                    if self.session_data.fragment_keys else 1)
+            )
+            
+            logger.info(f"✅ Initialized {len(self.session_data.fragment_keys)} fragments, "
+                       f"target {self.session_data.questions_per_concept} questions per concept")
             return True
             
         except Exception as e:
-            logger.error(f"❌ Summary chunk initialization failed: {e}")
-            raise Exception(f"Summary chunk initialization failed: {e}")
+            logger.error(f"❌ Fragment initialization failed: {e}")
+            raise Exception(f"Fragment initialization failed: {e}")
     
-    async def _split_summary_semantically(self, summary: str) -> List[str]:
-        """Split summary into semantic chunks"""
-        try:
-            prompt = prompts.summary_splitting_prompt(summary)
-            
-            response = self.openai_client.chat.completions.create(
-                model=config.OPENAI_MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
-                max_tokens=800
-            )
-            
-            content = response.choices[0].message.content.strip()
-            if not content:
-                raise Exception("OpenAI returned empty response for summary splitting")
-                
-            chunks = [chunk.strip() for chunk in content.split('###CHUNK###') if chunk.strip()]
-            
-            if len(chunks) < 8:
-                raise Exception(f"Insufficient chunks generated: {len(chunks)}, expected at least 8")
-            
-            return chunks[:config.SUMMARY_CHUNKS]
-            
-        except Exception as e:
-            logger.error(f"❌ Semantic splitting failed: {e}")
-            raise Exception(f"Summary semantic splitting failed: {e}")
-    
-    async def _generate_base_questions(self, chunk_content: str) -> List[str]:
-        """Generate base questions for a chunk"""
-        try:
-            prompt = prompts.base_questions_prompt(chunk_content)
-            
-            response = self.openai_client.chat.completions.create(
-                model=config.OPENAI_MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.6,
-                max_tokens=200
-            )
-            
-            content = response.choices[0].message.content.strip()
-            if not content:
-                raise Exception("OpenAI returned empty response for question generation")
-                
-            questions = []
-            for line in content.split('\n'):
-                line = line.strip()
-                if line and any(line.startswith(f"{i}.") for i in range(1, 10)):
-                    question = re.sub(r'^\d+\.\s*', '', line).strip()
-                    if question:
-                        questions.append(question)
-            
-            if not questions:
-                raise Exception(f"Failed to extract questions from OpenAI response: {content}")
-                
-            return questions[:config.BASE_QUESTIONS_PER_CHUNK]
-            
-        except Exception as e:
-            logger.error(f"❌ Question generation failed: {e}")
-            raise Exception(f"Question generation failed: {e}")
-    
-    def get_current_chunk(self) -> Optional[SummaryChunk]:
-        """Get current active chunk"""
-        if 0 <= self.current_chunk_index < len(self.chunks):
-            return self.chunks[self.current_chunk_index]
-        return None
-    
-    def get_next_question(self) -> Optional[str]:
-        """Get next question from current chunk"""
-        chunk = self.get_current_chunk()
-        if not chunk:
-            return None
+    def get_active_fragment(self) -> Tuple[str, str]:
+        """
+        Get the current active concept fragment based on intelligent scheduling.
+        Returns (concept_title, concept_content)
+        """
+        if not self.session_data.fragment_keys:
+            return "General", self.session_data.fragments.get("General", "No content available")
         
-        # First serve base questions
-        if chunk.current_question_count < len(chunk.base_questions):
-            question = chunk.base_questions[chunk.current_question_count]
-            chunk.current_question_count += 1
-            return question
+        # Intelligent concept selection based on coverage and balance
+        # Priority: concepts with fewer questions asked
+        min_questions = min(self.session_data.concept_question_counts.values())
+        underutilized_concepts = [
+            concept for concept, count in self.session_data.concept_question_counts.items() 
+            if count == min_questions
+        ]
         
-        # Then serve follow-up questions
-        follow_up_index = chunk.current_question_count - len(chunk.base_questions)
-        if follow_up_index < len(chunk.follow_up_questions):
-            question = chunk.follow_up_questions[follow_up_index]
-            chunk.current_question_count += 1
-            return question
+        # If we have underutilized concepts, pick one
+        if underutilized_concepts:
+            # Pick the next underutilized concept in order
+            for concept in self.session_data.fragment_keys:
+                if concept in underutilized_concepts:
+                    return concept, self.session_data.fragments[concept]
         
-        return None
+        # If all concepts have been covered equally, cycle through them
+        concept_index = self.session_data.question_index % len(self.session_data.fragment_keys)
+        selected_concept = self.session_data.fragment_keys[concept_index]
+        
+        return selected_concept, self.session_data.fragments[selected_concept]
     
-    async def analyze_response_and_generate_followups(self, user_response: str) -> bool:
-        """Analyze user response and generate follow-ups if needed"""
-        chunk = self.get_current_chunk()
-        if not chunk:
+    def should_continue_test(self) -> bool:
+        """Determine if test should continue using dynamic coverage logic"""
+        # Count only non-greeting questions for test logic
+        actual_test_questions = len([
+            exchange for exchange in self.session_data.exchanges 
+            if exchange.concept and not exchange.concept.startswith('greeting')
+        ])
+        
+        # If no test questions yet, continue
+        if actual_test_questions == 0:
+            return True
+            
+        # Check for uncovered concepts
+        uncovered_concepts = [
+            concept for concept, count in self.session_data.concept_question_counts.items() 
+            if count == 0
+        ]
+        if uncovered_concepts:
+            logger.info(f"Continuing test: uncovered concepts {uncovered_concepts}")
+            return True
+            
+        # Check for underdeveloped concepts (less than target)
+        underdeveloped_concepts = [
+            concept for concept, count in self.session_data.concept_question_counts.items() 
+            if count < self.session_data.questions_per_concept
+        ]
+        if len(underdeveloped_concepts) > len(self.session_data.fragment_keys) * 0.3:
+            logger.info(f"Continuing test: {len(underdeveloped_concepts)} underdeveloped concepts")
+            return True
+            
+        # Hard limit based on actual test questions
+        hard_limit = config.TOTAL_QUESTIONS + (config.TOTAL_QUESTIONS // 2)
+        if actual_test_questions >= hard_limit:
+            logger.info(f"Stopping test: reached hard limit {hard_limit}")
             return False
-        
-        try:
-            prompt = prompts.followup_analysis_prompt(chunk.content, user_response)
             
-            response = self.openai_client.chat.completions.create(
-                model=config.OPENAI_MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.5,
-                max_tokens=150
-            )
-            
-            content = response.choices[0].message.content.strip()
-            
-            if "COMPLETE" in content.upper():
+        # Balance check - if we've reached baseline questions
+        if actual_test_questions >= config.TOTAL_QUESTIONS:
+            max_questions_any_concept = max(self.session_data.concept_question_counts.values())
+            min_questions_any_concept = min(self.session_data.concept_question_counts.values())
+            if max_questions_any_concept - min_questions_any_concept <= 1:
+                logger.info(f"Stopping test: balanced coverage achieved")
                 return False
-            
-            # Extract follow-up questions
-            followups = []
-            for line in content.split('\n'):
-                if line.strip().startswith('FOLLOWUP:'):
-                    question = line.replace('FOLLOWUP:', '').strip()
-                    if question:
-                        followups.append(question)
-            
-            # Add follow-ups if we haven't hit the limit
-            total_questions = len(chunk.base_questions) + len(chunk.follow_up_questions)
-            remaining_slots = config.MAX_QUESTIONS_PER_CHUNK - total_questions
-            
-            if followups and remaining_slots > 0:
-                chunk.follow_up_questions.extend(followups[:remaining_slots])
-                logger.info(f"Added {len(followups[:remaining_slots])} follow-up questions to chunk {chunk.id}")
-                return True
-            
-            return False
-            
-        except Exception as e:
-            logger.error(f"❌ Follow-up analysis failed: {e}")
-            raise Exception(f"Follow-up analysis failed: {e}")
+        
+        return True
     
-    def move_to_next_chunk(self) -> bool:
-        """Move to next chunk"""
-        current_chunk = self.get_current_chunk()
-        if current_chunk:
-            current_chunk.completed = True
-        
-        self.current_chunk_index += 1
-        
-        if self.current_chunk_index < len(self.chunks):
-            logger.info(f"Moved to chunk {self.current_chunk_index}")
-            return True
-        
-        logger.info("All chunks completed")
-        return False
+    def get_concept_conversation_history(self, concept: str, window_size: int = 5) -> str:
+        """
+        Returns conversation history for a specific concept only.
+        """
+        entries = [
+            exchange for exchange in reversed(self.session_data.exchanges)
+            if exchange.concept == concept and exchange.user_response
+        ]
+        last_entries = list(reversed(entries[:window_size]))
+
+        history = []
+        for entry in last_entries:
+            q = f"Q: {entry.ai_message}"
+            a = f"A: {entry.user_response}"
+            history.append(f"{q}\n{a}")
+        return "\n\n".join(history)
     
-    def should_move_to_next_chunk(self) -> bool:
-        """Check if current chunk is exhausted"""
-        chunk = self.get_current_chunk()
-        if not chunk:
-            return True
+    def add_question(self, question: str, concept: str = None, is_followup: bool = False):
+        """Add a question with enhanced tracking"""
+        # Track concept usage (skip for greeting concepts)
+        if concept and concept in self.session_data.concept_question_counts and not concept.startswith('greeting'):
+            self.session_data.concept_question_counts[concept] += 1
         
-        total_asked = chunk.current_question_count
-        total_available = len(chunk.base_questions) + len(chunk.follow_up_questions)
+        # Track follow-up questions separately (skip greeting)
+        if is_followup and concept and not concept.startswith('greeting'):
+            self.session_data.followup_questions += 1
         
-        return total_asked >= total_available
+        # Set current concept
+        self.session_data.current_concept = concept
+        
+        # Only increment question_index for actual test questions
+        if concept and not concept.startswith('greeting'):
+            self.session_data.question_index += 1
+        
+        logger.info(f"Added question (concept: '{concept}', followup: {is_followup}) "
+                   f"Question index: {self.session_data.question_index}")
     
-    def get_progress(self) -> dict:
-        """Get current progress"""
+    def add_answer(self, answer: str):
+        """Add an answer to the last question"""
+        if self.session_data.exchanges:
+            # Update the last exchange with the answer
+            last_exchange = self.session_data.exchanges[-1]
+            last_exchange.user_response = answer
+    
+    def get_progress_info(self) -> Dict[str, Any]:
+        """Get current test progress information"""
         return {
-            "current_chunk": self.current_chunk_index,
-            "total_chunks": len(self.chunks),
-            "chunk_progress": f"{self.current_chunk_index + 1}/{len(self.chunks)}",
-            "questions_asked": self.get_current_chunk().current_question_count if self.get_current_chunk() else 0
+            "current_question": self.session_data.question_index,
+            "total_concepts": len(self.session_data.fragment_keys),
+            "concept_coverage": self.session_data.concept_question_counts,
+            "questions_per_concept_target": self.session_data.questions_per_concept,
+            "followup_questions": self.session_data.followup_questions,
+            "main_questions": self.session_data.question_index - self.session_data.followup_questions
         }
 
 # =============================================================================
@@ -517,62 +545,110 @@ class OptimizedConversationManager:
         return response
     
     async def _generate_technical_response(self, session_data: SessionData, user_input: str) -> str:
-        """Generate dynamic technical responses using context"""
+        """Generate dynamic technical responses using fragment-based logic"""
         if not session_data.summary_manager:
-            raise Exception("Summary manager not initialized")
+            raise Exception("Fragment manager not initialized")
         
-        await session_data.summary_manager.analyze_response_and_generate_followups(user_input)
+        fragment_manager = session_data.summary_manager
         
-        next_question = session_data.summary_manager.get_next_question()
+        # Get current concept information
+        current_concept_title, current_concept_content = fragment_manager.get_active_fragment()
         
-        if next_question:
-            context = self._build_conversation_context(session_data)
-            session_state = {
-                'questions_asked': sum(1 for ex in session_data.exchanges if ex.stage == SessionStage.TECHNICAL),
-                'current_topic': session_data.summary_manager.get_current_chunk().content[:50] if session_data.summary_manager.get_current_chunk() else 'technical work'
+        # Get conversation history for this concept only
+        history = fragment_manager.get_concept_conversation_history(current_concept_title)
+        
+        # Get the last question asked
+        last_question = session_data.exchanges[-1].ai_message if session_data.exchanges else ""
+        
+        # Get questions count for current concept
+        questions_for_concept = session_data.concept_question_counts.get(current_concept_title, 0)
+        
+        # Generate follow-up using dynamic prompt system
+        prompt = prompts.dynamic_followup_response(
+            current_concept_title=current_concept_title,
+            concept_content=current_concept_content,
+            history=history,
+            previous_question=last_question,
+            user_response=user_input,
+            current_question_number=session_data.question_index + 1,
+            questions_for_concept=questions_for_concept
+        )
+        
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            self.client_manager.executor,
+            self._sync_openai_call,
+            prompt
+        )
+        
+        # Parse the LLM response
+        parsed_response = self._parse_llm_response(response, ["UNDERSTANDING", "CONCEPT", "QUESTION"])
+        
+        understanding = parsed_response.get("understanding", "NO").upper()
+        next_question = parsed_response.get("question", "Can you elaborate more on that?")
+        suggested_concept = parsed_response.get("concept", current_concept_title)
+        
+        # Determine if this is a follow-up question (staying with same concept)
+        is_followup = (understanding == "NO" and suggested_concept == current_concept_title)
+        
+        # If LLM suggests moving or understanding is complete, get next fragment
+        if understanding == "YES" or suggested_concept != current_concept_title:
+            # Check if we should continue the test
+            if not fragment_manager.should_continue_test():
+                session_data.current_stage = SessionStage.COMPLETE
+                conversation_summary = fragment_manager.get_progress_info()
+                
+                prompt = prompts.dynamic_session_completion(conversation_summary)
+                
+                response = await loop.run_in_executor(
+                    self.client_manager.executor,
+                    self._sync_openai_call,
+                    prompt
+                )
+                return response
+            
+            # Get next concept
+            next_concept_title, next_concept_content = fragment_manager.get_active_fragment()
+            concept_for_question = next_concept_title
+            
+            # Generate transition message
+            progress_info = {
+                'current_concept': next_concept_title,
+                'total_concepts': len(session_data.fragment_keys)
             }
             
-            prompt = prompts.dynamic_technical_response(context, user_input, next_question, session_state)
+            prompt = prompts.dynamic_concept_transition(user_input, next_question, progress_info)
             
-            loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(
                 self.client_manager.executor,
                 self._sync_openai_call,
                 prompt
             )
             
+            # Add the question to the session
+            fragment_manager.add_question(response, concept_for_question, is_followup)
+            
             return response
-        
-        if session_data.summary_manager.should_move_to_next_chunk():
-            if session_data.summary_manager.move_to_next_chunk():
-                next_question = session_data.summary_manager.get_next_question()
-                if next_question:
-                    progress_info = {
-                        'current_chunk': session_data.summary_manager.current_chunk_index,
-                        'total_chunks': len(session_data.summary_manager.chunks)
-                    }
-                    
-                    prompt = prompts.dynamic_chunk_transition(user_input, next_question, progress_info)
-                    
-                    loop = asyncio.get_event_loop()
-                    response = await loop.run_in_executor(
-                        self.client_manager.executor,
-                        self._sync_openai_call,
-                        prompt
-                    )
-                    
-                    return response
-        
-        # Session completion with dynamic response
-        session_data.current_stage = SessionStage.COMPLETE
-        conversation_summary = {
-            'topics_covered': list(set(ex.chunk_id for ex in session_data.exchanges if ex.chunk_id)),
-            'total_exchanges': len(session_data.exchanges)
-        }
-        
-        prompt = prompts.dynamic_session_completion(conversation_summary)
-        
-        loop = asyncio.get_event_loop()
+        else:
+            # Stay with current concept
+            concept_for_question = current_concept_title
+            
+            # Add the question to the session
+            fragment_manager.add_question(next_question, concept_for_question, is_followup)
+            
+            return next_question
+    
+    def _parse_llm_response(self, response: str, keys: List[str]) -> Dict[str, str]:
+        """Parse structured responses from the LLM"""
+        result = {}
+        lines = response.strip().split('\n')
+        for line in lines:
+            for key in keys:
+                prefix = f"{key.upper()}:"
+                if line.upper().startswith(prefix):
+                    result[key.lower()] = line[len(prefix):].strip()
+                    break
+        return result.get_event_loop()
         response = await loop.run_in_executor(
             self.client_manager.executor,
             self._sync_openai_call,

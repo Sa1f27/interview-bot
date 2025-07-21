@@ -30,21 +30,25 @@ class Config:
     TTS_OVERLAP = 3
     
     # =============================================================================
-    # INTERVIEW CONFIGURATION
+    # DYNAMIC QUESTIONING CONFIGURATION (From Old System)
     # =============================================================================
-    GREETING_EXCHANGES = 2
-    SUMMARY_CHUNKS = 12
-    BASE_QUESTIONS_PER_CHUNK = 2
-    MAX_QUESTIONS_PER_CHUNK = 5
-    CONVERSATION_WINDOW_SIZE = 6
+    TOTAL_QUESTIONS = 20  # Baseline hint for ratio calculation
+    MIN_QUESTIONS_PER_CONCEPT = 1  # Minimum questions per concept
+    MAX_QUESTIONS_PER_CONCEPT = 4  # Maximum questions per concept for balance
+    ESTIMATED_SECONDS_PER_QUESTION = 180  # 3 minutes, for UI timer estimation
+    
+    # =============================================================================
+    # CONVERSATION SETTINGS
+    # =============================================================================
+    CONVERSATION_WINDOW_SIZE = 5  # Conversation history window per concept
     MAX_RECORDING_TIME = 25.0
     SILENCE_THRESHOLD = 800
     
     # =============================================================================
     # AI MODEL CONFIGURATION
     # =============================================================================
-    OPENAI_MODEL = "gpt-4.1-mini"
-    OPENAI_TEMPERATURE = 0.9
+    OPENAI_MODEL = "gpt-4o-mini"
+    OPENAI_TEMPERATURE = 0.7
     OPENAI_MAX_TOKENS = 300
     GROQ_TRANSCRIPTION_MODEL = "whisper-large-v3-turbo"
     

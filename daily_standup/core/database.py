@@ -193,7 +193,7 @@ class DatabaseManager:
             raise Exception(f"Session save failed: {e}")
     
     def _sync_save_result(self, session_data, evaluation: str, score: float) -> bool:
-        """Synchronous save for thread pool"""
+        """Synchronous save for thread pool with enhanced fragment analytics"""
         if config.USE_DUMMY_DATA:
             logger.warning(f"⚠️ DUMMY SAVE: Session {session_data.session_id} result not saved to DB.")
             return True
@@ -202,6 +202,10 @@ class DatabaseManager:
             import asyncio
             db = asyncio.run(self.get_mongo_db())
             collection = db[config.RESULTS_COLLECTION]
+            
+            # Enhanced fragment analytics
+            fragment_manager = session_data.summary_manager
+            progress_info = fragment_manager.get_progress_info() if fragment_manager else {}
             
             document = {
                 "test_id": session_data.test_id,
@@ -218,7 +222,8 @@ class DatabaseManager:
                         "ai_message": exchange.ai_message,
                         "user_response": exchange.user_response,
                         "transcript_quality": exchange.transcript_quality,
-                        "chunk_id": exchange.chunk_id
+                        "concept": exchange.concept,
+                        "is_followup": exchange.is_followup
                     }
                     for exchange in session_data.exchanges
                 ],
@@ -226,12 +231,27 @@ class DatabaseManager:
                 "score": score,
                 "total_exchanges": len(session_data.exchanges),
                 "greeting_exchanges": session_data.greeting_count,
-                "summary_progress": session_data.summary_manager.get_progress() if session_data.summary_manager else {},
+                
+                # Enhanced fragment analytics
+                "fragment_analytics": {
+                    "total_concepts": len(session_data.fragment_keys),
+                    "concepts_covered": list(session_data.concept_question_counts.keys()),
+                    "questions_per_concept": dict(session_data.concept_question_counts),
+                    "followup_questions": session_data.followup_questions,
+                    "main_questions": session_data.question_index,
+                    "target_questions_per_concept": session_data.questions_per_concept,
+                    "coverage_percentage": round(
+                        (len([c for c, count in session_data.concept_question_counts.items() if count > 0]) 
+                         / len(session_data.fragment_keys) * 100) 
+                        if session_data.fragment_keys else 0, 1
+                    )
+                },
+                
                 "duration": time.time() - session_data.created_at
             }
             
             result = asyncio.run(collection.insert_one(document))
-            logger.info(f"Session {session_data.session_id} saved successfully")
+            logger.info(f"Session {session_data.session_id} saved with fragment analytics")
             return True
             
         except Exception as e:

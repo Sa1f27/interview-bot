@@ -61,7 +61,7 @@ class UltraFastSessionManager:
         self.conversation_manager = OptimizedConversationManager(shared_clients)
     
     async def create_session_fast(self, websocket: Optional[Any] = None) -> SessionData:
-        """Ultra-fast session creation"""
+        """Ultra-fast session creation with dynamic fragment system"""
         session_id = str(uuid.uuid4())
         test_id = f"standup_{int(time.time())}"
         
@@ -85,13 +85,15 @@ class UltraFastSessionManager:
             websocket=websocket
         )
         
-        # Initialize summary manager
-        summary_manager = SummaryManager(shared_clients)
-        await summary_manager.initialize_chunks(summary)
-        session_data.summary_manager = summary_manager
+        # Initialize fragment manager instead of summary manager
+        from .ai_services import FragmentManager
+        fragment_manager = FragmentManager(shared_clients, session_data)
+        fragment_manager.initialize_fragments(summary)
+        session_data.summary_manager = fragment_manager  # Keep same attribute name for compatibility
         
         self.active_sessions[session_id] = session_data
-        logger.info(f"✅ Fast session created {session_id} for {session_data.student_name}")
+        logger.info(f"✅ Fast session created {session_id} for {session_data.student_name} "
+                   f"with {len(session_data.fragment_keys)} fragments")
         
         return session_data
     
@@ -150,13 +152,15 @@ class UltraFastSessionManager:
         
         ai_response = await response_task
         
-        # Add exchange to session with chunk tracking
-        chunk_id = None
-        if session_data.summary_manager:
-            current_chunk = session_data.summary_manager.get_current_chunk()
-            chunk_id = current_chunk.id if current_chunk else None
+        # Add exchange to session with concept tracking
+        concept = session_data.current_concept if session_data.current_concept else "unknown"
+        is_followup = getattr(session_data, '_last_question_followup', False)
         
-        session_data.add_exchange(ai_response, transcript, quality, chunk_id)
+        session_data.add_exchange(ai_response, transcript, quality, concept, is_followup)
+        
+        # Update fragment manager with the answer
+        if session_data.summary_manager:
+            session_data.summary_manager.add_answer(transcript)
         
         # Update session state
         await self._update_session_state_fast(session_data)
@@ -168,7 +172,7 @@ class UltraFastSessionManager:
         logger.info(f"⚡ Total processing time: {processing_time:.2f}s")
     
     async def _update_session_state_fast(self, session_data: SessionData):
-        """Ultra-fast session state updates"""
+        """Ultra-fast session state updates with fragment logic"""
         if session_data.current_stage == SessionStage.GREETING:
             session_data.greeting_count += 1
             if session_data.greeting_count >= config.GREETING_EXCHANGES:
@@ -176,10 +180,10 @@ class UltraFastSessionManager:
                 logger.info(f"Session {session_data.session_id} moved to TECHNICAL stage")
         
         elif session_data.current_stage == SessionStage.TECHNICAL:
-            # Check if all summary chunks are completed
-            if session_data.summary_manager and session_data.summary_manager.current_chunk_index >= len(session_data.summary_manager.chunks):
+            # Check if test should continue using fragment manager
+            if session_data.summary_manager and not session_data.summary_manager.should_continue_test():
                 session_data.current_stage = SessionStage.COMPLETE
-                logger.info(f"Session {session_data.session_id} moved to COMPLETE stage")
+                logger.info(f"Session {session_data.session_id} moved to COMPLETE stage - fragment coverage complete")
                 
                 # Generate evaluation and save session in background
                 asyncio.create_task(self._finalize_session_fast(session_data))
@@ -375,7 +379,8 @@ async def start_standup_session_fast():
             "session_id": session_data.session_id,
             "websocket_url": f"/daily_standup/ws/{session_data.session_id}",
             "greeting": greeting,
-            "summary_chunks": len(session_data.summary_manager.chunks) if session_data.summary_manager else 0
+            "fragments_count": len(session_data.fragment_keys) if session_data.fragment_keys else 0,
+            "estimated_duration": len(session_data.fragment_keys) * session_data.questions_per_concept * config.ESTIMATED_SECONDS_PER_QUESTION
         }
         
     except Exception as e:

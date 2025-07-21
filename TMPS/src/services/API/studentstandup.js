@@ -8,7 +8,7 @@ import { assessmentApiRequest } from './index2';
 class UltraFastVoiceDetector {
   constructor() {
     this.isListening = false;
-    this.silenceThreshold = 0.015; // Slightly higher for cleaner detection
+    this.silenceThreshold = 0.02; // Slightly higher for cleaner detection
     this.silenceDelay = 800; // 800ms instead of 2000ms - ULTRA FAST
     this.maxRecordingTime = 25000; // 25 seconds max
     this.audioContext = null;

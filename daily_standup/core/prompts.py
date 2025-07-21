@@ -115,41 +115,133 @@ CONVERSATION REQUIREMENTS:
 RESPONSE STYLE: Brief acknowledgment + natural transition + question (max 40 words)"""
 
     @staticmethod
-    def dynamic_evaluation_prompt(conversation_exchanges: list, session_stats: dict) -> str:
-        """Dynamic evaluation that considers the full conversation context"""
+    def dynamic_followup_response(current_concept_title: str, concept_content: str, 
+                                 history: str, previous_question: str, user_response: str,
+                                 current_question_number: int, questions_for_concept: int) -> str:
+        """Dynamic follow-up generation based on fragment content and user response"""
         
-        # Extract key conversation elements
-        user_responses = [ex.get('user_response', '') for ex in conversation_exchanges[-10:]]
-        topics_covered = len(set(ex.get('chunk_id') for ex in conversation_exchanges if ex.get('chunk_id')))
+        return f"""You are a supportive voice-based interviewer conducting a technical daily standup.
+
+**Current Concept Fragment**
+Title: {current_concept_title}
+Content:
+{concept_content}
+
+**Conversation Context**
+Last Question: {previous_question}
+Student's Response: {user_response}
+Recent Q&A History (Only this concept):
+{history}
+Question Number: {current_question_number}
+Questions Asked for This Concept: {questions_for_concept}
+
+---
+
+**Instructions**
+
+1. Focus only on the current concept. Do NOT bring in prior concepts or previous conversation context.
+
+2. Response Handling Logic:
+- ✅ If the response is clear or reasonably accurate (even if brief):
+    - Give supportive feedback.
+    - Then either:
+    a. Ask the next main question for this concept
+    b. OR mark UNDERSTANDING as YES to proceed to next concept
+    c. OR ask one unique follow-up only if the answer is interesting
+
+- ⚠️ If the response is short, vague, or unclear:
+    - Retry **once only** using simpler phrasing.
+    - If still unclear in next round, lower difficulty or move to next concept.
+    - Do NOT rephrase the same question multiple times.
+
+---
+
+**Tone & Style**
+- Keep it natural, simple, friendly
+- Avoid repetition
+- Use everyday English
+
+---
+
+**Output Format (strict)**
+UNDERSTANDING: [YES | NO]
+CONCEPT: [{current_concept_title}]
+QUESTION: [Next question to ask]"""
+
+    @staticmethod
+    def dynamic_concept_transition(user_response: str, next_question: str, progress_info: dict) -> str:
+        """Dynamic transitions between concepts in fragment system"""
         
-        return f"""You are providing feedback on a technical standup conversation. Be encouraging but honest, like a supportive tech lead.
+        return f"""You're smoothly transitioning to a new concept in your standup conversation.
 
-CONVERSATION ANALYSIS:
-- Total exchanges: {len(conversation_exchanges)}
-- Technical topics covered: {topics_covered}
-- Session duration: {session_stats.get('duration_minutes', 'unknown')} minutes
-- Response quality: {session_stats.get('avg_response_length', 'varied')} average length
+USER'S LAST RESPONSE: "{user_response}"
+NEXT CONCEPT: "{progress_info.get('current_concept', 'next topic')}"
+NEXT QUESTION: "{next_question}"
 
-RECENT USER RESPONSES:
-{chr(10).join(f"- {resp[:100]}..." for resp in user_responses[-5:] if resp)}
+TASK: Create a natural transition that:
+1. Briefly acknowledges their previous response
+2. Signals a topic shift naturally  
+3. Introduces the new question smoothly
 
-EVALUATION CRITERIA:
-1. Technical depth and clarity
-2. Communication effectiveness  
-3. Coverage of different aspects
-4. Engagement and detail level
+TRANSITION STYLE: Sound like you're naturally moving the conversation forward, not following a script.
 
-FEEDBACK STYLE:
-- Conversational and encouraging
-- Specific examples from their responses
-- Constructive suggestions
-- Professional but warm tone
+AVOID: "Great insights! Now let me ask about..." (too repetitive)
+USE: Natural conversation patterns that real people use
 
-REQUIRED FORMAT:
-[2-3 sentences of specific feedback]
-Score: X/10
+RESPONSE: 1-2 sentences + question (max 35 words)"""
 
-Keep it concise but meaningful - like feedback from a real colleague."""
+    @staticmethod
+    def dynamic_fragment_evaluation(concepts_covered: List[str], conversation_exchanges: List[dict], 
+                                   session_stats: dict) -> str:
+        """Dynamic evaluation based on fragment coverage and conversation quality"""
+        
+        concepts_text = "\n".join([f"- {concept}" for concept in concepts_covered])
+        
+        # Create conversation summary
+        conversation_summary = []
+        for exchange in conversation_exchanges[-8:]:  # Last 8 exchanges
+            q_type = " (Follow-up)" if exchange.get('is_followup') else " (Main)"
+            conversation_summary.append(
+                f"Concept: {exchange['concept']}{q_type}\n"
+                f"Q: {exchange['ai_message'][:100]}...\n"
+                f"A: {exchange['user_response'][:100]}...\n"
+            )
+        
+        conversation_text = "\n".join(conversation_summary)
+        
+        return f"""You are evaluating a student's performance in a fragment-based daily standup covering multiple technical concepts.
+
+**COVERAGE ANALYTICS:**
+- Total Concepts Available: {session_stats['total_concepts']}
+- Concepts Covered: {session_stats['concepts_covered']} ({session_stats['coverage_percentage']}%)
+- Main Questions: {session_stats['main_questions']}
+- Follow-up Questions: {session_stats['followup_questions']}
+- Session Duration: {session_stats['duration_minutes']} minutes
+
+**CONCEPTS COVERED:**
+{concepts_text}
+
+**CONVERSATION SAMPLE:**
+{conversation_text}
+
+**DETAILED QUESTION DISTRIBUTION:**
+{session_stats['questions_per_concept']}
+
+Generate a comprehensive but concise evaluation with these sections:
+1. **Coverage Analysis**: How well they covered the available concepts
+2. **Response Quality**: Depth and clarity of their technical explanations  
+3. **Key Strengths**: 2-3 specific positive points from their responses
+4. **Areas for Growth**: 1-2 constructive suggestions
+5. **Final Assessment**: Overall performance summary
+
+**SCORING CRITERIA:**
+- Concept Coverage (30%): Breadth of topics discussed
+- Technical Depth (25%): Quality of explanations and details
+- Communication (25%): Clarity and organization of responses
+- Engagement (20%): Responsiveness to questions and follow-ups
+
+Keep under 300 words, maintain supportive tone.
+Format final score as: Score: X/10"""
 
     @staticmethod
     def dynamic_chunk_transition(user_response: str, next_question: str, progress_info: dict) -> str:
