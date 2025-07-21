@@ -654,13 +654,35 @@ class OptimizedConversationManager:
             
             return response
         else:
-            # Stay with current concept
+            # Stay with current concept, generate a natural transition
             concept_for_question = current_concept_title
             
-            # Add the question to the session
-            fragment_manager.add_question(next_question, concept_for_question, is_followup)
+            # Get recent conversation context to make the response more natural
+            context = self._build_conversation_context(session_data)
+            session_state = {
+                'questions_asked': session_data.question_index,
+                'current_topic': current_concept_title
+            }
             
-            return next_question
+            # Use the dedicated prompt for natural technical responses
+            prompt = prompts.dynamic_technical_response(
+                context=context,
+                user_input=user_input,
+                next_question=next_question,
+                session_state=session_state
+            )
+            
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                self.client_manager.executor,
+                self._sync_openai_call,
+                prompt
+            )
+            
+            # Add the full response (acknowledgement + question) to the session
+            fragment_manager.add_question(response, concept_for_question, is_followup)
+            
+            return response
     
     def _parse_llm_response(self, response: str, keys: List[str]) -> Dict[str, str]:
         """Parse structured responses from the LLM"""

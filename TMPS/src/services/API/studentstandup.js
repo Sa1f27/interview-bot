@@ -9,7 +9,7 @@ class UltraFastVoiceDetector {
   constructor() {
     this.isListening = false;
     this.silenceThreshold = 0.02; // Slightly higher for cleaner detection
-    this.silenceDelay = 800; // 800ms instead of 2000ms - ULTRA FAST
+    this.silenceDelay = 400; // Reduced from 800ms for faster response
     this.maxRecordingTime = 25000; // 25 seconds max
     this.audioContext = null;
     this.analyser = null;
@@ -88,7 +88,7 @@ class UltraFastVoiceDetector {
       // Silence detected
       if (this.speechStarted && !this.silenceTimer) {
         this.silenceTimer = setTimeout(() => {
-          console.log('🤫 Ultra-fast silence detected (800ms), stopping recording');
+          console.log(`🤫 Silence detected for ${this.silenceDelay}ms, stopping recording`);
           this.stopListening();
         }, this.silenceDelay);
       }

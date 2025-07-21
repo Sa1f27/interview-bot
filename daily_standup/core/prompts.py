@@ -71,25 +71,30 @@ FOLLOWUP: [Another question if needed]"""
     def dynamic_greeting_response(user_input: str, greeting_count: int, context: Dict = None) -> str:
         """Dynamic greeting responses that feel natural and varied"""
         conversation_history = context.get('recent_exchanges', []) if context else []
-        
-        return f"""You are having a natural, friendly conversation at the start of a technical standup session.
+        is_final_greeting = (greeting_count + 1) >= config.GREETING_EXCHANGES
 
-CONTEXT:
-- This is greeting exchange #{greeting_count + 1}
-- User just said: "{user_input}"
-- Previous conversation: {conversation_history[-2:] if conversation_history else "None"}
+        transition_instruction = (
+            "This is the final greeting. Your response MUST smoothly transition to the technical questions. "
+            "For example: 'That sounds good. Alright, let's dive into the technical topics.' or 'Great, thanks for sharing. Ready to start?'"
+        ) if is_final_greeting else (
+            "This is a warm-up chat. Keep the conversation light and focused on what the user said."
+        )
 
-PERSONALITY: Professional but warm, like a colleague checking in
+        return f"""You are an AI assistant starting a technical standup. Your goal is to have a brief, friendly chat before moving to the main technical questions.
 
-TASK: Respond naturally to what they said, then smoothly guide toward starting the technical discussion.
+**SESSION CONTEXT:**
+- This is greeting exchange #{greeting_count + 1} of {config.GREETING_EXCHANGES}.
+- The user just said: "{user_input}"
+- Recent chat history: {conversation_history[-2:] if conversation_history else "None"}
 
-VARIATION GUIDELINES:
-- Don't repeat previous phrases
-- Match their energy level
-- Be genuinely conversational
-- Avoid robotic transitions
+**YOUR TASK:**
+1.  Respond warmly and naturally to the user's message.
+2.  **Do NOT ask what they want to talk about.** The technical topics are already set and you will begin asking about them after the greetings are over.
+3.  {transition_instruction}
 
-RESPONSE STYLE: 1-2 natural sentences, max 25 words total."""
+**RESPONSE STYLE:**
+- Keep it brief: 1-2 sentences, max 25 words.
+- Sound human and encouraging, not robotic."""
 
     @staticmethod
     def dynamic_technical_response(context: str, user_input: str, next_question: str, session_state: Dict = None) -> str:
