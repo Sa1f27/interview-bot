@@ -8,9 +8,9 @@ import { assessmentApiRequest } from './index2';
 class UltraFastVoiceDetector {
   constructor() {
     this.isListening = false;
-    this.silenceThreshold = 0.02; // Slightly higher for cleaner detection
-    this.silenceDelay = 400; // Reduced from 800ms for faster response
-    this.maxRecordingTime = 25000; // 25 seconds max
+    this.silenceThreshold = 0.015; // Slightly higher for cleaner detection
+    this.silenceDelay = 150; // Reduced from 800ms for faster response
+    this.maxRecordingTime = 30000; // 25 seconds max
     this.audioContext = null;
     this.analyser = null;
     this.dataArray = null;
@@ -650,7 +650,7 @@ class realisticStandupAPIService {
       this.audioManager.vad.stopListening();
       
       // Validate audio size
-      if (audioBlob.size < 1000) {
+      if (audioBlob.size < 500) {
         throw new Error(`Audio blob too small: ${audioBlob.size} bytes`);
       }
       
