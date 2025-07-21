@@ -98,6 +98,8 @@ class ConversationExchange:
     user_response: str
     transcript_quality: float = 0.0
     chunk_id: Optional[int] = None
+    concept: Optional[str] = None
+    is_followup: bool = False
 
 @dataclass
 class SessionData:
@@ -117,14 +119,27 @@ class SessionData:
     summary_manager: Optional[Any] = field(default=None)
     clarification_attempts: int = field(default=0)
     
-    def add_exchange(self, ai_message: str, user_response: str, quality: float = 0.0, chunk_id: Optional[int] = None):
+    # Fragment-based attributes
+    fragments: Dict[str, str] = field(default_factory=dict)
+    fragment_keys: List[str] = field(default_factory=list)
+    concept_question_counts: Dict[str, int] = field(default_factory=dict)
+    questions_per_concept: int = 2
+    current_concept: str = ""
+    question_index: int = 0
+    followup_questions: int = 0
+    
+    def add_exchange(self, ai_message: str, user_response: str, quality: float = 0.0, 
+                    chunk_id: Optional[int] = None, concept: Optional[str] = None, 
+                    is_followup: bool = False):
         exchange = ConversationExchange(
             timestamp=time.time(),
             stage=self.current_stage,
             ai_message=ai_message,
             user_response=user_response,
             transcript_quality=quality,
-            chunk_id=chunk_id
+            chunk_id=chunk_id,
+            concept=concept,
+            is_followup=is_followup
         )
         self.exchanges.append(exchange)
         self.conversation_window.append(exchange)
@@ -356,6 +371,13 @@ class FragmentManager:
             "followup_questions": self.session_data.followup_questions,
             "main_questions": self.session_data.question_index - self.session_data.followup_questions
         }
+
+# =============================================================================
+# SUMMARY MANAGER (For backward compatibility)
+# =============================================================================
+
+# Alias FragmentManager as SummaryManager for backward compatibility
+SummaryManager = FragmentManager
 
 # =============================================================================
 # AUDIO PROCESSING
@@ -600,6 +622,7 @@ class OptimizedConversationManager:
                 
                 prompt = prompts.dynamic_session_completion(conversation_summary)
                 
+                loop = asyncio.get_event_loop()
                 response = await loop.run_in_executor(
                     self.client_manager.executor,
                     self._sync_openai_call,
@@ -619,6 +642,7 @@ class OptimizedConversationManager:
             
             prompt = prompts.dynamic_concept_transition(user_input, next_question, progress_info)
             
+            loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(
                 self.client_manager.executor,
                 self._sync_openai_call,
@@ -648,21 +672,7 @@ class OptimizedConversationManager:
                 if line.upper().startswith(prefix):
                     result[key.lower()] = line[len(prefix):].strip()
                     break
-        return result.get_event_loop()
-        response = await loop.run_in_executor(
-            self.client_manager.executor,
-            self._sync_openai_call,
-            prompt
-        )
-        
-        return response
-    
-    def _build_conversation_context(self, session_data: SessionData) -> str:
-        """Build context from sliding window of conversation"""
-        context = ""
-        for exchange in list(session_data.conversation_window)[-3:]:
-            context += f"AI: {exchange.ai_message}\nUser: {exchange.user_response}\n\n"
-        return context.strip()
+        return result
     
     async def _generate_conclusion_response(self, session_data: SessionData, user_input: str) -> str:
         """Dynamic conclusion responses with session context"""
@@ -681,6 +691,13 @@ class OptimizedConversationManager:
         )
         
         return response
+    
+    def _build_conversation_context(self, session_data: SessionData) -> str:
+        """Build context from sliding window of conversation"""
+        context = ""
+        for exchange in list(session_data.conversation_window)[-3:]:
+            context += f"AI: {exchange.ai_message}\nUser: {exchange.user_response}\n\n"
+        return context.strip()
     
     def _sync_openai_call(self, prompt: str) -> str:
         """Synchronous OpenAI call for thread pool"""
@@ -709,7 +726,9 @@ class OptimizedConversationManager:
                         'ai_message': exchange.ai_message,
                         'user_response': exchange.user_response,
                         'chunk_id': exchange.chunk_id,
-                        'quality': exchange.transcript_quality
+                        'quality': exchange.transcript_quality,
+                        'concept': exchange.concept,
+                        'is_followup': exchange.is_followup
                     })
             
             if not conversation_exchanges:
@@ -717,10 +736,22 @@ class OptimizedConversationManager:
             
             session_stats = {
                 'duration_minutes': round((time.time() - session_data.created_at) / 60, 1),
-                'avg_response_length': sum(len(ex['user_response']) for ex in conversation_exchanges) // len(conversation_exchanges)
+                'avg_response_length': sum(len(ex['user_response']) for ex in conversation_exchanges) // len(conversation_exchanges),
+                'total_concepts': len(session_data.fragment_keys),
+                'concepts_covered': len([c for c, count in session_data.concept_question_counts.items() if count > 0]),
+                'coverage_percentage': round(
+                    (len([c for c, count in session_data.concept_question_counts.items() if count > 0]) 
+                     / len(session_data.fragment_keys) * 100) 
+                    if session_data.fragment_keys else 0, 1
+                ),
+                'main_questions': session_data.question_index - session_data.followup_questions,
+                'followup_questions': session_data.followup_questions,
+                'questions_per_concept': dict(session_data.concept_question_counts)
             }
             
-            prompt = prompts.dynamic_evaluation_prompt(conversation_exchanges, session_stats)
+            concepts_covered = [c for c, count in session_data.concept_question_counts.items() if count > 0]
+            
+            prompt = prompts.dynamic_fragment_evaluation(concepts_covered, conversation_exchanges, session_stats)
             
             loop = asyncio.get_event_loop()
             evaluation = await loop.run_in_executor(

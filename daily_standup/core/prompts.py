@@ -3,9 +3,10 @@ Dynamic Prompt templates for Daily Standup application
 Generates realistic, contextual responses instead of static templates
 """
 
+from typing import List, Dict
 from .config import config
 
-class DynamicPrompts:
+class Prompts:
     """Dynamic prompt repository for realistic, context-aware responses"""
     
     @staticmethod
@@ -67,7 +68,7 @@ FOLLOWUP: [Natural, conversational question]
 FOLLOWUP: [Another question if needed]"""
 
     @staticmethod
-    def dynamic_greeting_response(user_input: str, greeting_count: int, context: dict = None) -> str:
+    def dynamic_greeting_response(user_input: str, greeting_count: int, context: Dict = None) -> str:
         """Dynamic greeting responses that feel natural and varied"""
         conversation_history = context.get('recent_exchanges', []) if context else []
         
@@ -91,7 +92,7 @@ VARIATION GUIDELINES:
 RESPONSE STYLE: 1-2 natural sentences, max 25 words total."""
 
     @staticmethod
-    def dynamic_technical_response(context: str, user_input: str, next_question: str, session_state: dict = None) -> str:
+    def dynamic_technical_response(context: str, user_input: str, next_question: str, session_state: Dict = None) -> str:
         """Dynamic technical responses that create natural conversation flow"""
         
         return f"""You are conducting a natural standup conversation. Create a smooth, realistic transition between the user's response and your next question.
@@ -169,7 +170,7 @@ CONCEPT: [{current_concept_title}]
 QUESTION: [Next question to ask]"""
 
     @staticmethod
-    def dynamic_concept_transition(user_response: str, next_question: str, progress_info: dict) -> str:
+    def dynamic_concept_transition(user_response: str, next_question: str, progress_info: Dict) -> str:
         """Dynamic transitions between concepts in fragment system"""
         
         return f"""You're smoothly transitioning to a new concept in your standup conversation.
@@ -191,8 +192,8 @@ USE: Natural conversation patterns that real people use
 RESPONSE: 1-2 sentences + question (max 35 words)"""
 
     @staticmethod
-    def dynamic_fragment_evaluation(concepts_covered: List[str], conversation_exchanges: List[dict], 
-                                   session_stats: dict) -> str:
+    def dynamic_fragment_evaluation(concepts_covered: List[str], conversation_exchanges: List[Dict],
+                                   session_stats: Dict) -> str:
         """Dynamic evaluation based on fragment coverage and conversation quality"""
         
         concepts_text = "\n".join([f"- {concept}" for concept in concepts_covered])
@@ -244,7 +245,7 @@ Keep under 300 words, maintain supportive tone.
 Format final score as: Score: X/10"""
 
     @staticmethod
-    def dynamic_chunk_transition(user_response: str, next_question: str, progress_info: dict) -> str:
+    def dynamic_chunk_transition(user_response: str, next_question: str, progress_info: Dict) -> str:
         """Dynamic transitions between topic chunks that feel natural"""
         
         return f"""You're smoothly transitioning to a new topic in your standup conversation.
@@ -266,7 +267,7 @@ USE: Natural conversation patterns that real people use
 RESPONSE: 1-2 sentences + question (max 35 words)"""
 
     @staticmethod
-    def dynamic_session_completion(conversation_summary: dict, user_final_response: str = None) -> str:
+    def dynamic_session_completion(conversation_summary: Dict, user_final_response: str = None) -> str:
         """Dynamic session completion based on actual conversation content"""
         
         topics_discussed = conversation_summary.get('topics_covered', [])
@@ -289,7 +290,7 @@ STYLE: Warm, professional, specific to this conversation
 RESPONSE: 1-2 sentences that feel like a real conversation ending"""
 
     @staticmethod
-    def dynamic_clarification_request(context: dict) -> str:
+    def dynamic_clarification_request(context: Dict) -> str:
         """Dynamic clarification requests that vary based on context"""
         
         attempts = context.get('clarification_attempts', 0)
@@ -314,7 +315,7 @@ VARIATION LEVELS:
 RESPONSE: One natural sentence asking for clarification"""
 
     @staticmethod
-    def dynamic_conclusion_response(user_input: str, session_context: dict) -> str:
+    def dynamic_conclusion_response(user_input: str, session_context: Dict) -> str:
         """Dynamic conclusion that references the actual conversation"""
         
         return f"""You're responding to the user's final input and wrapping up naturally.
@@ -332,4 +333,4 @@ STYLE: Natural, appreciative, like ending a real conversation with a colleague
 RESPONSE: 1-2 sentences that feel genuine and conversational"""
 
 # Global dynamic prompts instance
-prompts = DynamicPrompts()
+prompts = Prompts()

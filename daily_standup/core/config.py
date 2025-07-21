@@ -30,12 +30,19 @@ class Config:
     TTS_OVERLAP = 3
     
     # =============================================================================
+    # CONVERSATION FLOW CONFIGURATION
+    # =============================================================================
+    GREETING_EXCHANGES = 2  # Number of greeting exchanges before technical questions
+    SUMMARY_CHUNKS = 8  # Default number of summary chunks to create
+    
+    # =============================================================================
     # DYNAMIC QUESTIONING CONFIGURATION (From Old System)
     # =============================================================================
     TOTAL_QUESTIONS = 20  # Baseline hint for ratio calculation
     MIN_QUESTIONS_PER_CONCEPT = 1  # Minimum questions per concept
     MAX_QUESTIONS_PER_CONCEPT = 4  # Maximum questions per concept for balance
     ESTIMATED_SECONDS_PER_QUESTION = 180  # 3 minutes, for UI timer estimation
+    BASE_QUESTIONS_PER_CHUNK = 3  # Base questions per summary chunk
     
     # =============================================================================
     # CONVERSATION SETTINGS

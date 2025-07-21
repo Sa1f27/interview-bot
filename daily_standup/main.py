@@ -86,8 +86,8 @@ class UltraFastSessionManager:
         )
         
         # Initialize fragment manager instead of summary manager
-        from .ai_services import FragmentManager
-        fragment_manager = FragmentManager(shared_clients, session_data)
+        
+        fragment_manager = SummaryManager(shared_clients, session_data)
         fragment_manager.initialize_fragments(summary)
         session_data.summary_manager = fragment_manager  # Keep same attribute name for compatibility
         
