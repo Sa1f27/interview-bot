@@ -21,7 +21,7 @@ Thumbs.db
 *.sqlite3
 mock_test.db
 uploads/
-sessions/
+
 audio/
 *.log
 
