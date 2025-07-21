@@ -194,6 +194,10 @@ class DatabaseManager:
     
     def _sync_save_result(self, session_data, evaluation: str, score: float) -> bool:
         """Synchronous save for thread pool"""
+        if config.USE_DUMMY_DATA:
+            logger.warning(f"⚠️ DUMMY SAVE: Session {session_data.session_id} result not saved to DB.")
+            return True
+            
         try:
             import asyncio
             db = asyncio.run(self.get_mongo_db())
@@ -249,6 +253,10 @@ class DatabaseManager:
     
     def _sync_get_session_result(self, session_id: str) -> Optional[Dict[str, Any]]:
         """Synchronous session result retrieval"""
+        if config.USE_DUMMY_DATA:
+            logger.warning(f"⚠️ DUMMY GET: Not fetching session {session_id} result from DB.")
+            return None
+            
         try:
             import asyncio
             db = asyncio.run(self.get_mongo_db())
