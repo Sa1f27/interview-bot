@@ -540,8 +540,8 @@ const StandupCallSession = () => {
               <strong>Troubleshooting:</strong>
             </Typography>
             <Box component="ul" sx={{ mt: 1, pl: 2 }}>
-              <li>Check if backend server is running on http://192.168.48.12:8060</li>
-              <li>Verify WebSocket endpoint: ws://192.168.48.12:8060/daily_standup/ws/</li>
+              <li>Check if backend server is running on http://192.168.48.18:8060</li>
+              <li>Verify WebSocket endpoint: ws://192.168.48.18:8060/daily_standup/ws/</li>
               <li>Check network connectivity and firewall settings</li>
               <li>Ensure MongoDB and SQL Server connections are active</li>
             </Box>

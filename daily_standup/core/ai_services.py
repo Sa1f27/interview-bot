@@ -58,6 +58,7 @@ class SessionData:
     is_active: bool = True
     websocket: Optional[Any] = field(default=None)
     summary_manager: Optional[Any] = field(default=None)
+    clarification_attempts: int = field(default=0)
     
     def add_exchange(self, ai_message: str, user_response: str, quality: float = 0.0, chunk_id: Optional[int] = None):
         exchange = ConversationExchange(
@@ -496,8 +497,15 @@ class OptimizedConversationManager:
             raise Exception(f"AI response generation failed: {e}")
     
     async def _generate_greeting_response(self, session_data: SessionData, user_input: str) -> str:
-        """Optimized greeting responses"""
-        prompt = prompts.greeting_responses(user_input, session_data.greeting_count)
+        """Dynamic greeting responses with context awareness"""
+        context = {
+            'recent_exchanges': [
+                f"AI: {ex.ai_message}, User: {ex.user_response}" 
+                for ex in list(session_data.conversation_window)[-2:]
+            ]
+        }
+        
+        prompt = prompts.dynamic_greeting_response(user_input, session_data.greeting_count, context)
         
         loop = asyncio.get_event_loop()
         response = await loop.run_in_executor(
@@ -509,7 +517,7 @@ class OptimizedConversationManager:
         return response
     
     async def _generate_technical_response(self, session_data: SessionData, user_input: str) -> str:
-        """Generate responses using summary-based questions"""
+        """Generate dynamic technical responses using context"""
         if not session_data.summary_manager:
             raise Exception("Summary manager not initialized")
         
@@ -519,7 +527,12 @@ class OptimizedConversationManager:
         
         if next_question:
             context = self._build_conversation_context(session_data)
-            prompt = prompts.technical_response_prompt(context, user_input, next_question)
+            session_state = {
+                'questions_asked': sum(1 for ex in session_data.exchanges if ex.stage == SessionStage.TECHNICAL),
+                'current_topic': session_data.summary_manager.get_current_chunk().content[:50] if session_data.summary_manager.get_current_chunk() else 'technical work'
+            }
+            
+            prompt = prompts.dynamic_technical_response(context, user_input, next_question, session_state)
             
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(
@@ -534,10 +547,39 @@ class OptimizedConversationManager:
             if session_data.summary_manager.move_to_next_chunk():
                 next_question = session_data.summary_manager.get_next_question()
                 if next_question:
-                    return prompts.chunk_transition_message(next_question)
+                    progress_info = {
+                        'current_chunk': session_data.summary_manager.current_chunk_index,
+                        'total_chunks': len(session_data.summary_manager.chunks)
+                    }
+                    
+                    prompt = prompts.dynamic_chunk_transition(user_input, next_question, progress_info)
+                    
+                    loop = asyncio.get_event_loop()
+                    response = await loop.run_in_executor(
+                        self.client_manager.executor,
+                        self._sync_openai_call,
+                        prompt
+                    )
+                    
+                    return response
         
+        # Session completion with dynamic response
         session_data.current_stage = SessionStage.COMPLETE
-        return prompts.session_completion_message()
+        conversation_summary = {
+            'topics_covered': list(set(ex.chunk_id for ex in session_data.exchanges if ex.chunk_id)),
+            'total_exchanges': len(session_data.exchanges)
+        }
+        
+        prompt = prompts.dynamic_session_completion(conversation_summary)
+        
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            self.client_manager.executor,
+            self._sync_openai_call,
+            prompt
+        )
+        
+        return response
     
     def _build_conversation_context(self, session_data: SessionData) -> str:
         """Build context from sliding window of conversation"""
@@ -547,8 +589,22 @@ class OptimizedConversationManager:
         return context.strip()
     
     async def _generate_conclusion_response(self, session_data: SessionData, user_input: str) -> str:
-        """Fast conclusion responses"""
-        return prompts.conclusion_response(user_input)
+        """Dynamic conclusion responses with session context"""
+        session_context = {
+            'key_topics': list(set(ex.chunk_id for ex in session_data.exchanges if ex.chunk_id))[:3],
+            'total_exchanges': len(session_data.exchanges)
+        }
+        
+        prompt = prompts.dynamic_conclusion_response(user_input, session_context)
+        
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            self.client_manager.executor,
+            self._sync_openai_call,
+            prompt
+        )
+        
+        return response
     
     def _sync_openai_call(self, prompt: str) -> str:
         """Synchronous OpenAI call for thread pool"""
@@ -568,17 +624,27 @@ class OptimizedConversationManager:
             raise Exception(f"OpenAI API failed: {e}")
     
     async def generate_fast_evaluation(self, session_data: SessionData) -> Tuple[str, float]:
-        """Generate evaluation efficiently"""
+        """Generate dynamic evaluation based on actual conversation"""
         try:
-            key_points = []
+            conversation_exchanges = []
             for exchange in session_data.exchanges[-10:]:
                 if exchange.stage == SessionStage.TECHNICAL:
-                    key_points.append(f"Q: {exchange.ai_message[:100]}... A: {exchange.user_response[:100]}...")
+                    conversation_exchanges.append({
+                        'ai_message': exchange.ai_message,
+                        'user_response': exchange.user_response,
+                        'chunk_id': exchange.chunk_id,
+                        'quality': exchange.transcript_quality
+                    })
             
-            if not key_points:
+            if not conversation_exchanges:
                 raise Exception("No technical exchanges found for evaluation")
             
-            prompt = prompts.evaluation_prompt(key_points)
+            session_stats = {
+                'duration_minutes': round((time.time() - session_data.created_at) / 60, 1),
+                'avg_response_length': sum(len(ex['user_response']) for ex in conversation_exchanges) // len(conversation_exchanges)
+            }
+            
+            prompt = prompts.dynamic_evaluation_prompt(conversation_exchanges, session_stats)
             
             loop = asyncio.get_event_loop()
             evaluation = await loop.run_in_executor(

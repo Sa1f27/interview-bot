@@ -117,9 +117,26 @@ class UltraFastSessionManager:
         transcript, quality = await transcription_task
         
         if not transcript or len(transcript.strip()) < 2:
+            # Dynamic clarification request
+            clarification_context = {
+                'clarification_attempts': getattr(session_data, 'clarification_attempts', 0),
+                'audio_quality': quality
+            }
+            session_data.clarification_attempts = clarification_context['clarification_attempts'] + 1
+            
+            clarification_prompt = prompts.dynamic_clarification_request(clarification_context)
+            
+            # Generate dynamic clarification message
+            loop = asyncio.get_event_loop()
+            clarification_message = await loop.run_in_executor(
+                shared_clients.executor,
+                self.conversation_manager._sync_openai_call,
+                clarification_prompt
+            )
+            
             await self._send_quick_message(session_data, {
                 "type": "clarification",
-                "text": prompts.clarification_message(),
+                "text": clarification_message,
                 "status": session_data.current_stage.value
             })
             return

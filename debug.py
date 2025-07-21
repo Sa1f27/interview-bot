@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test the currently running server at 192.168.48.12:8060
+Test the currently running server at 192.168.48.18:8060
 """
 
 import requests
@@ -8,7 +8,7 @@ import json
 
 def test_server():
     """Test various endpoints on the running server"""
-    base_url = "http://192.168.48.12:8060"
+    base_url = "http://192.168.48.18:8060"
     
     endpoints_to_test = [
         "/",
