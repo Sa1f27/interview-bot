@@ -47,15 +47,15 @@ class Config:
     # =============================================================================
     # CONVERSATION SETTINGS
     # =============================================================================
-    CONVERSATION_WINDOW_SIZE = 5  # Conversation history window per concept
+    CONVERSATION_WINDOW_SIZE = 3  # Conversation history window per concept
     MAX_RECORDING_TIME = 25.0
-    SILENCE_THRESHOLD = 800
+    SILENCE_THRESHOLD = 400
     
     # =============================================================================
     # AI MODEL CONFIGURATION
     # =============================================================================
-    OPENAI_MODEL = "gpt-4o-mini"
-    OPENAI_TEMPERATURE = 0.7
+    OPENAI_MODEL = "gpt-4.1-mini"
+    OPENAI_TEMPERATURE = 0.1
     OPENAI_MAX_TOKENS = 300
     GROQ_TRANSCRIPTION_MODEL = "whisper-large-v3-turbo"
     
