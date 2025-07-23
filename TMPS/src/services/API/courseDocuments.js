@@ -1,4 +1,4 @@
-// src/services/api/courseDocuments.js
+// src/services/API/courseDocuments.js
 import { apiRequest } from './index';
 
 export const courseDocumentsAPI = {

@@ -26,7 +26,7 @@ import {
   ErrorOutline
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import { courseDocumentsAPI } from '../../../services/api/courseDocuments';
+import { courseDocumentsAPI } from '../../../services/API/courseDocuments';
 
 const AddCourseDocument = () => {
   const [formData, setFormData] = useState({

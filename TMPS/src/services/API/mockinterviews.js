@@ -1,4 +1,4 @@
-// src/services/api/weeklyInterviews.js
+// src/services/API/weeklyInterviews.js
 import { assessmentApiRequest } from './index2';
 
 export const weeklyInterviewsAPI = {

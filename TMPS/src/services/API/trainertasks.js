@@ -1,4 +1,4 @@
-// src/services/api/trainerTasks.js
+// src/services/API/trainerTasks.js
 import { apiRequest } from './index.js';
 
 const BASE_URL = '/api/org/trainer/trainer-task';

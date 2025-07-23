@@ -128,10 +128,10 @@ if __name__ == "__main__":
     local_ip = get_local_ip()
     port = 8060
     
-    print(f"🚀 Starting main server at http://{local_ip}:{port}")
+    print(f"🚀 Starting main server at https://{local_ip}:{port}")
     print(f"📋 Expected sub-apps: {list(sub_apps.keys())}")
     print(f"🔗 Daily standup will be at: http://{local_ip}:{port}/daily_standup/")
-    print(f"🔌 WebSocket will be at: ws://{local_ip}:{port}/daily_standup/ws/{{session_id}}")
+    print(f"🔌 WebSocket will be at: wss://{local_ip}:{port}/daily_standup/ws/{{session_id}}")
     
     # CRITICAL: Start without SSL and with WebSocket support
     print(f"🔓 Starting with WebSocket support (no SSL)")
@@ -144,5 +144,7 @@ if __name__ == "__main__":
         # No SSL - critical for WebSocket to work
         ws_ping_interval=20,
         ws_ping_timeout=20,
-        timeout_keep_alive=30
+        timeout_keep_alive=30,
+        ssl_keyfile="./certs/key.pem",
+        ssl_certfile="./certs/cert.pem" 
     )

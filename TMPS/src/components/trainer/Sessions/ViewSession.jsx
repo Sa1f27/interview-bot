@@ -50,7 +50,7 @@ import {
 import { useParams, useNavigate } from 'react-router-dom';
 
 // Import the sessions API
-import { sessionsAPI } from '../../../services/api/sessions';
+import { sessionsAPI } from '../../../services/API/sessions';
 
 // Fallback date formatters
 const fallbackDateFormatters = {

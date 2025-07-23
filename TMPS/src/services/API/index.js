@@ -1,4 +1,4 @@
-// src/services/api/index.js
+// src/services/API/index.js
 // Base API configuration
 
 // ✅ Fixed: Use import.meta.env instead of process.env for Vite

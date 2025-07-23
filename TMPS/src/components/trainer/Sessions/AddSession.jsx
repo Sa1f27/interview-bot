@@ -34,7 +34,7 @@ import {
 import { useNavigate, useParams } from 'react-router-dom';
 
 // Import the sessions API
-import { sessionsAPI } from '../../../services/api/sessions';
+import { sessionsAPI } from '../../../services/API/sessions';
 
 const AddSession = () => {
   const navigate = useNavigate();

@@ -1,4 +1,4 @@
-// // src/services/api/allAPIs.js
+// // src/services/API/allAPIs.js
 // // Central export file for all API modules
 
 // // Export all API modules

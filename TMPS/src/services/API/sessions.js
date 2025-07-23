@@ -1,4 +1,4 @@
-// src/services/api/sessions.js
+// src/services/API/sessions.js
 import { apiRequest } from './index';
 
 export const sessionsAPI = {

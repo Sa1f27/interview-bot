@@ -1,4 +1,4 @@
-// src/services/api/mockTest.js
+// src/services/API/mockTest.js
 import { assessmentApiRequest } from './index2';
 
 export const mockTestAPI = {

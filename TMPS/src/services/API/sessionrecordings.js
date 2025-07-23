@@ -1,4 +1,4 @@
-// src/services/api/sessionRecordings.js
+// src/services/API/sessionRecordings.js
 import { apiRequest } from './index';
 
 export const sessionRecordingsAPI = {
