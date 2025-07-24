@@ -20,7 +20,7 @@ class AIService:
         if not self.use_dummy:
             self._init_groq_client()
         else:
-            logger.info("🔧 AI Service in dummy mode - using mock responses")
+            logger.info("?? AI Service in dummy mode - using mock responses")
     
     def _init_groq_client(self):
         """Initialize and validate Groq client"""
@@ -40,10 +40,10 @@ class AIService:
             if not test_completion.choices:
                 raise Exception("Groq test call failed")
             
-            logger.info("✅ Groq client initialized and tested")
+            logger.info("? Groq client initialized and tested")
             
         except Exception as e:
-            logger.error(f"❌ Groq client initialization failed: {e}")
+            logger.error(f"? Groq client initialization failed: {e}")
             raise Exception(f"AI service initialization failed: {e}")
     
     def generate_questions_batch(self, user_type: str, context: str, 
@@ -52,7 +52,7 @@ class AIService:
         if question_count is None:
             question_count = config.QUESTIONS_PER_TEST
         
-        logger.info(f"🤖 Generating {question_count} {user_type} questions")
+        logger.info(f"?? Generating {question_count} {user_type} questions")
         
         if self.use_dummy:
             return self._generate_dummy_questions(user_type, question_count)
@@ -85,16 +85,16 @@ class AIService:
             if not questions:
                 raise Exception("No valid questions generated")
             
-            logger.info(f"✅ Generated {len(questions)} questions successfully")
+            logger.info(f"? Generated {len(questions)} questions successfully")
             return questions
             
         except Exception as e:
-            logger.error(f"❌ Question generation failed: {e}")
+            logger.error(f"? Question generation failed: {e}")
             raise Exception(f"Question generation failed: {e}")
     
     def _generate_dummy_questions(self, user_type: str, question_count: int) -> List[Dict[str, Any]]:
         """Generate dummy questions for testing when server is down"""
-        logger.info(f"🔧 Generating {question_count} dummy {user_type} questions")
+        logger.info(f"?? Generating {question_count} dummy {user_type} questions")
         
         dummy_questions = []
         
@@ -183,8 +183,267 @@ class AIService:
             }
             dummy_questions.append(question)
         
-        logger.info(f"✅ Generated {len(dummy_questions)} dummy questions")
-        return dummy_questions
+    def evaluate_test_batch(self, user_type: str, qa_pairs: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Evaluate all test answers in batch"""
+        logger.info(f"?? Evaluating {len(qa_pairs)} {user_type} answers")
+        
+        if self.use_dummy:
+            return self._generate_dummy_evaluation(qa_pairs)
+        
+        if not self.client:
+            raise Exception("AI service not available")
+        
+        try:
+            # Create evaluation prompt
+            prompt = PromptTemplates.create_evaluation_prompt(user_type, qa_pairs)
+            
+            # Get evaluation response
+            response = self._call_llm_with_retries(
+                prompt=prompt,
+                max_tokens=config.EVALUATION_MAX_TOKENS,
+                temperature=config.EVALUATION_TEMPERATURE
+            )
+            
+            # Parse evaluation result
+            evaluation_result = self._parse_evaluation_response(response, qa_pairs)
+            
+            logger.info(f"? Evaluation completed: {evaluation_result['total_correct']}/{len(qa_pairs)}")
+            return evaluation_result
+            
+        except Exception as e:
+            logger.error(f"? Evaluation failed: {e}")
+            raise Exception(f"Evaluation failed: {e}")
+    
+    def _generate_dummy_evaluation(self, qa_pairs: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Generate dummy evaluation for testing"""
+        import random
+        
+        scores = [random.choice([0, 1]) for _ in qa_pairs]
+        feedbacks = [f"Dummy feedback for question {i+1}" for i in range(len(qa_pairs))]
+        
+        return {
+            "scores": scores,
+            "feedbacks": feedbacks, 
+            "total_correct": sum(scores),
+            "evaluation_report": f"Dummy evaluation report: {sum(scores)}/{len(qa_pairs)} correct answers"
+        }
+    
+    def _call_llm_with_retries(self, prompt: str, max_tokens: int = None, 
+                              temperature: float = None, retries: int = None) -> str:
+        """Call LLM with retry logic"""
+        if max_tokens is None:
+            max_tokens = config.GROQ_MAX_TOKENS
+        if temperature is None:
+            temperature = config.GROQ_TEMPERATURE
+        if retries is None:
+            retries = config.BATCH_GENERATION_RETRIES
+        
+        last_error = None
+        
+        for attempt in range(retries):
+            try:
+                logger.debug(f"LLM call attempt {attempt + 1}/{retries}")
+                
+                completion = self.client.chat.completions.create(
+                    model=config.GROQ_MODEL,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=temperature,
+                    max_completion_tokens=max_tokens,
+                    top_p=config.GROQ_TOP_P
+                )
+                
+                if not completion.choices:
+                    raise Exception("LLM returned no response")
+                
+                response = completion.choices[0].message.content.strip()
+                
+                if not response or len(response) < 100:
+                    raise Exception("LLM returned insufficient content")
+                
+                return response
+                
+            except Exception as e:
+                last_error = e
+                logger.warning(f"LLM call attempt {attempt + 1} failed: {e}")
+                if attempt < retries - 1:
+                    time.sleep(2 ** attempt)
+        
+        raise Exception(f"LLM call failed after {retries} attempts: {last_error}")
+    
+    def _parse_batch_questions(self, response: str, user_type: str) -> List[Dict[str, Any]]:
+        """Parse batch-generated questions from LLM response"""
+        try:
+            questions = []
+            
+            # Split response by question markers
+            question_blocks = re.split(r'=== QUESTION \d+ ===', response)[1:]
+            
+            for i, block in enumerate(question_blocks, 1):
+                try:
+                    question_data = self._parse_single_question_block(block, user_type, i)
+                    if question_data:
+                        questions.append(question_data)
+                except Exception as e:
+                    logger.warning(f"Failed to parse question {i}: {e}")
+            
+            return questions
+            
+        except Exception as e:
+            logger.error(f"? Batch question parsing failed: {e}")
+            raise Exception(f"Question parsing failed: {e}")
+    
+    def _parse_single_question_block(self, block: str, user_type: str, question_number: int) -> Optional[Dict[str, Any]]:
+        """Parse a single question block"""
+        try:
+            lines = [line.strip() for line in block.split('\n') if line.strip()]
+            
+            question_data = {
+                "question_number": question_number,
+                "title": "",
+                "difficulty": "Medium",
+                "type": "General",
+                "question": "",
+                "options": None
+            }
+            
+            current_section = None
+            question_lines = []
+            options = []
+            
+            for line in lines:
+                if line.startswith("## Title:"):
+                    question_data["title"] = line.replace("## Title:", "").strip()
+                elif line.startswith("## Difficulty:"):
+                    question_data["difficulty"] = line.replace("## Difficulty:", "").strip()
+                elif line.startswith("## Type:"):
+                    question_data["type"] = line.replace("## Type:", "").strip()
+                elif line.startswith("## Question:"):
+                    current_section = "question"
+                elif line.startswith("## Options:") and user_type == "non_dev":
+                    current_section = "options"
+                elif current_section == "question":
+                    if not line.startswith("##"):
+                        question_lines.append(line)
+                elif current_section == "options" and user_type == "non_dev":
+                    if re.match(r'^[A-D]\)', line):
+                        option_text = line[3:].strip()
+                        if option_text:
+                            options.append(option_text)
+            
+            question_data["question"] = "\n".join(question_lines).strip()
+            
+            if user_type == "non_dev":
+                question_data["options"] = options if len(options) == 4 else None
+            
+            if not question_data["question"] or len(question_data["question"]) < 50:
+                return None
+            
+            if user_type == "non_dev" and not question_data["options"]:
+                return None
+            
+            return question_data
+            
+        except Exception as e:
+            logger.error(f"Single question parsing failed: {e}")
+            return None
+    
+    def _parse_evaluation_response(self, response: str, qa_pairs: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Parse evaluation response from LLM"""
+        try:
+            parsed = {
+                "scores": [],
+                "feedbacks": [],
+                "total_correct": 0,
+                "evaluation_report": response
+            }
+            
+            lines = [line.strip() for line in response.split('\n') if line.strip()]
+            
+            for line in lines:
+                if line.startswith('SCORES:'):
+                    scores_str = line.replace('SCORES:', '').strip()
+                    scores = []
+                    for score_str in scores_str.split(','):
+                        score_str = score_str.strip()
+                        if score_str.isdigit():
+                            scores.append(int(score_str))
+                    
+                    if len(scores) == len(qa_pairs):
+                        parsed["scores"] = scores
+                        parsed["total_correct"] = sum(scores)
+                
+                elif line.startswith('FEEDBACK:'):
+                    feedback_str = line.replace('FEEDBACK:', '').strip()
+                    feedbacks = [f.strip() for f in feedback_str.split('|')]
+                    
+                    if len(feedbacks) == len(qa_pairs):
+                        parsed["feedbacks"] = feedbacks
+            
+            if not parsed["scores"] or len(parsed["scores"]) != len(qa_pairs):
+                raise Exception("Failed to parse scores correctly")
+            
+            if not parsed["feedbacks"] or len(parsed["feedbacks"]) != len(qa_pairs):
+                raise Exception("Failed to parse feedback correctly")
+            
+            for i, qa in enumerate(qa_pairs):
+                qa["correct"] = bool(parsed["scores"][i])
+                qa["feedback"] = parsed["feedbacks"][i]
+            
+            return parsed
+            
+        except Exception as e:
+            logger.error(f"? Evaluation parsing failed: {e}")
+            raise Exception(f"Evaluation parsing failed: {e}")
+    
+    def health_check(self) -> Dict[str, Any]:
+        """Check AI service health"""
+        if self.use_dummy:
+            return {
+                "status": "healthy",
+                "mode": "dummy",
+                "client_ready": True
+            }
+        
+        try:
+            if not self.client:
+                return {"status": "error", "message": "Client not initialized"}
+            
+            start_time = time.time()
+            test_response = self.client.chat.completions.create(
+                model=config.GROQ_MODEL,
+                messages=[{"role": "user", "content": "ping"}],
+                max_completion_tokens=5
+            )
+            response_time = time.time() - start_time
+            
+            if test_response.choices:
+                return {
+                    "status": "healthy",
+                    "model": config.GROQ_MODEL,
+                    "response_time_ms": round(response_time * 1000, 2),
+                    "client_ready": True
+                }
+            else:
+                return {"status": "error", "message": "No response from LLM"}
+            
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+# Singleton pattern for AI service
+_ai_service = None
+
+def get_ai_service() -> AIService:
+    """Get AI service instance (singleton)"""
+    global _ai_service
+    if _ai_service is None:
+        _ai_service = AIService()
+    return _ai_service
+
+def close_ai_service():
+    """Close AI service instance"""
+    global _ai_service
+    if _ai_service:
+        _ai_service = None
     
     def _call_llm_with_retries(self, prompt: str, max_tokens: int = None, 
                               temperature: float = None, retries: int = None) -> str:
@@ -247,7 +506,7 @@ class AIService:
             return questions
             
         except Exception as e:
-            logger.error(f"❌ Batch question parsing failed: {e}")
+            logger.error(f"? Batch question parsing failed: {e}")
             raise Exception(f"Question parsing failed: {e}")
     
     def _parse_single_question_block(self, block: str, user_type: str, question_number: int) -> Optional[Dict[str, Any]]:
@@ -310,7 +569,7 @@ class AIService:
     
     def evaluate_test_batch(self, user_type: str, qa_pairs: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Evaluate all test answers in batch"""
-        logger.info(f"🧠 Evaluating {len(qa_pairs)} {user_type} answers")
+        logger.info(f"?? Evaluating {len(qa_pairs)} {user_type} answers")
         
         if not self.client:
             raise Exception("AI service not available")
@@ -329,11 +588,11 @@ class AIService:
             # Parse evaluation result
             evaluation_result = self._parse_evaluation_response(response, qa_pairs)
             
-            logger.info(f"✅ Evaluation completed: {evaluation_result['total_correct']}/{len(qa_pairs)}")
+            logger.info(f"? Evaluation completed: {evaluation_result['total_correct']}/{len(qa_pairs)}")
             return evaluation_result
             
         except Exception as e:
-            logger.error(f"❌ Evaluation failed: {e}")
+            logger.error(f"? Evaluation failed: {e}")
             raise Exception(f"Evaluation failed: {e}")
     
     def _parse_evaluation_response(self, response: str, qa_pairs: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -383,7 +642,7 @@ class AIService:
             return parsed
             
         except Exception as e:
-            logger.error(f"❌ Evaluation parsing failed: {e}")
+            logger.error(f"? Evaluation parsing failed: {e}")
             raise Exception(f"Evaluation parsing failed: {e}")
     
     def validate_questions(self, questions: List[Dict[str, Any]], user_type: str) -> Dict[str, Any]:

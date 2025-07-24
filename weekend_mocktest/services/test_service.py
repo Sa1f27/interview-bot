@@ -1,18 +1,14 @@
 # weekend_mocktest/services/test_service.py
 import logging
 import markdown
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional
 from ..core.config import config
 from ..core.database import get_db_manager
 from ..core.ai_services import get_ai_service
 from ..core.content_service import get_content_service
 from ..core.utils import (
     memory_manager, generate_test_id, generate_cache_key,
-    ValidationUtils, ResponseFormatter, DateTimeUtils, performance_monitor
-)
-from ..models.schemas import (
-    TestResponse, SubmitAnswerResponse, NextQuestionResponse,
-    QuestionData, AnswerData, TestData
+    ValidationUtils, DateTimeUtils
 )
 
 logger = logging.getLogger(__name__)
@@ -25,15 +21,12 @@ class TestService:
         self.ai_service = get_ai_service()
         self.content_service = get_content_service()
     
-    async def start_test(self, user_type: str) -> TestResponse:
+    async def start_test(self, user_type: str):
         """Start a new test with batch-generated questions"""
-        logger.info(f"🚀 Starting {user_type} test")
+        logger.info(f"?? Starting {user_type} test")
         
-        # Validate input
         if not ValidationUtils.validate_user_type(user_type):
             raise ValueError("Invalid user type")
-        
-        timer_id = performance_monitor.start_timer("start_test")
         
         try:
             # Check for cached questions first
@@ -41,7 +34,7 @@ class TestService:
             cached_questions = memory_manager.get_cached_questions(cache_key)
             
             if cached_questions:
-                logger.info(f"✅ Using cached questions: {len(cached_questions)} questions")
+                logger.info(f"? Using cached questions: {len(cached_questions)} questions")
                 questions = cached_questions
             else:
                 # Generate new questions
@@ -50,22 +43,22 @@ class TestService:
                     user_type, context, config.QUESTIONS_PER_TEST
                 )
                 
-                # Convert to QuestionData objects
+                # Convert to simple dict format
                 questions = []
                 for i, q_data in enumerate(questions_data, 1):
-                    question = QuestionData(
-                        question_number=i,
-                        title=q_data.get("title", f"Question {i}"),
-                        difficulty=q_data.get("difficulty", "Medium"),
-                        type=q_data.get("type", "General"),
-                        question=q_data["question"],
-                        options=q_data.get("options")
-                    )
+                    question = {
+                        "question_number": i,
+                        "title": q_data.get("title", f"Question {i}"),
+                        "difficulty": q_data.get("difficulty", "Medium"),
+                        "type": q_data.get("type", "General"),
+                        "question": q_data["question"],
+                        "options": q_data.get("options")
+                    }
                     questions.append(question)
                 
                 # Cache the questions
                 memory_manager.cache_questions(cache_key, questions)
-                logger.info(f"✅ Generated and cached {len(questions)} questions")
+                logger.info(f"? Generated and cached {len(questions)} questions")
             
             # Create test
             test_id = memory_manager.create_test(user_type, questions)
@@ -81,23 +74,32 @@ class TestService:
             # Get test data for response
             test_data = memory_manager.get_test(test_id)
             
-            response = ResponseFormatter.format_test_response(test_id, test_data, current_question)
+            # Create mock response object
+            class MockResponse:
+                def __init__(self, **kwargs):
+                    for k, v in kwargs.items():
+                        setattr(self, k, v)
             
-            performance_monitor.end_timer(timer_id)
-            logger.info(f"✅ Test started successfully: {test_id}")
+            response = MockResponse(
+                test_id=test_id,
+                user_type=test_data["user_type"],
+                question_number=current_question["question_number"],
+                total_questions=current_question["total_questions"],
+                question_html=current_question["question_html"],
+                options=current_question.get("options"),
+                time_limit=config.DEV_TIME_LIMIT if user_type == "dev" else config.NON_DEV_TIME_LIMIT
+            )
             
-            return TestResponse(**response)
+            logger.info(f"? Test started successfully: {test_id}")
+            return response
             
         except Exception as e:
-            performance_monitor.end_timer(timer_id)
-            logger.error(f"❌ Test start failed: {e}")
+            logger.error(f"? Test start failed: {e}")
             raise Exception(f"Test start failed: {e}")
     
-    async def submit_answer(self, test_id: str, question_number: int, answer: str) -> SubmitAnswerResponse:
+    async def submit_answer(self, test_id: str, question_number: int, answer: str):
         """Submit answer and get next question or complete test"""
-        logger.info(f"📝 Submit answer: {test_id}, Q{question_number}")
-        
-        timer_id = performance_monitor.start_timer("submit_answer")
+        logger.info(f"?? Submit answer: {test_id}, Q{question_number}")
         
         try:
             # Get test data
@@ -125,9 +127,8 @@ class TestService:
             
             # Check if test is complete
             if memory_manager.is_test_complete(test_id):
-                logger.info(f"🏁 Test completed: {test_id}")
+                logger.info(f"?? Test completed: {test_id}")
                 completion_response = await self._complete_test(test_id, test_data)
-                performance_monitor.end_timer(timer_id)
                 return completion_response
             
             # Get next question
@@ -138,27 +139,40 @@ class TestService:
             # Convert markdown to HTML
             next_question["question_html"] = markdown.markdown(next_question["question_html"])
             
-            next_question_response = ResponseFormatter.format_next_question_response(
-                next_question, test_data["user_type"]
+            # Create mock response objects
+            class MockNextQuestion:
+                def __init__(self, **kwargs):
+                    for k, v in kwargs.items():
+                        setattr(self, k, v)
+            
+            class MockResponse:
+                def __init__(self, **kwargs):
+                    for k, v in kwargs.items():
+                        setattr(self, k, v)
+            
+            next_q_response = MockNextQuestion(
+                question_number=next_question["question_number"],
+                total_questions=next_question["total_questions"],
+                question_html=next_question["question_html"],
+                options=next_question.get("options"),
+                time_limit=config.DEV_TIME_LIMIT if test_data["user_type"] == "dev" else config.NON_DEV_TIME_LIMIT
             )
             
-            performance_monitor.end_timer(timer_id)
-            logger.info(f"✅ Answer submitted, next question ready: {test_id}")
-            
-            return SubmitAnswerResponse(
+            response = MockResponse(
                 test_completed=False,
-                next_question=NextQuestionResponse(**next_question_response)
+                next_question=next_q_response
             )
+            
+            logger.info(f"? Answer submitted, next question ready: {test_id}")
+            return response
             
         except Exception as e:
-            performance_monitor.end_timer(timer_id)
-            logger.error(f"❌ Answer submission failed: {e}")
+            logger.error(f"? Answer submission failed: {e}")
             raise Exception(f"Answer submission failed: {e}")
     
     def _process_answer(self, answer: str, user_type: str, test_id: str, question_number: int) -> str:
         """Process answer based on user type"""
         if user_type == "non_dev":
-            # For MCQ, convert option index to option text if needed
             if answer.isdigit():
                 try:
                     option_index = int(answer)
@@ -167,7 +181,7 @@ class TestService:
                     
                     if 1 <= question_number <= len(questions):
                         question = questions[question_number - 1]
-                        options = question.options
+                        options = question.get("options")
                         
                         if options and 0 <= option_index < len(options):
                             return options[option_index]
@@ -176,9 +190,9 @@ class TestService:
         
         return answer
     
-    async def _complete_test(self, test_id: str, test_data: Dict[str, Any]) -> SubmitAnswerResponse:
+    async def _complete_test(self, test_id: str, test_data: Dict[str, Any]):
         """Complete test and generate evaluation"""
-        logger.info(f"🧠 Evaluating test: {test_id}")
+        logger.info(f"?? Evaluating test: {test_id}")
         
         try:
             # Get all answers
@@ -205,17 +219,24 @@ class TestService:
             # Clean up memory
             memory_manager.cleanup_test(test_id)
             
-            # Format completion response
-            completion_response = ResponseFormatter.format_completion_response(
-                evaluation_result, test_data["total_questions"]
+            # Create mock response
+            class MockResponse:
+                def __init__(self, **kwargs):
+                    for k, v in kwargs.items():
+                        setattr(self, k, v)
+            
+            response = MockResponse(
+                test_completed=True,
+                score=evaluation_result["total_correct"],
+                total_questions=test_data["total_questions"],
+                analytics=evaluation_result["evaluation_report"]
             )
             
-            logger.info(f"✅ Test completed and saved: {test_id}")
-            
-            return SubmitAnswerResponse(**completion_response)
+            logger.info(f"? Test completed and saved: {test_id}")
+            return response
             
         except Exception as e:
-            logger.error(f"❌ Test completion failed: {e}")
+            logger.error(f"? Test completion failed: {e}")
             raise Exception(f"Test completion failed: {e}")
     
     async def _save_test_results(self, test_id: str, test_data: Dict[str, Any], 
@@ -240,8 +261,7 @@ class TestService:
             self.db_manager.save_test_results(test_id, test_data_for_save, evaluation_result)
             
         except Exception as e:
-            logger.error(f"❌ Failed to save test results: {e}")
-            # Don't raise here as test is already completed from user perspective
+            logger.error(f"? Failed to save test results: {e}")
     
     async def get_test_results(self, test_id: str) -> Optional[Dict[str, Any]]:
         """Get test results by ID"""
@@ -253,7 +273,7 @@ class TestService:
             return results
             
         except Exception as e:
-            logger.error(f"❌ Failed to get test results: {e}")
+            logger.error(f"? Failed to get test results: {e}")
             raise Exception(f"Test results retrieval failed: {e}")
     
     async def get_all_tests(self, limit: int = 50) -> List[Dict[str, Any]]:
@@ -263,7 +283,7 @@ class TestService:
             return results
             
         except Exception as e:
-            logger.error(f"❌ Failed to get all tests: {e}")
+            logger.error(f"? Failed to get all tests: {e}")
             raise Exception(f"Tests retrieval failed: {e}")
     
     async def get_students(self) -> List[Dict[str, Any]]:
@@ -273,7 +293,7 @@ class TestService:
             return students
             
         except Exception as e:
-            logger.error(f"❌ Failed to get students: {e}")
+            logger.error(f"? Failed to get students: {e}")
             raise Exception(f"Students retrieval failed: {e}")
     
     async def get_student_tests(self, student_id: str) -> List[Dict[str, Any]]:
@@ -283,7 +303,7 @@ class TestService:
             return tests
             
         except Exception as e:
-            logger.error(f"❌ Failed to get student tests: {e}")
+            logger.error(f"? Failed to get student tests: {e}")
             raise Exception(f"Student tests retrieval failed: {e}")
     
     def cleanup_expired_tests(self) -> Dict[str, Any]:
@@ -300,7 +320,7 @@ class TestService:
             }
             
         except Exception as e:
-            logger.error(f"❌ Cleanup failed: {e}")
+            logger.error(f"? Cleanup failed: {e}")
             raise Exception(f"Cleanup failed: {e}")
 
 # Singleton pattern for test service

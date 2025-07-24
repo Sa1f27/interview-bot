@@ -31,7 +31,10 @@ async def health_check():
         "timestamp": DateTimeUtils.get_current_timestamp()
     }
 
-@router.post("/weekend_mocktest/api/test/start")
+# ==================== FRONTEND COMPATIBLE ENDPOINTS ====================
+# Note: These routes are relative to /weekend_mocktest mount point
+
+@router.post("/api/test/start")
 async def start_test(request_data: dict):
     """Start test - Frontend compatible"""
     try:
@@ -76,7 +79,7 @@ async def start_test(request_data: dict):
         logger.error(f"Test start failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/weekend_mocktest/api/test/submit")
+@router.post("/api/test/submit")
 async def submit_answer(request_data: dict):
     """Submit answer - Frontend compatible"""
     try:
@@ -120,7 +123,7 @@ async def submit_answer(request_data: dict):
         logger.error(f"Answer submission failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/weekend_mocktest/api/test/results/{test_id}")
+@router.get("/api/test/results/{test_id}")
 async def get_test_results(test_id: str):
     """Get test results - Frontend compatible"""
     try:
@@ -146,7 +149,7 @@ async def get_test_results(test_id: str):
         logger.error(f"Error fetching results: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/weekend_mocktest/api/test/pdf/{test_id}")
+@router.get("/api/test/pdf/{test_id}")
 async def download_pdf(test_id: str):
     """Download PDF - Frontend compatible"""
     try:
@@ -161,6 +164,8 @@ async def download_pdf(test_id: str):
     except Exception as e:
         logger.error(f"PDF generation failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+# ==================== ADMIN ENDPOINTS ====================
 
 @router.get("/api/tests")
 async def get_all_tests():

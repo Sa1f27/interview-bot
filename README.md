@@ -95,7 +95,7 @@ venv\Scripts\activate
 
 # Install dependencies
 pip install -r requirements.txt
-pip install torch==2.6.0+cu118 torchvision==0.21.0+cu118 torchaudio==2.6.0+cu118 --index-url https://download.pytorch.org/whl/cu118
+pip install torch==2.6.0+cu126 torchvision==0.21.0+cu126 torchaudio==2.6.0+cu126 --index-url https://download.pytorch.org/whl/cu126
 
 # Set environment
 echo OPENAI_API_KEY=your_key >> .env
