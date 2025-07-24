@@ -148,13 +148,28 @@ class DatabaseManager:
         """Synchronous summary retrieval for thread pool"""
         if config.USE_DUMMY_DATA:
             logger.warning("⚠️ Using dummy summary (MongoDB is DOWN)")
-            return (
-                "MLOps (Machine Learning Operations) is a set of practices that combines Machine Learning, "
-                "DevOps, and Data Engineering to deploy and maintain ML models in production reliably. It enables "
-                "automation and monitoring of the ML lifecycle, including training, deployment, and retraining. "
-                "Key tools include MLflow, Kubeflow, and TFX. MLOps ensures reproducibility, scalability, and model governance, "
-                "and addresses challenges like data quality, model drift, and pipeline orchestration."
-            )
+            return ("""
+   1. MLOps (Machine Learning Operations) is an advanced discipline that combines best practices from Machine Learning, DevOps, and Data Engineering, aiming to automate, streamline, and manage the entire machine learning lifecycle within production environments for increased reliability, scalability, and business impact,
+
+2. covering all key stages such as data acquisition, data validation, exploratory data analysis, feature extraction and engineering, dataset versioning, model design, training, hyperparameter tuning, model evaluation and validation, packaging, deployment to staging and production, as well as ongoing monitoring and retraining of models to maintain performance over time,
+
+3. facilitating effective collaboration and workflow alignment among cross-functional teams including data scientists, machine learning engineers, data engineers, software developers, IT operations, and compliance officers, ensuring clear roles, efficient handoffs, and faster iteration cycles from model research to business deployment,
+
+4. enforcing strict reproducibility and traceability by maintaining version control of not only code but also datasets, features, configurations, environments, and model artifacts, thus enabling any ML experiment, model training, or production deployment to be exactly reproduced and audited when necessary,
+
+5. enabling robust scalability and reliability by leveraging distributed computing frameworks, Kubernetes-based orchestration, containerization, and cloud-native architectures, allowing seamless expansion of workloads, efficient resource utilization, and the ability to serve both batch and real-time inference at massive scale,
+
+6. establishing continuous monitoring, logging, and observability of live models for metrics such as prediction accuracy, latency, resource utilization, data drift, and model drift, with real-time alerts and automated triggers for retraining, rollback, or human-in-the-loop review to minimize risks and ensure sustained model quality in changing environments,
+
+7. automating not only model training and deployment, but also data validation, quality checks, integration tests, model validation gates, and deployment approvals, using robust CI/CD pipelines to reduce manual intervention, accelerate safe releases, and streamline rollback or hotfix procedures,
+
+8. supporting model governance and regulatory compliance requirements by providing comprehensive audit trails of data lineage, experiment runs, model versions, deployment events, and user access logs, along with fine-grained access control and workflow approval mechanisms that are essential for regulated industries such as finance, healthcare, and government,
+
+9. addressing critical operational challenges such as pipeline orchestration, dependency management, security hardening for both data and models, environment reproducibility, scaling of experimentation, resource allocation, cost optimization, and seamless integration with existing IT infrastructure,
+
+10. leveraging a mature ecosystem of open-source and commercial tools including MLflow for experiment tracking, reproducibility, and model registry; Kubeflow for designing, deploying, and managing end-to-end ML pipelines in Kubernetes environments; TFX (TensorFlow Extended) for building robust and scalable ML pipelines using TensorFlow; Apache Airflow for complex workflow orchestration and scheduling; DVC (Data Version Control) for versioning data and model artifacts; Seldon Core and KFServing for flexible model serving; and Prometheus and Grafana for real-time system and model monitoring,
+
+11. ultimately empowering organizations to deliver robust, scalable, transparent, and production-grade machine learning systems, accelerating innovation, reducing technical debt, mitigating operational risks, and maximizing business value through the reliable deployment and continuous improvement of ML-powered solutions.""")
         
         try:
             import asyncio

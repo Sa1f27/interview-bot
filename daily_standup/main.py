@@ -92,7 +92,7 @@ class UltraFastSessionManager:
         session_data.summary_manager = fragment_manager  # Keep same attribute name for compatibility
         
         self.active_sessions[session_id] = session_data
-        logger.info(f"✅ Fast session created {session_id} for {session_data.student_name} "
+        logger.info(f"? Fast session created {session_id} for {session_data.student_name} "
                    f"with {len(session_data.fragment_keys)} fragments")
         
         return session_data
@@ -169,7 +169,7 @@ class UltraFastSessionManager:
         await self._send_response_with_ultra_fast_audio(session_data, ai_response)
         
         processing_time = time.time() - start_time
-        logger.info(f"⚡ Total processing time: {processing_time:.2f}s")
+        logger.info(f"? Total processing time: {processing_time:.2f}s")
     
     async def _update_session_state_fast(self, session_data: SessionData):
         """Ultra-fast session state updates with fragment logic"""
@@ -227,7 +227,7 @@ class UltraFastSessionManager:
             await save_task
             
         except Exception as e:
-            logger.error(f"❌ Fast session finalization error: {e}")
+            logger.error(f"? Fast session finalization error: {e}")
             raise Exception(f"Session finalization failed: {e}")
     
     async def _send_response_with_ultra_fast_audio(self, session_data: SessionData, text: str):
@@ -254,10 +254,10 @@ class UltraFastSessionManager:
                 "status": session_data.current_stage.value
             })
             
-            logger.info(f"🎵 Streamed {chunk_count} audio chunks")
+            logger.info(f"?? Streamed {chunk_count} audio chunks")
             
         except Exception as e:
-            logger.error(f"❌ Ultra-fast audio streaming error: {e}")
+            logger.error(f"? Ultra-fast audio streaming error: {e}")
             raise Exception(f"Audio streaming failed: {e}")
     
     async def _send_quick_message(self, session_data: SessionData, message: dict):
@@ -266,7 +266,7 @@ class UltraFastSessionManager:
             if session_data.websocket:
                 await session_data.websocket.send_text(json.dumps(message))
         except Exception as e:
-            logger.error(f"❌ Quick WebSocket send error: {e}")
+            logger.error(f"? Quick WebSocket send error: {e}")
             raise Exception(f"WebSocket send failed: {e}")
     
     async def get_session_result_fast(self, session_id: str) -> dict:
@@ -279,7 +279,7 @@ class UltraFastSessionManager:
                 session_id
             )
         except Exception as e:
-            logger.error(f"❌ Error fetching session result: {e}")
+            logger.error(f"? Error fetching session result: {e}")
             raise Exception(f"Session result retrieval failed: {e}")
 
     # LEGACY SUPPORT (OPTIMIZED)
@@ -319,7 +319,7 @@ class UltraFastSessionManager:
             }
             
         except Exception as e:
-            logger.error(f"❌ Legacy audio processing error: {e}")
+            logger.error(f"? Legacy audio processing error: {e}")
             raise Exception(f"Legacy audio processing failed: {e}")
 
 # =============================================================================
@@ -347,7 +347,7 @@ session_manager = UltraFastSessionManager()
 @app.on_event("startup")
 async def startup_event():
     """Initialize application on startup"""
-    logger.info("🚀 Ultra-Fast Daily Standup application started")
+    logger.info("?? Ultra-Fast Daily Standup application started")
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -364,13 +364,13 @@ async def shutdown_event():
 async def start_standup_session_fast():
     """Start a new daily standup session with ultra-fast initialization"""
     try:
-        logger.info("🚀 Starting ultra-fast standup session...")
+        logger.info("?? Starting ultra-fast standup session...")
         
         session_data = await session_manager.create_session_fast()
         
         greeting = "Hello! Welcome to your daily standup. How are you doing today?"
         
-        logger.info(f"⚡ Ultra-fast session created: {session_data.test_id}")
+        logger.info(f"? Ultra-fast session created: {session_data.test_id}")
         
         return {
             "status": "success",
@@ -384,7 +384,7 @@ async def start_standup_session_fast():
         }
         
     except Exception as e:
-        logger.error(f"❌ Error starting session: {e}")
+        logger.error(f"? Error starting session: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to start session: {str(e)}")
 
 @app.post("/api/record-respond")
@@ -394,7 +394,7 @@ async def record_and_respond_fast(
 ):
     """Ultra-fast audio processing endpoint"""
     try:
-        logger.info(f"🎤 Processing audio for test_id: {test_id}")
+        logger.info(f"?? Processing audio for test_id: {test_id}")
         
         if not test_id:
             raise HTTPException(status_code=400, detail="test_id is required")
@@ -408,7 +408,7 @@ async def record_and_respond_fast(
         
         result = await session_manager.process_legacy_audio_fast(test_id, audio_data)
         
-        logger.info(f"⚡ Audio processed for {test_id}")
+        logger.info(f"? Audio processed for {test_id}")
         
         return {
             "status": "success",
@@ -422,14 +422,14 @@ async def record_and_respond_fast(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Record and respond error: {e}")
+        logger.error(f"? Record and respond error: {e}")
         raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
 
 @app.get("/api/summary/{test_id}")
 async def get_standup_summary_fast(test_id: str):
     """Get standup session summary with ultra-fast retrieval"""
     try:
-        logger.info(f"📊 Getting summary for test_id: {test_id}")
+        logger.info(f"?? Getting summary for test_id: {test_id}")
         
         if not test_id:
             raise HTTPException(status_code=400, detail="test_id is required")
@@ -481,13 +481,13 @@ async def get_standup_summary_fast(test_id: str):
         else:
             raise HTTPException(status_code=404, detail=f"Session result not found for test_id: {test_id}")
         
-        logger.info(f"⚡ Fast summary generated for {test_id}")
+        logger.info(f"? Fast summary generated for {test_id}")
         return summary_data
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Error getting summary: {e}")
+        logger.error(f"? Error getting summary: {e}")
         raise HTTPException(status_code=500, detail=f"Summary retrieval failed: {str(e)}")
 
 @app.websocket("/ws/{session_id}")
@@ -496,11 +496,11 @@ async def websocket_endpoint_ultra_fast(websocket: WebSocket, session_id: str):
     await websocket.accept()
     
     try:
-        logger.info(f"🔌 WebSocket connected for session: {session_id}")
+        logger.info(f"?? WebSocket connected for session: {session_id}")
         
         session_data = session_manager.active_sessions.get(session_id)
         if not session_data:
-            logger.error(f"❌ Session {session_id} not found in active sessions")
+            logger.error(f"? Session {session_id} not found in active sessions")
             await websocket.send_text(json.dumps({
                 "type": "error",
                 "text": f"Session {session_id} not found. Please start a new session.",
@@ -548,13 +548,13 @@ async def websocket_endpoint_ultra_fast(websocket: WebSocket, session_id: str):
                     await websocket.send_text(json.dumps({"type": "pong"}))
                 
             except asyncio.TimeoutError:
-                logger.info(f"🔌 WebSocket timeout: {session_id}")
+                logger.info(f"?? WebSocket timeout: {session_id}")
                 break
             except WebSocketDisconnect:
-                logger.info(f"🔌 WebSocket disconnected: {session_id}")
+                logger.info(f"?? WebSocket disconnected: {session_id}")
                 break
             except Exception as e:
-                logger.error(f"❌ WebSocket error: {e}")
+                logger.error(f"? WebSocket error: {e}")
                 await websocket.send_text(json.dumps({
                     "type": "error",
                     "text": f"Error: {str(e)}",
@@ -563,7 +563,7 @@ async def websocket_endpoint_ultra_fast(websocket: WebSocket, session_id: str):
                 break
     
     except Exception as e:
-        logger.error(f"❌ WebSocket endpoint error: {e}")
+        logger.error(f"? WebSocket endpoint error: {e}")
     finally:
         await session_manager.remove_session(session_id)
 
@@ -592,7 +592,7 @@ async def download_results_fast(session_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ PDF generation error: {e}")
+        logger.error(f"? PDF generation error: {e}")
         raise HTTPException(status_code=500, detail=f"PDF generation failed: {str(e)}")
 
 @app.get("/health")
@@ -608,7 +608,7 @@ async def health_check_fast():
             "dummy_data_mode": config.USE_DUMMY_DATA
         }
     except Exception as e:
-        logger.error(f"❌ Health check failed: {e}")
+        logger.error(f"? Health check failed: {e}")
         raise HTTPException(status_code=500, detail=f"Health check failed: {str(e)}")
 
 @app.get("/test")
@@ -684,5 +684,5 @@ def generate_pdf_report(result: dict, session_id: str) -> bytes:
         return pdf_buffer.read()
         
     except Exception as e:
-        logger.error(f"❌ PDF generation error: {e}")
+        logger.error(f"? PDF generation error: {e}")
         raise Exception(f"PDF generation failed: {e}")

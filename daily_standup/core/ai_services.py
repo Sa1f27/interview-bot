@@ -173,7 +173,7 @@ class SharedClientManager:
             if not api_key:
                 raise Exception("GROQ_API_KEY not found in environment variables")
             self._groq_client = Groq(api_key=api_key)
-            logger.info("✅ Groq client initialized")
+            logger.info("? Groq client initialized")
         return self._groq_client
     
     @property 
@@ -183,7 +183,7 @@ class SharedClientManager:
             if not api_key:
                 raise Exception("OPENAI_API_KEY not found in environment variables")
             self._openai_client = openai.OpenAI(api_key=api_key)
-            logger.info("✅ OpenAI client initialized")
+            logger.info("? OpenAI client initialized")
         return self._openai_client
     
     @property
@@ -194,7 +194,7 @@ class SharedClientManager:
         """Cleanup method for graceful shutdown"""
         if self._executor:
             self._executor.shutdown(wait=True)
-        logger.info("🔌 AI client connections closed")
+        logger.info("?? AI client connections closed")
 
 # Global shared client manager
 shared_clients = SharedClientManager()
@@ -234,12 +234,12 @@ class FragmentManager:
                     if self.session_data.fragment_keys else 1)
             )
             
-            logger.info(f"✅ Initialized {len(self.session_data.fragment_keys)} fragments, "
+            logger.info(f"? Initialized {len(self.session_data.fragment_keys)} fragments, "
                        f"target {self.session_data.questions_per_concept} questions per concept")
             return True
             
         except Exception as e:
-            logger.error(f"❌ Fragment initialization failed: {e}")
+            logger.error(f"? Fragment initialization failed: {e}")
             raise Exception(f"Fragment initialization failed: {e}")
     
     def get_active_fragment(self) -> Tuple[str, str]:
@@ -407,7 +407,7 @@ class OptimizedAudioProcessor:
             return result
             
         except Exception as e:
-            logger.error(f"❌ Fast transcription error: {e}")
+            logger.error(f"? Fast transcription error: {e}")
             raise Exception(f"Transcription failed: {e}")
     
     def _sync_transcribe(self, audio_data: bytes) -> Tuple[str, float]:
@@ -444,7 +444,7 @@ class OptimizedAudioProcessor:
             return transcript, quality
             
         except Exception as e:
-            logger.error(f"❌ Sync transcription error: {e}")
+            logger.error(f"? Sync transcription error: {e}")
             raise Exception(f"Groq transcription failed: {e}")
 
 class UltraFastTTSProcessor:
@@ -498,7 +498,7 @@ class UltraFastTTSProcessor:
                         yield audio_chunk
                         
         except Exception as e:
-            logger.error(f"❌ Ultra-fast TTS error: {e}")
+            logger.error(f"? Ultra-fast TTS error: {e}")
             raise Exception(f"TTS generation failed: {e}")
     
     async def _generate_chunk_audio(self, chunk: str) -> AsyncGenerator[bytes, None]:
@@ -517,7 +517,7 @@ class UltraFastTTSProcessor:
                 raise Exception("EdgeTTS returned empty audio data")
                 
         except Exception as e:
-            logger.error(f"❌ Chunk TTS error: {e}")
+            logger.error(f"? Chunk TTS error: {e}")
             raise Exception(f"TTS chunk generation failed: {e}")
 
 # =============================================================================
@@ -543,7 +543,7 @@ class OptimizedConversationManager:
                 return await self._generate_conclusion_response(session_data, user_input)
                 
         except Exception as e:
-            logger.error(f"❌ Fast response generation error: {e}")
+            logger.error(f"? Fast response generation error: {e}")
             raise Exception(f"AI response generation failed: {e}")
     
     async def _generate_greeting_response(self, session_data: SessionData, user_input: str) -> str:
@@ -735,7 +735,7 @@ class OptimizedConversationManager:
                 raise Exception("OpenAI returned empty response")
             return result
         except Exception as e:
-            logger.error(f"❌ OpenAI API call failed: {e}")
+            logger.error(f"? OpenAI API call failed: {e}")
             raise Exception(f"OpenAI API failed: {e}")
     
     async def generate_fast_evaluation(self, session_data: SessionData) -> Tuple[str, float]:
@@ -791,5 +791,5 @@ class OptimizedConversationManager:
             return evaluation, score
             
         except Exception as e:
-            logger.error(f"❌ Fast evaluation error: {e}")
+            logger.error(f"? Fast evaluation error: {e}")
             raise Exception(f"Evaluation generation failed: {e}")
