@@ -39,26 +39,29 @@ class Config:
             f"PWD={self.DB_CONFIG['PWD']}"
         )
     
-    # MongoDB
-    MONGO_USER = os.getenv("MONGO_USER", "LanTech")
-    MONGO_PASS = os.getenv("MONGO_PASS", "L@nc^ere@0012")
+    # MongoDB - Updated to match your working connection
+    MONGO_USER = os.getenv("MONGO_USER", "connectly")
+    MONGO_PASS = os.getenv("MONGO_PASS", "LT@connect25")
     MONGO_HOST = os.getenv("MONGO_HOST", "192.168.48.201:27017")
-    MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "Api-1")
-    MONGO_AUTH_SOURCE = os.getenv("MONGO_AUTH_SOURCE", "admin")
+    MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "connectlydb")
+    MONGO_AUTH_SOURCE = os.getenv("MONGO_AUTH_SOURCE", "connectlydb")
     
     @property
     def MONGO_CONNECTION_STRING(self) -> str:
+        # URL encode the password to handle special characters
+        encoded_pass = quote_plus(self.MONGO_PASS)
         return (
-            f"mongodb://{quote_plus(self.MONGO_USER)}:"
-            f"{quote_plus(self.MONGO_PASS)}@{self.MONGO_HOST}/"
+            f"mongodb://{self.MONGO_USER}:"
+            f"{encoded_pass}@{self.MONGO_HOST}/"
             f"{self.MONGO_DB_NAME}?authSource={self.MONGO_AUTH_SOURCE}"
         )
     
-    # Collections
+    # Collections - Updated to match your setup
     SUMMARIES_COLLECTION = "original-1"
     TEST_RESULTS_COLLECTION = "mock_test_results"
     
     # ==================== Development Settings ====================
+    # Only SQL Server uses dummy mode now - MongoDB is always live
     USE_DUMMY_DATA = os.getenv("USE_DUMMY_DATA", "true").lower() == "true"
     
     # ==================== Content Generation Configuration ====================
@@ -129,6 +132,11 @@ class Config:
         if not (0 < self.SUMMARY_SLICE_FRACTION <= 1):
             issues.append("SUMMARY_SLICE_FRACTION must be between 0 and 1")
         
+        # MongoDB is always required now (no dummy mode)
+        if not self.MONGO_USER or not self.MONGO_PASS:
+            issues.append("MongoDB credentials (MONGO_USER, MONGO_PASS) are required")
+        
+        # AI service only required if not using dummy data
         if not self.USE_DUMMY_DATA and not self.GROQ_API_KEY:
             issues.append("GROQ_API_KEY is required when not using dummy data")
         
@@ -136,7 +144,8 @@ class Config:
             "valid": len(issues) == 0,
             "issues": issues,
             "config_loaded": True,
-            "using_dummy_data": self.USE_DUMMY_DATA
+            "mongodb_always_live": True,
+            "sql_dummy_mode": self.USE_DUMMY_DATA
         }
 
 # Global configuration instance
@@ -148,3 +157,14 @@ if not validation_result["valid"]:
     import logging
     logger = logging.getLogger(__name__)
     logger.warning(f"Configuration issues: {validation_result['issues']}")
+    
+# Log MongoDB connection for verification
+if __name__ == "__main__":
+    import logging
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
+    
+    logger.info(f"MongoDB Connection String: {config.MONGO_CONNECTION_STRING}")
+    logger.info(f"Summaries Collection: {config.SUMMARIES_COLLECTION}")
+    logger.info(f"SQL Dummy Mode: {config.USE_DUMMY_DATA}")
+    logger.info(f"Validation: {config.validate()}")
