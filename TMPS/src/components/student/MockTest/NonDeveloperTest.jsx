@@ -40,23 +40,43 @@ const NonDeveloperTest = () => {
   const location = useLocation();
   const theme = useTheme();
   
-  // Get test data from navigation state (from start test response)
-  const testData = location.state?.testData;
-  const apiResponse = testData?.raw || testData; // The actual API response
-  const testId = apiResponse?.test_id || testData?.testId || location.state?.testId;
-  const sessionId = apiResponse?.session_id || testData?.sessionId || location.state?.sessionId;
-  const userType = apiResponse?.user_type || testData?.userType || location.state?.userType || 'non_dev';
-  const totalQuestions = apiResponse?.total_questions || testData?.totalQuestions || location.state?.totalQuestions || 2;
-  const timeLimit = apiResponse?.time_limit || testData?.timeLimit || location.state?.timeLimit || 120; // seconds per question
-
-  // Current question data - extract from the correct location
-  const [currentQuestion, setCurrentQuestion] = useState({
-    question: apiResponse?.question_html || '',
-    questionNumber: apiResponse?.question_number || 1,
-    options: apiResponse?.options || [],
-    rawQuestion: apiResponse?.question_html || ''
-  });
+  // Extract test data from navigation state with proper fallback
+  const navigationState = location.state || {};
+  const testData = navigationState.testData || navigationState;
   
+  // Extract test configuration with multiple fallback sources
+  const testId = testData?.testId || testData?.raw?.test_id || navigationState.testId;
+  const sessionId = testData?.sessionId || testData?.raw?.session_id || navigationState.sessionId;
+  const userType = testData?.userType || testData?.raw?.user_type || navigationState.userType || 'non_dev';
+  const totalQuestions = testData?.totalQuestions || testData?.raw?.total_questions || navigationState.totalQuestions || 8;
+  const timeLimit = testData?.timeLimit || testData?.raw?.time_limit || navigationState.timeLimit || 120;
+
+  // Initialize current question state
+  const initializeCurrentQuestion = () => {
+    if (testData?.currentQuestion) {
+      return {
+        question: testData.currentQuestion.questionHtml || '',
+        questionNumber: testData.currentQuestion.questionNumber || 1,
+        options: testData.currentQuestion.options || [],
+        rawQuestion: testData.currentQuestion.questionHtml || ''
+      };
+    } else if (testData?.raw) {
+      return {
+        question: testData.raw.question_html || '',
+        questionNumber: testData.raw.question_number || 1,
+        options: testData.raw.options || [],
+        rawQuestion: testData.raw.question_html || ''
+      };
+    }
+    return {
+      question: '',
+      questionNumber: 1,
+      options: [],
+      rawQuestion: ''
+    };
+  };
+
+  const [currentQuestion, setCurrentQuestion] = useState(initializeCurrentQuestion);
   const [selectedAnswer, setSelectedAnswer] = useState('');
   const [timeLeft, setTimeLeft] = useState(timeLimit);
   const [showSubmitDialog, setShowSubmitDialog] = useState(false);
@@ -71,21 +91,24 @@ const NonDeveloperTest = () => {
   // Redirect if no test data
   useEffect(() => {
     console.log('NonDeveloperTest loaded with data:', {
+      navigationState,
       testData,
-      apiResponse: testData?.raw,
       testId,
       currentQuestion
     });
     
-    if (!testData && !testId) {
+    if (!testId || !currentQuestion.question) {
       console.warn('No test data found, redirecting to test start');
-      navigate('/student/mock-tests/start');
+      setError('Test data not found. Please start a new test.');
+      setTimeout(() => {
+        navigate('/student/mock-tests/start');
+      }, 3000);
     }
-  }, [testData, testId, navigate]);
+  }, [testId, currentQuestion.question, navigate]);
 
   // Timer effect
   useEffect(() => {
-    if (testCompleted || loading) return;
+    if (testCompleted || loading || !testId) return;
 
     const timer = setInterval(() => {
       setTimeLeft((prev) => {
@@ -98,7 +121,7 @@ const NonDeveloperTest = () => {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [testCompleted, loading, currentQuestion.questionNumber]);
+  }, [testCompleted, loading, currentQuestion.questionNumber, testId]);
 
   // Reset timer when question changes
   useEffect(() => {
@@ -130,16 +153,44 @@ const NonDeveloperTest = () => {
     setError('');
 
     try {
+      // Convert answer to option text if it's an index
+      let answerToSubmit = selectedAnswer;
+      if (selectedAnswer !== '' && currentQuestion.options && currentQuestion.options.length > 0) {
+        const answerIndex = parseInt(selectedAnswer);
+        if (!isNaN(answerIndex) && answerIndex >= 0 && answerIndex < currentQuestion.options.length) {
+          answerToSubmit = currentQuestion.options[answerIndex];
+        }
+      }
+
+      // Default to first option if auto-submit with no selection
+      if (isAutoSubmit && selectedAnswer === '' && currentQuestion.options && currentQuestion.options.length > 0) {
+        answerToSubmit = currentQuestion.options[0];
+      }
+
       console.log('Submitting answer:', {
         testId,
         questionNumber: currentQuestion.questionNumber,
-        answer: selectedAnswer || '0' // Default to first option if no selection
+        selectedIndex: selectedAnswer,
+        answerText: answerToSubmit
       });
+
+      // Validate answer data before submitting
+      const validation = mockTestAPI.validateAnswerData(
+        testId, 
+        currentQuestion.questionNumber, 
+        answerToSubmit
+      );
+
+      if (!validation.isValid) {
+        setError(`Validation error: ${validation.errors.join(', ')}`);
+        setSubmitting(false);
+        return;
+      }
 
       const response = await mockTestAPI.submitAnswerWithData(
         testId,
         currentQuestion.questionNumber,
-        selectedAnswer || '0' // Send index of selected option
+        answerToSubmit
       );
 
       console.log('Submit response:', response);
@@ -149,7 +200,7 @@ const NonDeveloperTest = () => {
         setTestCompleted(true);
         setResults(response);
         
-        // Navigate to results page
+        // Navigate to results page with complete data
         navigate('/student/mock-tests/results', { 
           state: { 
             results: {
@@ -159,10 +210,10 @@ const NonDeveloperTest = () => {
               totalQuestions: totalQuestions
             }, 
             testType: 'non-developer',
-            testData
+            testData: testData
           } 
         });
-      } else {
+      } else if (response.nextQuestion) {
         // Move to next question
         const nextQuestion = response.nextQuestion;
         setCurrentQuestion({
@@ -172,10 +223,13 @@ const NonDeveloperTest = () => {
           rawQuestion: nextQuestion.questionHtml
         });
         setSelectedAnswer(''); // Clear selection for next question
+      } else {
+        throw new Error('Invalid response format from server');
       }
     } catch (error) {
       console.error('Failed to submit answer:', error);
-      setError(`Failed to submit answer: ${error.message}`);
+      const errorMessage = mockTestAPI.getErrorMessage(error);
+      setError(`Failed to submit answer: ${errorMessage}`);
     } finally {
       setSubmitting(false);
     }
@@ -183,16 +237,9 @@ const NonDeveloperTest = () => {
 
   const getTimerColor = (timeLeft, totalTime) => {
     const percentage = (timeLeft / totalTime) * 100;
-    if (percentage <= 10) return 'error'; // Red when 10% or less time left
-    if (percentage <= 25) return 'warning'; // Orange when 25% or less time left
-    return 'secondary'; // Default color when plenty of time left
-  };
-
-  const getTimerBackgroundColor = (timeLeft, totalTime) => {
-    const percentage = (timeLeft / totalTime) * 100;
-    if (percentage <= 10) return theme.palette.error.main;
-    if (percentage <= 25) return theme.palette.warning.main;
-    return theme.palette.secondary.main;
+    if (percentage <= 10) return 'error';
+    if (percentage <= 25) return 'warning';
+    return 'secondary';
   };
 
   const getDifficultyColor = (difficulty) => {
@@ -228,23 +275,25 @@ const NonDeveloperTest = () => {
           <ul style={{ textAlign: 'left', marginBottom: '16px' }}>
             <li>Test wasn't started properly</li>
             <li>Session data is missing or corrupted</li>
-            <li>API response structure has changed</li>
+            <li>Network connection issues</li>
+            <li>Server is temporarily unavailable</li>
           </ul>
-          <Typography variant="body2" component="pre" sx={{ 
-            fontSize: '0.8rem', 
-            backgroundColor: 'rgba(0,0,0,0.1)', 
-            p: 1, 
-            borderRadius: 1,
-            textAlign: 'left'
-          }}>
-            {JSON.stringify({ 
-              testId, 
-              hasTestData: !!testData, 
-              apiResponse: testData?.raw,
-              currentQuestion,
-              rawQuestionHtml: testData?.raw?.question_html
-            }, null, 2)}
-          </Typography>
+          {process.env.NODE_ENV === 'development' && (
+            <Typography variant="body2" component="pre" sx={{ 
+              fontSize: '0.8rem', 
+              backgroundColor: 'rgba(0,0,0,0.1)', 
+              p: 1, 
+              borderRadius: 1,
+              textAlign: 'left'
+            }}>
+              {JSON.stringify({ 
+                testId, 
+                hasTestData: !!testData, 
+                navigationState,
+                currentQuestion
+              }, null, 2)}
+            </Typography>
+          )}
         </Alert>
         
         <Button 
@@ -309,22 +358,11 @@ const NonDeveloperTest = () => {
               sx={{ 
                 fontSize: '1rem', 
                 fontWeight: 'bold',
-                backgroundColor: getTimerBackgroundColor(timeLeft, timeLimit),
-                color: 'white',
-                '& .MuiChip-icon': {
-                  color: 'white'
-                },
                 animation: timeLeft <= 30 ? 'pulse 1s infinite' : 'none',
                 '@keyframes pulse': {
-                  '0%': {
-                    transform: 'scale(1)',
-                  },
-                  '50%': {
-                    transform: 'scale(1.05)',
-                  },
-                  '100%': {
-                    transform: 'scale(1)',
-                  },
+                  '0%': { transform: 'scale(1)' },
+                  '50%': { transform: 'scale(1.05)' },
+                  '100%': { transform: 'scale(1)' }
                 }
               }}
             />
@@ -389,19 +427,32 @@ const NonDeveloperTest = () => {
               lineHeight: 1.6,
               color: theme.palette.text.primary,
               fontWeight: 'medium',
-              '& h2': { fontSize: '1.25rem', fontWeight: 'bold', mb: 2 },
-              '& p': { mb: 1 },
+              '& h1, & h2, & h3, & h4, & h5, & h6': { 
+                fontSize: '1.25rem', 
+                fontWeight: 'bold', 
+                mb: 2,
+                color: theme.palette.text.primary
+              },
+              '& p': { mb: 2 },
               '& pre': { 
                 backgroundColor: alpha(theme.palette.secondary.main, 0.05),
                 p: 2,
                 borderRadius: 1,
-                overflow: 'auto'
+                overflow: 'auto',
+                fontFamily: 'Monaco, Consolas, "Courier New", monospace'
               },
               '& code': {
                 backgroundColor: alpha(theme.palette.secondary.main, 0.1),
                 padding: '2px 6px',
                 borderRadius: 1,
                 fontFamily: 'Monaco, Consolas, "Courier New", monospace'
+              },
+              '& ul, & ol': { 
+                pl: 3, 
+                mb: 2 
+              },
+              '& li': { 
+                mb: 1 
               }
             }}
             dangerouslySetInnerHTML={{ __html: currentQuestion.question }}

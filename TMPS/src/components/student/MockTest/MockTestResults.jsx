@@ -41,19 +41,23 @@ const MockTestResults = () => {
   const navigate = useNavigate();
   const theme = useTheme();
   
-  const { results: passedResults, testType, testData } = location.state || {};
+  // Extract results data from navigation state
+  const navigationState = location.state || {};
+  const passedResults = navigationState.results;
+  const testType = navigationState.testType || 'developer';
+  const testData = navigationState.testData;
+
   const [results, setResults] = useState(passedResults);
   const [loading, setLoading] = useState(!passedResults);
   const [error, setError] = useState('');
   const [downloadingPDF, setDownloadingPDF] = useState(false);
 
   // Extract test ID from various possible sources
-  const testId = passedResults?.testId || 
-                 passedResults?.test_id ||
+  const testId = results?.testId || 
+                 results?.test_id ||
                  testData?.testId || 
-                 testData?.raw?.test_id || 
-                 passedResults?.raw?.test_id ||
-                 location.state?.testId;
+                 testData?.raw?.test_id ||
+                 navigationState.testId;
 
   // Fetch results from API if not passed through navigation
   useEffect(() => {
@@ -70,7 +74,6 @@ const MockTestResults = () => {
         const apiResults = await mockTestAPI.getTestResults(testId);
         console.log('API Results received:', apiResults);
         
-        // Handle different response structures from your backend
         if (apiResults) {
           setResults(apiResults);
         } else {
@@ -78,7 +81,8 @@ const MockTestResults = () => {
         }
       } catch (error) {
         console.error('Failed to fetch results:', error);
-        setError(`Failed to load test results: ${error.message}`);
+        const errorMessage = mockTestAPI.getErrorMessage(error);
+        setError(`Failed to load test results: ${errorMessage}`);
       } finally {
         setLoading(false);
       }
@@ -111,7 +115,8 @@ const MockTestResults = () => {
       
     } catch (error) {
       console.error('Failed to download PDF:', error);
-      setError(`Failed to download PDF: ${error.message}`);
+      const errorMessage = mockTestAPI.getErrorMessage(error);
+      setError(`Failed to download PDF: ${errorMessage}`);
     } finally {
       setDownloadingPDF(false);
     }
@@ -155,9 +160,11 @@ const MockTestResults = () => {
         <Typography variant="h5" color="error" sx={{ mb: 2 }}>
           No test results found. Please take a test first.
         </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-          Debug info: Test ID = {testId || 'Not found'}
-        </Typography>
+        {process.env.NODE_ENV === 'development' && (
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            Debug info: Test ID = {testId || 'Not found'}
+          </Typography>
+        )}
         <Button 
           variant="contained" 
           onClick={() => navigate('/student/mock-tests')}
@@ -190,12 +197,13 @@ const MockTestResults = () => {
     return 'Needs Improvement';
   };
 
-  // Extract data from results (handle both API structure and passed results)
+  // Extract data from results with proper fallbacks
   const score = results.score || 0;
-  const totalQuestions = results.total_questions || results.totalQuestions || 2;
-  const percentage = Math.round((score / totalQuestions) * 100) || 0;
-  const analytics = results.analytics || '';
-  const pdfAvailable = results.pdf_available || results.pdfAvailable || true;
+  const totalQuestions = results.totalQuestions || results.total_questions || (testType === 'developer' ? 5 : 8);
+  const percentage = results.scorePercentage || Math.round((score / totalQuestions) * 100) || 0;
+  const analytics = results.analytics || 'Evaluation completed successfully.';
+  const pdfAvailable = results.pdfAvailable !== false;
+  const timestamp = results.timestamp || Date.now();
 
   const renderDeveloperResults = () => (
     <Grid container spacing={3}>
@@ -227,15 +235,17 @@ const MockTestResults = () => {
                   secondary={`${score} out of ${totalQuestions}`}
                 />
               </ListItem>
-              <ListItem>
-                <ListItemIcon>
-                  <AssignmentIcon color="primary" />
-                </ListItemIcon>
-                <ListItemText 
-                  primary="Test ID" 
-                  secondary={testId?.slice(0, 8) + '...' || 'N/A'}
-                />
-              </ListItem>
+              {testId && (
+                <ListItem>
+                  <ListItemIcon>
+                    <AssignmentIcon color="primary" />
+                  </ListItemIcon>
+                  <ListItemText 
+                    primary="Test ID" 
+                    secondary={testId.slice(0, 8) + '...' || 'N/A'}
+                  />
+                </ListItem>
+              )}
             </List>
           </CardContent>
         </Card>
@@ -248,12 +258,12 @@ const MockTestResults = () => {
               Performance Overview
             </Typography>
             <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>
-              Your responses have been evaluated and scored.
+              Your code solutions have been evaluated and scored.
             </Typography>
             <Chip 
               label={`${percentage}% Score`}
               color={percentage >= 70 ? 'success' : percentage >= 50 ? 'warning' : 'error'}
-              sx={{ fontWeight: 'bold' }}
+              sx={{ fontWeight: 'bold', fontSize: '1rem' }}
             />
           </CardContent>
         </Card>
@@ -276,7 +286,6 @@ const MockTestResults = () => {
               >
                 <Typography 
                   variant="body2" 
-                  component="pre" 
                   sx={{ 
                     whiteSpace: 'pre-wrap',
                     fontFamily: 'inherit',
@@ -451,7 +460,6 @@ const MockTestResults = () => {
                 >
                   <Typography 
                     variant="body2" 
-                    component="pre" 
                     sx={{ 
                       whiteSpace: 'pre-wrap',
                       fontFamily: 'inherit',
@@ -514,7 +522,7 @@ const MockTestResults = () => {
         
         <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2, flexWrap: 'wrap' }}>
           <Chip 
-            label={new Date().toLocaleDateString()}
+            label={new Date(timestamp).toLocaleDateString()}
             variant="outlined"
             sx={{ fontSize: '1rem' }}
           />

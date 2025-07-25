@@ -44,30 +44,26 @@ const MockTestStart = () => {
   };
 
   const handleStartTest = async () => {
-    if (!selectedUserType) return;
+    if (!selectedUserType) {
+      setError('Please select a user type before starting the test.');
+      return;
+    }
 
     setLoading(true);
     setError('');
 
     try {
-      // FIXED: Map frontend values to correct API values
-      const apiUserType = selectedUserType === 'developer' ? 'dev' : 'non_dev';
-      
-      // Prepare test configuration with correct API field names
+      // Prepare test configuration with proper format
       const testConfig = {
-        user_type: apiUserType, // API expects 'dev' or 'non_dev'
+        user_type: selectedUserType === 'developer' ? 'dev' : 'non_dev',
+        userType: selectedUserType, // Keep original for reference
         student_id: localStorage.getItem('studentId') || 'student123',
-        difficulty: 'medium',
-        duration: selectedUserType === 'developer' ? 45 : 30,
-        question_count: selectedUserType === 'developer' ? 5 : 8,
-        categories: selectedUserType === 'developer' 
-          ? ['javascript', 'algorithms', 'system-design', 'react', 'database']
-          : ['project-management', 'business-analysis', 'ux-ui', 'marketing', 'data-analysis']
+        timestamp: Date.now()
       };
 
-      console.log('Sending test config:', testConfig); // Debug log
+      console.log('Starting test with config:', testConfig);
 
-      // Validate configuration
+      // Validate configuration before sending
       const validation = mockTestAPI.validateTestConfig(testConfig);
       if (!validation.isValid) {
         setError(`Configuration error: ${validation.errors.join(', ')}`);
@@ -80,31 +76,45 @@ const MockTestStart = () => {
       
       console.log('Test started successfully:', testData);
 
-      // Navigate to appropriate test component with test data
+      // Prepare navigation state with complete data structure
+      const navigationState = {
+        testData: {
+          testId: testData.testId,
+          sessionId: testData.sessionId,
+          userType: testData.userType,
+          totalQuestions: testData.totalQuestions,
+          timeLimit: testData.timeLimit,
+          duration: testData.duration,
+          raw: testData.raw,
+          currentQuestion: testData.currentQuestion
+        },
+        // Additional fields for backward compatibility
+        testId: testData.testId,
+        sessionId: testData.sessionId,
+        userType: testData.userType,
+        totalQuestions: testData.totalQuestions,
+        timeLimit: testData.timeLimit,
+        questions: [testData.currentQuestion], // First question
+        duration: testData.duration
+      };
+
+      console.log('Navigation state prepared:', navigationState);
+
+      // Navigate to appropriate test component based on user type
       if (selectedUserType === 'developer') {
         navigate('/student/mock-tests/developer-test', { 
-          state: { 
-            testData,
-            testId: testData.testId,
-            sessionId: testData.sessionId,
-            questions: testData.questions,
-            duration: testData.duration || 45
-          } 
+          state: navigationState
         });
       } else {
         navigate('/student/mock-tests/non-developer-test', { 
-          state: { 
-            testData,
-            testId: testData.testId,
-            sessionId: testData.sessionId,
-            questions: testData.questions,
-            duration: testData.duration || 30
-          } 
+          state: navigationState
         });
       }
+
     } catch (error) {
       console.error('Failed to start test:', error);
-      setError(`Failed to start test: ${error.message}`);
+      const errorMessage = mockTestAPI.getErrorMessage(error);
+      setError(`Failed to start test: ${errorMessage}`);
     } finally {
       setLoading(false);
     }
@@ -219,7 +229,7 @@ const MockTestStart = () => {
                     }
                   }}
                 >
-                  <CardActionArea sx={{ height: '100%' }}>
+                  <CardActionArea sx={{ height: '100%' }} onClick={() => setSelectedUserType(userType.value)}>
                     <CardContent sx={{ p: 4, height: '100%', display: 'flex', flexDirection: 'column' }}>
                       {/* Selection Indicator */}
                       {selectedUserType === userType.value && (
@@ -370,8 +380,8 @@ const MockTestStart = () => {
             }
           </Button>
           
-          {/* Debug Info - Remove in production */}
-          {selectedUserType && (
+          {/* Debug Info */}
+          {process.env.NODE_ENV === 'development' && selectedUserType && (
             <Typography variant="caption" display="block" sx={{ mt: 2, color: 'text.secondary' }}>
               Debug: Will send user_type="{selectedUserType === 'developer' ? 'dev' : 'non_dev'}" to API
             </Typography>

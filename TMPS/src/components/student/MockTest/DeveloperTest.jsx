@@ -36,23 +36,43 @@ const DeveloperTest = () => {
   const location = useLocation();
   const theme = useTheme();
   
-  // Get test data from navigation state (from start test response)
-  const testData = location.state?.testData;
-  const apiResponse = testData?.raw || testData; // The actual API response
-  const testId = apiResponse?.test_id || testData?.testId || location.state?.testId;
-  const sessionId = apiResponse?.session_id || testData?.sessionId || location.state?.sessionId;
-  const userType = apiResponse?.user_type || testData?.userType || location.state?.userType || 'dev';
-  const totalQuestions = apiResponse?.total_questions || testData?.totalQuestions || location.state?.totalQuestions || 2;
-  const timeLimit = apiResponse?.time_limit || testData?.timeLimit || location.state?.timeLimit || 300; // seconds per question
-
-  // Current question data - extract from the correct location
-  const [currentQuestion, setCurrentQuestion] = useState({
-    question: apiResponse?.question_html || '',
-    questionNumber: apiResponse?.question_number || 1,
-    options: apiResponse?.options || null,
-    rawQuestion: apiResponse?.question_html || ''
-  });
+  // Extract test data from navigation state with proper fallback
+  const navigationState = location.state || {};
+  const testData = navigationState.testData || navigationState;
   
+  // Extract test configuration with multiple fallback sources
+  const testId = testData?.testId || testData?.raw?.test_id || navigationState.testId;
+  const sessionId = testData?.sessionId || testData?.raw?.session_id || navigationState.sessionId;
+  const userType = testData?.userType || testData?.raw?.user_type || navigationState.userType || 'dev';
+  const totalQuestions = testData?.totalQuestions || testData?.raw?.total_questions || navigationState.totalQuestions || 5;
+  const timeLimit = testData?.timeLimit || testData?.raw?.time_limit || navigationState.timeLimit || 300;
+
+  // Initialize current question state
+  const initializeCurrentQuestion = () => {
+    if (testData?.currentQuestion) {
+      return {
+        question: testData.currentQuestion.questionHtml || '',
+        questionNumber: testData.currentQuestion.questionNumber || 1,
+        options: testData.currentQuestion.options || null,
+        rawQuestion: testData.currentQuestion.questionHtml || ''
+      };
+    } else if (testData?.raw) {
+      return {
+        question: testData.raw.question_html || '',
+        questionNumber: testData.raw.question_number || 1,
+        options: testData.raw.options || null,
+        rawQuestion: testData.raw.question_html || ''
+      };
+    }
+    return {
+      question: '',
+      questionNumber: 1,
+      options: null,
+      rawQuestion: ''
+    };
+  };
+
+  const [currentQuestion, setCurrentQuestion] = useState(initializeCurrentQuestion);
   const [answer, setAnswer] = useState('');
   const [timeLeft, setTimeLeft] = useState(timeLimit);
   const [showSubmitDialog, setShowSubmitDialog] = useState(false);
@@ -66,22 +86,25 @@ const DeveloperTest = () => {
 
   // Redirect if no test data
   useEffect(() => {
-    console.log('Component loaded with data:', {
+    console.log('DeveloperTest loaded with data:', {
+      navigationState,
       testData,
-      apiResponse: testData?.raw,
       testId,
       currentQuestion
     });
     
-    if (!testData && !testId) {
+    if (!testId || !currentQuestion.question) {
       console.warn('No test data found, redirecting to test start');
-      navigate('/student/mock-tests/start');
+      setError('Test data not found. Please start a new test.');
+      setTimeout(() => {
+        navigate('/student/mock-tests/start');
+      }, 3000);
     }
-  }, [testData, testId, navigate]);
+  }, [testId, currentQuestion.question, navigate]);
 
   // Timer effect
   useEffect(() => {
-    if (testCompleted || loading) return;
+    if (testCompleted || loading || !testId) return;
 
     const timer = setInterval(() => {
       setTimeLeft((prev) => {
@@ -94,7 +117,7 @@ const DeveloperTest = () => {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [testCompleted, loading, currentQuestion.questionNumber]);
+  }, [testCompleted, loading, currentQuestion.questionNumber, testId]);
 
   // Reset timer when question changes
   useEffect(() => {
@@ -129,8 +152,21 @@ const DeveloperTest = () => {
       console.log('Submitting answer:', {
         testId,
         questionNumber: currentQuestion.questionNumber,
-        answer: answer.trim()
+        answer: answer.trim() || 'No answer provided'
       });
+
+      // Validate answer data before submitting
+      const validation = mockTestAPI.validateAnswerData(
+        testId, 
+        currentQuestion.questionNumber, 
+        answer.trim() || 'No answer provided'
+      );
+
+      if (!validation.isValid) {
+        setError(`Validation error: ${validation.errors.join(', ')}`);
+        setSubmitting(false);
+        return;
+      }
 
       const response = await mockTestAPI.submitAnswerWithData(
         testId,
@@ -145,7 +181,7 @@ const DeveloperTest = () => {
         setTestCompleted(true);
         setResults(response);
         
-        // Navigate to results page
+        // Navigate to results page with complete data
         navigate('/student/mock-tests/results', { 
           state: { 
             results: {
@@ -155,10 +191,10 @@ const DeveloperTest = () => {
               totalQuestions: totalQuestions
             }, 
             testType: 'developer',
-            testData
+            testData: testData
           } 
         });
-      } else {
+      } else if (response.nextQuestion) {
         // Move to next question
         const nextQuestion = response.nextQuestion;
         setCurrentQuestion({
@@ -168,10 +204,13 @@ const DeveloperTest = () => {
           rawQuestion: nextQuestion.questionHtml
         });
         setAnswer(''); // Clear answer for next question
+      } else {
+        throw new Error('Invalid response format from server');
       }
     } catch (error) {
       console.error('Failed to submit answer:', error);
-      setError(`Failed to submit answer: ${error.message}`);
+      const errorMessage = mockTestAPI.getErrorMessage(error);
+      setError(`Failed to submit answer: ${errorMessage}`);
     } finally {
       setSubmitting(false);
     }
@@ -187,11 +226,16 @@ const DeveloperTest = () => {
   };
 
   const getQuestionPlaceholder = () => {
-    if (userType === 'dev') {
-      return '// Write your solution here\nfunction solution() {\n  // Your code here\n}\n\n// Explanation:\n// Time Complexity: \n// Space Complexity: \n// Approach: ';
-    } else {
-      return 'Enter your answer here...';
-    }
+    return `// Write your solution here
+function solution() {
+  // Your code here
+  
+}
+
+// Explanation:
+// Time Complexity: O(n)
+// Space Complexity: O(1)
+// Approach: Describe your approach here...`;
   };
 
   // Loading state
@@ -218,23 +262,25 @@ const DeveloperTest = () => {
           <ul style={{ textAlign: 'left', marginBottom: '16px' }}>
             <li>Test wasn't started properly</li>
             <li>Session data is missing or corrupted</li>
-            <li>API response structure has changed</li>
+            <li>Network connection issues</li>
+            <li>Server is temporarily unavailable</li>
           </ul>
-          <Typography variant="body2" component="pre" sx={{ 
-            fontSize: '0.8rem', 
-            backgroundColor: 'rgba(0,0,0,0.1)', 
-            p: 1, 
-            borderRadius: 1,
-            textAlign: 'left'
-          }}>
-            {JSON.stringify({ 
-              testId, 
-              hasTestData: !!testData, 
-              apiResponse: testData?.raw,
-              currentQuestion,
-              rawQuestionHtml: testData?.raw?.question_html
-            }, null, 2)}
-          </Typography>
+          {process.env.NODE_ENV === 'development' && (
+            <Typography variant="body2" component="pre" sx={{ 
+              fontSize: '0.8rem', 
+              backgroundColor: 'rgba(0,0,0,0.1)', 
+              p: 1, 
+              borderRadius: 1,
+              textAlign: 'left'
+            }}>
+              {JSON.stringify({ 
+                testId, 
+                hasTestData: !!testData, 
+                navigationState,
+                currentQuestion
+              }, null, 2)}
+            </Typography>
+          )}
         </Alert>
         
         <Button 
@@ -255,7 +301,7 @@ const DeveloperTest = () => {
           🎉 Test Completed!
         </Typography>
         <Typography variant="h6" sx={{ mb: 2 }}>
-          Your Score: {results.score} / {results.total_questions}
+          Your Score: {results.score} / {results.totalQuestions}
         </Typography>
         <Typography variant="body1" sx={{ mb: 4 }}>
           Redirecting to detailed results...
@@ -327,7 +373,7 @@ const DeveloperTest = () => {
             <Box>
               <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
                 <Chip 
-                  label={userType === 'dev' ? 'Programming' : 'Multiple Choice'} 
+                  label="Programming" 
                   variant="outlined"
                   sx={{ fontWeight: 'bold' }}
                 />
@@ -358,70 +404,60 @@ const DeveloperTest = () => {
               lineHeight: 1.6,
               color: theme.palette.text.primary,
               fontWeight: 'medium',
-              '& h2': { fontSize: '1.25rem', fontWeight: 'bold', mb: 2 },
-              '& p': { mb: 1 },
+              '& h1, & h2, & h3, & h4, & h5, & h6': { 
+                fontSize: '1.25rem', 
+                fontWeight: 'bold', 
+                mb: 2,
+                color: theme.palette.text.primary
+              },
+              '& p': { mb: 2 },
               '& pre': { 
                 backgroundColor: alpha(theme.palette.primary.main, 0.05),
                 p: 2,
                 borderRadius: 1,
-                overflow: 'auto'
+                overflow: 'auto',
+                fontFamily: 'Monaco, Consolas, "Courier New", monospace'
               },
               '& code': {
                 backgroundColor: alpha(theme.palette.primary.main, 0.1),
                 padding: '2px 6px',
                 borderRadius: 1,
                 fontFamily: 'Monaco, Consolas, "Courier New", monospace'
+              },
+              '& ul, & ol': { 
+                pl: 3, 
+                mb: 2 
+              },
+              '& li': { 
+                mb: 1 
               }
             }}
             dangerouslySetInnerHTML={{ __html: currentQuestion.question }}
           />
 
-          {/* Options for non-dev users */}
-          {userType === 'non_dev' && currentQuestion.options && (
-            <Box sx={{ mb: 3 }}>
-              <Typography variant="h6" sx={{ mb: 2 }}>Select your answer:</Typography>
-              {currentQuestion.options.map((option, index) => (
-                <Box key={index} sx={{ mb: 1 }}>
-                  <Button
-                    variant={answer === index.toString() ? 'contained' : 'outlined'}
-                    onClick={() => setAnswer(index.toString())}
-                    sx={{ 
-                      width: '100%', 
-                      textAlign: 'left', 
-                      justifyContent: 'flex-start',
-                      py: 1.5,
-                      px: 2
-                    }}
-                  >
-                    {String.fromCharCode(65 + index)}. {option}
-                  </Button>
-                </Box>
-              ))}
-            </Box>
-          )}
-
-          {/* Answer Field for dev users */}
-          {userType === 'dev' && (
-            <TextField
-              multiline
-              rows={12}
-              fullWidth
-              placeholder={getQuestionPlaceholder()}
-              value={answer}
-              onChange={handleAnswerChange}
-              sx={{
-                '& .MuiOutlinedInput-root': {
-                  fontFamily: 'Monaco, Consolas, "Courier New", monospace',
-                  fontSize: '0.9rem',
-                  lineHeight: 1.5,
-                  backgroundColor: alpha(theme.palette.primary.main, 0.02),
-                  '&:hover': {
-                    backgroundColor: alpha(theme.palette.primary.main, 0.04),
-                  }
+          {/* Answer Field */}
+          <TextField
+            multiline
+            rows={12}
+            fullWidth
+            placeholder={getQuestionPlaceholder()}
+            value={answer}
+            onChange={handleAnswerChange}
+            sx={{
+              '& .MuiOutlinedInput-root': {
+                fontFamily: 'Monaco, Consolas, "Courier New", monospace',
+                fontSize: '0.9rem',
+                lineHeight: 1.5,
+                backgroundColor: alpha(theme.palette.primary.main, 0.02),
+                '&:hover': {
+                  backgroundColor: alpha(theme.palette.primary.main, 0.04),
+                },
+                '&.Mui-focused': {
+                  backgroundColor: alpha(theme.palette.primary.main, 0.06),
                 }
-              }}
-            />
-          )}
+              }
+            }}
+          />
         </CardContent>
       </Card>
 
@@ -433,7 +469,7 @@ const DeveloperTest = () => {
             size="large"
             startIcon={submitting ? <CircularProgress size={16} color="inherit" /> : <SendIcon />}
             onClick={() => setShowSubmitDialog(true)}
-            disabled={submitting || (!answer.trim() && userType === 'dev')}
+            disabled={submitting || (!answer.trim())}
             sx={{ 
               py: 1.5, 
               px: 4,
@@ -451,7 +487,7 @@ const DeveloperTest = () => {
             size="large"
             endIcon={submitting ? <CircularProgress size={16} color="inherit" /> : <NavigateNextIcon />}
             onClick={() => handleSubmitAnswer()}
-            disabled={submitting || (!answer.trim() && userType === 'dev')}
+            disabled={submitting || (!answer.trim())}
             sx={{ py: 1.5, px: 4 }}
           >
             {submitting ? 'Submitting...' : 'Next Question'}
@@ -471,6 +507,9 @@ const DeveloperTest = () => {
           </Typography>
           <Typography variant="body2" color="text.secondary">
             Time remaining: {formatTime(timeLeft)}
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+            Answer length: {answer.trim().length} characters
           </Typography>
         </DialogContent>
         <DialogActions>
