@@ -13,11 +13,11 @@ client = MongoClient(mongo_uri)
 db = client["ml_notes"]
 collection = db["summaries"]
 
-# Fetch all documents
-documents = collection.find()
+# Fetch the latest 6 documents sorted by insertion order (descending)
+latest_documents = collection.find().sort("_id", -1).limit(6)
 
 # Print summaries
-for idx, doc in enumerate(documents, start=1):
+for idx, doc in enumerate(latest_documents, start=1):
     print(f"--- Summary {idx} ---")
     print("Summary    :")
     print(doc.get("summary"))
