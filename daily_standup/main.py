@@ -1,6 +1,6 @@
 """
-Ultra-fast, summary-based daily standup backend with optimized performance
-Refactored main entry point with modular architecture
+Ultra-fast, real database daily standup backend with optimized performance
+NO DUMMY DATA - Real connections only
 """
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, File, UploadFile, Form
@@ -49,7 +49,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # =============================================================================
-# ULTRA-FAST SESSION MANAGER
+# ULTRA-FAST SESSION MANAGER - NO DUMMY DATA
 # =============================================================================
 
 class UltraFastSessionManager:
@@ -61,115 +61,160 @@ class UltraFastSessionManager:
         self.conversation_manager = OptimizedConversationManager(shared_clients)
     
     async def create_session_fast(self, websocket: Optional[Any] = None) -> SessionData:
-        """Ultra-fast session creation with dynamic fragment system"""
+        """Ultra-fast session creation with real database connections"""
         session_id = str(uuid.uuid4())
         test_id = f"standup_{int(time.time())}"
         
-        # Get student info and summary in parallel
-        student_info_task = asyncio.create_task(self.db_manager.get_student_info_fast())
-        summary_task = asyncio.create_task(self.db_manager.get_summary_fast())
-        
-        student_id, first_name, last_name, session_key = await student_info_task
-        summary = await summary_task
-        
-        # Create session
-        session_data = SessionData(
-            session_id=session_id,
-            test_id=test_id,
-            student_id=student_id,
-            student_name=f"{first_name} {last_name}",
-            session_key=session_key,
-            created_at=time.time(),
-            last_activity=time.time(),
-            current_stage=SessionStage.GREETING,
-            websocket=websocket
-        )
-        
-        # Initialize fragment manager instead of summary manager
-        
-        fragment_manager = SummaryManager(shared_clients, session_data)
-        fragment_manager.initialize_fragments(summary)
-        session_data.summary_manager = fragment_manager  # Keep same attribute name for compatibility
-        
-        self.active_sessions[session_id] = session_data
-        logger.info(f"? Fast session created {session_id} for {session_data.student_name} "
-                   f"with {len(session_data.fragment_keys)} fragments")
-        
-        return session_data
+        try:
+            # Get student info and summary in parallel - REAL DATA ONLY
+            student_info_task = asyncio.create_task(self.db_manager.get_student_info_fast())
+            summary_task = asyncio.create_task(self.db_manager.get_summary_fast())
+            
+            student_id, first_name, last_name, session_key = await student_info_task
+            summary = await summary_task
+            
+            # Validate we got real data
+            if not summary or len(summary.strip()) < 50:
+                raise Exception("Invalid summary retrieved from database")
+            
+            if not first_name or not last_name:
+                raise Exception("Invalid student data retrieved from database")
+            
+            # Create session
+            session_data = SessionData(
+                session_id=session_id,
+                test_id=test_id,
+                student_id=student_id,
+                student_name=f"{first_name} {last_name}",
+                session_key=session_key,
+                created_at=time.time(),
+                last_activity=time.time(),
+                current_stage=SessionStage.GREETING,
+                websocket=websocket
+            )
+            
+            # Initialize fragment manager with real summary
+            fragment_manager = SummaryManager(shared_clients, session_data)
+            if not fragment_manager.initialize_fragments(summary):
+                raise Exception("Failed to initialize fragments from summary")
+            
+            session_data.summary_manager = fragment_manager
+            
+            self.active_sessions[session_id] = session_data
+            logger.info(f"? Real session created {session_id} for {session_data.student_name} "
+                       f"with {len(session_data.fragment_keys)} fragments")
+            
+            return session_data
+            
+        except Exception as e:
+            logger.error(f"? Failed to create session: {e}")
+            raise Exception(f"Session creation failed: {e}")
     
     async def remove_session(self, session_id: str):
         """Fast session removal"""
         if session_id in self.active_sessions:
             del self.active_sessions[session_id]
-            logger.info(f"Removed session {session_id}")
+            logger.info(f"??? Removed session {session_id}")
     
     async def process_audio_ultra_fast(self, session_id: str, audio_data: bytes):
-        """Ultra-fast audio processing pipeline"""
+        """Ultra-fast audio processing pipeline - optimized for speed"""
         session_data = self.active_sessions.get(session_id)
         if not session_data or not session_data.is_active:
+            logger.warning(f"?? Inactive session: {session_id}")
             return
         
         start_time = time.time()
         
-        # Start transcription immediately
-        transcription_task = asyncio.create_task(
-            self.audio_processor.transcribe_audio_fast(audio_data)
-        )
-        
-        transcript, quality = await transcription_task
-        
-        if not transcript or len(transcript.strip()) < 2:
-            # Dynamic clarification request
-            clarification_context = {
-                'clarification_attempts': getattr(session_data, 'clarification_attempts', 0),
-                'audio_quality': quality
-            }
-            session_data.clarification_attempts = clarification_context['clarification_attempts'] + 1
+        try:
+            # Log audio data size for debugging
+            audio_size = len(audio_data)
+            logger.info(f"?? Session {session_id}: Received {audio_size} bytes of audio data")
             
-            clarification_prompt = prompts.dynamic_clarification_request(clarification_context)
+            # More lenient audio size check with better error handling
+            if audio_size < 100:  # Very small chunks
+                logger.warning(f"?? Very small audio chunk ({audio_size} bytes) - likely silence or noise")
+                await self._send_quick_message(session_data, {
+                    "type": "clarification",
+                    "text": "I didn't hear anything clear. Could you please speak a bit louder?",
+                    "status": session_data.current_stage.value
+                })
+                return
+            elif audio_size < 1000:  # Small but potentially valid chunks
+                logger.warning(f"?? Small audio chunk ({audio_size} bytes) - attempting transcription anyway")
             
-            # Generate dynamic clarification message
-            loop = asyncio.get_event_loop()
-            clarification_message = await loop.run_in_executor(
-                shared_clients.executor,
-                self.conversation_manager._sync_openai_call,
-                clarification_prompt
-            )
+            # Start transcription with the audio data we have
+            transcript, quality = await self.audio_processor.transcribe_audio_fast(audio_data)
+            
+            if not transcript or len(transcript.strip()) < 2:
+                # Dynamic clarification request
+                clarification_context = {
+                    'clarification_attempts': getattr(session_data, 'clarification_attempts', 0),
+                    'audio_quality': quality,
+                    'audio_size': audio_size
+                }
+                session_data.clarification_attempts = clarification_context['clarification_attempts'] + 1
+                
+                # More specific clarification based on audio size
+                if audio_size < 500:
+                    clarification_message = "I received a very short audio clip. Please try speaking for a bit longer."
+                elif quality < 0.3:
+                    clarification_message = "The audio wasn't very clear. Could you please speak a bit louder and clearer?"
+                else:
+                    clarification_prompt = prompts.dynamic_clarification_request(clarification_context)
+                    loop = asyncio.get_event_loop()
+                    clarification_message = await loop.run_in_executor(
+                        shared_clients.executor,
+                        self.conversation_manager._sync_openai_call,
+                        clarification_prompt
+                    )
+                
+                await self._send_quick_message(session_data, {
+                    "type": "clarification",
+                    "text": clarification_message,
+                    "status": session_data.current_stage.value
+                })
+                return
+            
+            logger.info(f"?? Session {session_id}: User said: '{transcript}' (quality: {quality:.2f})")
+            
+            # Generate AI response immediately - single call optimization
+            ai_response = await self.conversation_manager.generate_fast_response(session_data, transcript)
+            
+            # Add exchange to session with concept tracking
+            concept = session_data.current_concept if session_data.current_concept else "unknown"
+            is_followup = getattr(session_data, '_last_question_followup', False)
+            
+            session_data.add_exchange(ai_response, transcript, quality, concept, is_followup)
+            
+            # Update fragment manager with the answer
+            if session_data.summary_manager:
+                session_data.summary_manager.add_answer(transcript)
+            
+            # Update session state
+            await self._update_session_state_fast(session_data)
+            
+            # Send response with ultra-fast audio streaming
+            await self._send_response_with_ultra_fast_audio(session_data, ai_response)
+            
+            processing_time = time.time() - start_time
+            logger.info(f"? Total processing time: {processing_time:.2f}s")
+            
+        except Exception as e:
+            logger.error(f"? Audio processing error: {e}")
+            
+            # Send more helpful error message based on the error type
+            if "too small" in str(e).lower():
+                error_message = "The audio recording was too short. Please try speaking for a few seconds."
+            elif "transcription" in str(e).lower():
+                error_message = "I had trouble understanding the audio. Please try speaking clearly into your microphone."
+            else:
+                error_message = "Sorry, there was a technical issue. Please try again."
             
             await self._send_quick_message(session_data, {
-                "type": "clarification",
-                "text": clarification_message,
-                "status": session_data.current_stage.value
+                "type": "error",
+                "text": error_message,
+                "status": "error"
             })
-            return
-        
-        logger.info(f"Session {session_id}: User said: {transcript}")
-        
-        # Generate AI response immediately
-        response_task = asyncio.create_task(
-            self.conversation_manager.generate_fast_response(session_data, transcript)
-        )
-        
-        ai_response = await response_task
-        
-        # Add exchange to session with concept tracking
-        concept = session_data.current_concept if session_data.current_concept else "unknown"
-        is_followup = getattr(session_data, '_last_question_followup', False)
-        
-        session_data.add_exchange(ai_response, transcript, quality, concept, is_followup)
-        
-        # Update fragment manager with the answer
-        if session_data.summary_manager:
-            session_data.summary_manager.add_answer(transcript)
-        
-        # Update session state
-        await self._update_session_state_fast(session_data)
-        
-        # Send response with ultra-fast audio streaming
-        await self._send_response_with_ultra_fast_audio(session_data, ai_response)
-        
-        processing_time = time.time() - start_time
-        logger.info(f"? Total processing time: {processing_time:.2f}s")
     
     async def _update_session_state_fast(self, session_data: SessionData):
         """Ultra-fast session state updates with fragment logic"""
@@ -177,38 +222,37 @@ class UltraFastSessionManager:
             session_data.greeting_count += 1
             if session_data.greeting_count >= config.GREETING_EXCHANGES:
                 session_data.current_stage = SessionStage.TECHNICAL
-                logger.info(f"Session {session_data.session_id} moved to TECHNICAL stage")
+                logger.info(f"?? Session {session_data.session_id} moved to TECHNICAL stage")
         
         elif session_data.current_stage == SessionStage.TECHNICAL:
             # Check if test should continue using fragment manager
             if session_data.summary_manager and not session_data.summary_manager.should_continue_test():
                 session_data.current_stage = SessionStage.COMPLETE
-                logger.info(f"Session {session_data.session_id} moved to COMPLETE stage - fragment coverage complete")
+                logger.info(f"? Session {session_data.session_id} moved to COMPLETE stage - fragment coverage complete")
                 
                 # Generate evaluation and save session in background
                 asyncio.create_task(self._finalize_session_fast(session_data))
     
     async def _finalize_session_fast(self, session_data: SessionData):
-        """Fast session finalization"""
+        """Fast session finalization with real database save"""
         try:
-            evaluation_task = asyncio.create_task(
-                self.conversation_manager.generate_fast_evaluation(session_data)
-            )
+            # Generate evaluation
+            evaluation, score = await self.conversation_manager.generate_fast_evaluation(session_data)
             
-            evaluation, score = await evaluation_task
+            # Save to real database
+            save_success = await self.db_manager.save_session_result_fast(session_data, evaluation, score)
             
-            save_task = asyncio.create_task(
-                self.db_manager.save_session_result_fast(session_data, evaluation, score)
-            )
+            if not save_success:
+                logger.error(f"? Failed to save session {session_data.session_id}")
             
-            completion_message = prompts.final_completion_message()
+            completion_message = f"Great job! Your standup session is complete. You scored {score}/10. Thank you!"
             
             await self._send_quick_message(session_data, {
                 "type": "conversation_end",
                 "text": completion_message,
                 "evaluation": evaluation,
                 "score": score,
-                "pdf_url": f"/download_results/{session_data.session_id}",
+                "pdf_url": f"/daily_standup/download_results/{session_data.session_id}",
                 "status": "complete"
             })
             
@@ -224,11 +268,12 @@ class UltraFastSessionManager:
             await self._send_quick_message(session_data, {"type": "audio_end", "status": "complete"})
             
             session_data.is_active = False
-            await save_task
+            logger.info(f"? Session {session_data.session_id} finalized and saved")
             
         except Exception as e:
             logger.error(f"? Fast session finalization error: {e}")
-            raise Exception(f"Session finalization failed: {e}")
+            # Still mark session as complete even if save failed
+            session_data.is_active = False
     
     async def _send_response_with_ultra_fast_audio(self, session_data: SessionData, text: str):
         """Send response with ultra-fast audio streaming"""
@@ -258,7 +303,6 @@ class UltraFastSessionManager:
             
         except Exception as e:
             logger.error(f"? Ultra-fast audio streaming error: {e}")
-            raise Exception(f"Audio streaming failed: {e}")
     
     async def _send_quick_message(self, session_data: SessionData, message: dict):
         """Ultra-fast WebSocket message sending"""
@@ -266,45 +310,50 @@ class UltraFastSessionManager:
             if session_data.websocket:
                 await session_data.websocket.send_text(json.dumps(message))
         except Exception as e:
-            logger.error(f"? Quick WebSocket send error: {e}")
-            raise Exception(f"WebSocket send failed: {e}")
+            logger.error(f"? WebSocket send error: {e}")
     
     async def get_session_result_fast(self, session_id: str) -> dict:
-        """Fast session result retrieval"""
+        """Fast session result retrieval from real database"""
         try:
-            loop = asyncio.get_event_loop()
-            return await loop.run_in_executor(
-                shared_clients.executor,
-                self.db_manager._sync_get_session_result,
-                session_id
-            )
+            result = await self.db_manager.get_session_result_fast(session_id)
+            if not result:
+                raise Exception(f"Session {session_id} not found in database")
+            return result
         except Exception as e:
             logger.error(f"? Error fetching session result: {e}")
             raise Exception(f"Session result retrieval failed: {e}")
 
-    # LEGACY SUPPORT (OPTIMIZED)
+    # LEGACY SUPPORT (OPTIMIZED) - NO DUMMY DATA
     async def process_legacy_audio_fast(self, test_id: str, audio_data: bytes) -> dict:
-        """Fast legacy audio processing"""
+        """Fast legacy audio processing with real data"""
         try:
-            logger.info(f"Processing legacy audio for test_id: {test_id}")
+            logger.info(f"?? Processing legacy audio for test_id: {test_id}")
             
+            # Real transcription
             transcript, quality = await self.audio_processor.transcribe_audio_fast(audio_data)
             
             if not transcript or len(transcript.strip()) < 2:
                 raise Exception("Transcription returned empty or too short result")
             
+            # Get real summary
             summary = await self.db_manager.get_summary_fast()
             
+            # Create temporary session for legacy processing
             session_data = SessionData(
                 session_id=test_id,
                 test_id=test_id,
-                student_id=1000,
+                student_id=1000,  # Default for legacy
                 student_name="Legacy User",
                 session_key="LEGACY",
                 created_at=time.time(),
                 last_activity=time.time(),
                 current_stage=SessionStage.TECHNICAL
             )
+            
+            # Initialize with real summary
+            fragment_manager = SummaryManager(shared_clients, session_data)
+            fragment_manager.initialize_fragments(summary)
+            session_data.summary_manager = fragment_manager
             
             ai_response = await self.conversation_manager.generate_fast_response(
                 session_data, transcript
@@ -323,7 +372,7 @@ class UltraFastSessionManager:
             raise Exception(f"Legacy audio processing failed: {e}")
 
 # =============================================================================
-# FASTAPI APPLICATION
+# FASTAPI APPLICATION - NO DUMMY DATA
 # =============================================================================
 
 # Create FastAPI sub-application
@@ -346,31 +395,58 @@ session_manager = UltraFastSessionManager()
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize application on startup"""
-    logger.info("?? Ultra-Fast Daily Standup application started")
+    """Initialize application on startup - test real connections"""
+    logger.info("?? Ultra-Fast Daily Standup application starting...")
+    
+    try:
+        # Test database connections on startup
+        db_manager = DatabaseManager(shared_clients)
+        
+        # Test MySQL connection
+        try:
+            conn = db_manager.get_mysql_connection()
+            conn.close()
+            logger.info("? MySQL connection test successful")
+        except Exception as e:
+            logger.error(f"? MySQL connection test failed: {e}")
+            raise Exception(f"MySQL connection failed: {e}")
+        
+        # Test MongoDB connection
+        try:
+            await db_manager.get_mongo_client()
+            logger.info("? MongoDB connection test successful")
+        except Exception as e:
+            logger.error(f"? MongoDB connection test failed: {e}")
+            raise Exception(f"MongoDB connection failed: {e}")
+        
+        logger.info("? All database connections verified")
+        
+    except Exception as e:
+        logger.error(f"? Startup failed: {e}")
+        raise Exception(f"Application startup failed: {e}")
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Cleanup on shutdown"""
     await shared_clients.close_connections()
     await session_manager.db_manager.close_connections()
-    logger.info("Daily Standup application shutting down")
+    logger.info("?? Daily Standup application shutting down")
 
 # =============================================================================
-# API ENDPOINTS
+# API ENDPOINTS - REAL DATA ONLY
 # =============================================================================
 
 @app.get("/start_test")
 async def start_standup_session_fast():
-    """Start a new daily standup session with ultra-fast initialization"""
+    """Start a new daily standup session with real database data"""
     try:
-        logger.info("?? Starting ultra-fast standup session...")
+        logger.info("?? Starting real standup session...")
         
         session_data = await session_manager.create_session_fast()
         
         greeting = "Hello! Welcome to your daily standup. How are you doing today?"
         
-        logger.info(f"? Ultra-fast session created: {session_data.test_id}")
+        logger.info(f"? Real session created: {session_data.test_id}")
         
         return {
             "status": "success",
@@ -379,6 +455,7 @@ async def start_standup_session_fast():
             "session_id": session_data.session_id,
             "websocket_url": f"/daily_standup/ws/{session_data.session_id}",
             "greeting": greeting,
+            "student_name": session_data.student_name,
             "fragments_count": len(session_data.fragment_keys) if session_data.fragment_keys else 0,
             "estimated_duration": len(session_data.fragment_keys) * session_data.questions_per_concept * config.ESTIMATED_SECONDS_PER_QUESTION
         }
@@ -392,7 +469,7 @@ async def record_and_respond_fast(
     audio: UploadFile = File(...),
     test_id: str = Form(...)
 ):
-    """Ultra-fast audio processing endpoint"""
+    """Ultra-fast audio processing endpoint with real data"""
     try:
         logger.info(f"?? Processing audio for test_id: {test_id}")
         
@@ -427,7 +504,7 @@ async def record_and_respond_fast(
 
 @app.get("/api/summary/{test_id}")
 async def get_standup_summary_fast(test_id: str):
-    """Get standup session summary with ultra-fast retrieval"""
+    """Get standup session summary from real database"""
     try:
         logger.info(f"?? Getting summary for test_id: {test_id}")
         
@@ -439,6 +516,7 @@ async def get_standup_summary_fast(test_id: str):
         if result:
             exchanges = result.get("conversation_log", [])
             
+            # Extract standup information from conversation
             yesterday_work = ""
             today_plans = ""
             blockers = ""
@@ -474,14 +552,14 @@ async def get_standup_summary_fast(test_id: str):
                 "evaluation": result.get("evaluation", "Session completed successfully"),
                 "score": result.get("score", 8.0),
                 "total_exchanges": result.get("total_exchanges", 0),
-                "summary_progress": result.get("summary_progress", {}),
+                "fragment_analytics": result.get("fragment_analytics", {}),
                 "pdf_url": f"/daily_standup/download_results/{test_id}",
                 "status": "completed"
             }
         else:
             raise HTTPException(status_code=404, detail=f"Session result not found for test_id: {test_id}")
         
-        logger.info(f"? Fast summary generated for {test_id}")
+        logger.info(f"? Real summary generated for {test_id}")
         return summary_data
         
     except HTTPException:
@@ -492,7 +570,7 @@ async def get_standup_summary_fast(test_id: str):
 
 @app.websocket("/ws/{session_id}")
 async def websocket_endpoint_ultra_fast(websocket: WebSocket, session_id: str):
-    """Ultra-fast WebSocket endpoint with optimized communication"""
+    """Ultra-fast WebSocket endpoint with real data"""
     await websocket.accept()
     
     try:
@@ -511,7 +589,7 @@ async def websocket_endpoint_ultra_fast(websocket: WebSocket, session_id: str):
         session_data.websocket = websocket
         
         # Send initial greeting with ultra-fast audio
-        greeting = "Hello! Welcome to your daily standup. How are you doing today?"
+        greeting = f"Hello {session_data.student_name}! Welcome to your daily standup. How are you doing today?"
         await websocket.send_text(json.dumps({
             "type": "ai_response",
             "text": greeting,
@@ -548,7 +626,7 @@ async def websocket_endpoint_ultra_fast(websocket: WebSocket, session_id: str):
                     await websocket.send_text(json.dumps({"type": "pong"}))
                 
             except asyncio.TimeoutError:
-                logger.info(f"?? WebSocket timeout: {session_id}")
+                logger.info(f"? WebSocket timeout: {session_id}")
                 break
             except WebSocketDisconnect:
                 logger.info(f"?? WebSocket disconnected: {session_id}")
@@ -569,7 +647,7 @@ async def websocket_endpoint_ultra_fast(websocket: WebSocket, session_id: str):
 
 @app.get("/download_results/{session_id}")
 async def download_results_fast(session_id: str):
-    """Fast PDF generation and download"""
+    """Fast PDF generation and download from real data"""
     try:
         result = await session_manager.get_session_result_fast(session_id)
         
@@ -597,15 +675,34 @@ async def download_results_fast(session_id: str):
 
 @app.get("/health")
 async def health_check_fast():
-    """Ultra-fast health check"""
+    """Ultra-fast health check with real database status"""
     try:
+        db_status = {"mysql": False, "mongodb": False}
+        
+        # Quick database health check
+        try:
+            db_manager = DatabaseManager(shared_clients)
+            
+            # Test MySQL
+            conn = db_manager.get_mysql_connection()
+            conn.close()
+            db_status["mysql"] = True
+            
+            # Test MongoDB
+            await db_manager.get_mongo_client()
+            db_status["mongodb"] = True
+            
+        except Exception as e:
+            logger.warning(f"?? Database health check failed: {e}")
+        
         return {
-            "status": "healthy",
+            "status": "healthy" if all(db_status.values()) else "degraded",
             "service": "ultra_fast_daily_standup",
             "timestamp": time.time(),
             "active_sessions": len(session_manager.active_sessions),
             "version": config.APP_VERSION,
-            "dummy_data_mode": config.USE_DUMMY_DATA
+            "database_status": db_status,
+            "real_data_mode": True  # Always true now
         }
     except Exception as e:
         logger.error(f"? Health check failed: {e}")
@@ -613,28 +710,30 @@ async def health_check_fast():
 
 @app.get("/test")
 async def test_endpoint_fast():
-    """Fast test endpoint"""
+    """Fast test endpoint with real configuration"""
     return {
-        "message": "Ultra-Fast Daily Standup service is running",
+        "message": "Ultra-Fast Daily Standup service is running with REAL DATA",
         "timestamp": time.time(),
         "status": "blazing_fast",
         "config": {
-            "dummy_data": config.USE_DUMMY_DATA,
-            "debug_mode": config.DEBUG_MODE,
+            "real_data_mode": True,
             "greeting_exchanges": config.GREETING_EXCHANGES,
             "summary_chunks": config.SUMMARY_CHUNKS,
-            "openai_model": config.OPENAI_MODEL
+            "openai_model": config.OPENAI_MODEL,
+            "mysql_host": config.MYSQL_HOST,
+            "mongodb_host": config.MONGODB_HOST
         },
         "optimizations": [
+            "Real database connections",
+            "No dummy data fallbacks",
             "800ms silence detection",
             "Parallel processing pipeline", 
-            "Summary-based questioning",
+            "Fragment-based questioning",
             "Sliding window conversation history",
             "Ultra-fast TTS streaming",
             "Thread pool optimization",
-            "Session synchronization fix",
-            "NO FALLBACKS - Real error detection",
-            "Modular architecture"
+            "Connection pooling",
+            "Real error detection only"
         ]
     }
 
@@ -643,7 +742,7 @@ async def test_endpoint_fast():
 # =============================================================================
 
 def generate_pdf_report(result: dict, session_id: str) -> bytes:
-    """Generate PDF report synchronously"""
+    """Generate PDF report from real session data"""
     try:
         pdf_buffer = io.BytesIO()
         doc = SimpleDocTemplate(pdf_buffer, pagesize=LETTER)
@@ -658,26 +757,40 @@ def generate_pdf_report(result: dict, session_id: str) -> bytes:
         # Session info
         info_text = f"""
         Session ID: {session_id}
+        Student: {result.get('student_name', 'Unknown')}
         Date: {datetime.fromtimestamp(result.get('timestamp', time.time())).strftime('%Y-%m-%d %H:%M:%S')}
         Duration: {result.get('duration', 0)/60:.1f} minutes
         Total Exchanges: {result.get('total_exchanges', 0)}
-        Summary Progress: {result.get('summary_progress', {}).get('chunk_progress', 'N/A')}
+        Score: {result.get('score', 0)}/10
         """
         story.append(Paragraph(info_text, styles['Normal']))
         story.append(Spacer(1, 12))
         
+        # Fragment analytics if available
+        fragment_analytics = result.get('fragment_analytics', {})
+        if fragment_analytics:
+            story.append(Paragraph("Fragment Coverage Analysis", styles['Heading2']))
+            analytics_text = f"""
+            Total Concepts: {fragment_analytics.get('total_concepts', 0)}
+            Coverage Percentage: {fragment_analytics.get('coverage_percentage', 0)}%
+            Main Questions: {fragment_analytics.get('main_questions', 0)}
+            Follow-up Questions: {fragment_analytics.get('followup_questions', 0)}
+            """
+            story.append(Paragraph(analytics_text, styles['Normal']))
+            story.append(Spacer(1, 12))
+        
         # Conversation log
         story.append(Paragraph("Conversation Summary", styles['Heading2']))
         for exchange in result.get('conversation_log', [])[:15]:
-            story.append(Paragraph(f"AI: {exchange.get('ai_message', '')}", styles['Normal']))
-            story.append(Paragraph(f"User: {exchange.get('user_response', '')}", styles['Normal']))
-            story.append(Spacer(1, 6))
+            if exchange.get('stage') != 'greeting':  # Skip greeting exchanges in PDF
+                story.append(Paragraph(f"AI: {exchange.get('ai_message', '')}", styles['Normal']))
+                story.append(Paragraph(f"User: {exchange.get('user_response', '')}", styles['Normal']))
+                story.append(Spacer(1, 6))
         
         # Evaluation
         if result.get('evaluation'):
             story.append(Paragraph("Evaluation", styles['Heading2']))
             story.append(Paragraph(result['evaluation'], styles['Normal']))
-            story.append(Paragraph(f"Score: {result.get('score', 0)}/10", styles['Normal']))
         
         doc.build(story)
         pdf_buffer.seek(0)

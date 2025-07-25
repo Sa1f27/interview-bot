@@ -29,7 +29,7 @@ class Config:
     
     # MySQL Server (Student data) - Updated with working credentials
     DB_CONFIG = {
-        "HOST": os.getenv("MYSQL_HOST", "192.168.48.199"),
+        "HOST": os.getenv("MYSQL_HOST", "192.168.48.201"),
         "PORT": os.getenv("MYSQL_PORT", "3306"),
         "DATABASE": os.getenv("MYSQL_DATABASE", "SuperDB"),
         "USER": os.getenv("MYSQL_USER", "sa"),

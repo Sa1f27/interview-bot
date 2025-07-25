@@ -8,7 +8,7 @@ DATABASES = {
         'NAME': 'SuperDB',
         'USER': 'sa',
         'PASSWORD': 'Welcome@123',
-        'HOST': '192.168.48.199',
+        'HOST': '192.168.48.201',
         'PORT': '3306',
     }
 }

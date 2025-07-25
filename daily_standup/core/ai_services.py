@@ -383,6 +383,8 @@ SummaryManager = FragmentManager
 # AUDIO PROCESSING
 # =============================================================================
 
+# Add this to your ai_services.py file - replace the OptimizedAudioProcessor class
+
 class OptimizedAudioProcessor:
     def __init__(self, client_manager: SharedClientManager):
         self.client_manager = client_manager
@@ -392,10 +394,14 @@ class OptimizedAudioProcessor:
         return self.client_manager.groq_client
     
     async def transcribe_audio_fast(self, audio_data: bytes) -> Tuple[str, float]:
-        """Ultra-fast transcription with parallel processing"""
+        """Ultra-fast transcription with improved error handling for small audio"""
         try:
-            if len(audio_data) < 1000:
-                raise Exception("Audio data too small for transcription")
+            audio_size = len(audio_data)
+            logger.info(f"?? Transcribing {audio_size} bytes of audio")
+            
+            # More lenient size check - try transcription even with smaller files
+            if audio_size < 50:  # Only reject extremely small chunks
+                raise Exception(f"Audio data too small for transcription ({audio_size} bytes)")
             
             loop = asyncio.get_event_loop()
             result = await loop.run_in_executor(
@@ -411,18 +417,23 @@ class OptimizedAudioProcessor:
             raise Exception(f"Transcription failed: {e}")
     
     def _sync_transcribe(self, audio_data: bytes) -> Tuple[str, float]:
-        """Synchronous transcription for thread pool"""
+        """Synchronous transcription for thread pool with better error handling"""
         try:
+            audio_size = len(audio_data)
             temp_file = config.TEMP_DIR / f"audio_{int(time.time() * 1000000)}.webm"
             
             with open(temp_file, "wb") as f:
                 f.write(audio_data)
             
+            logger.info(f"?? Sending {audio_size} bytes to Groq for transcription")
+            
             with open(temp_file, "rb") as file:
                 result = self.groq_client.audio.transcriptions.create(
                     file=(temp_file.name, file.read()),
                     model=config.GROQ_TRANSCRIPTION_MODEL,
-                    response_format="verbose_json"
+                    response_format="verbose_json",
+                    # Add these parameters for better handling of short/quiet audio
+                    prompt="Please transcribe this audio clearly, even if it's short or quiet."
                 )
             
             try:
@@ -430,22 +441,32 @@ class OptimizedAudioProcessor:
             except:
                 pass
             
-            transcript = result.text.strip()
+            transcript = result.text.strip() if result.text else ""
+            
             if not transcript:
-                raise Exception("Groq returned empty transcript")
+                logger.warning(f"?? Groq returned empty transcript for {audio_size} bytes")
+                return "", 0.0
             
             # Fast quality assessment
-            quality = min(len(transcript) / 50, 1.0)
+            quality = min(len(transcript) / 30, 1.0)  # Lowered threshold for shorter responses
             if hasattr(result, 'segments') and result.segments:
                 confidences = [seg.get('confidence', 0.8) for seg in result.segments[:3]]
                 if confidences:
-                    quality = (quality + sum(confidences) / len(confidences)) / 2
+                    avg_confidence = sum(confidences) / len(confidences)
+                    quality = (quality + avg_confidence) / 2
             
+            logger.info(f"? Transcription: '{transcript}' (quality: {quality:.2f})")
             return transcript, quality
             
         except Exception as e:
             logger.error(f"? Sync transcription error: {e}")
-            raise Exception(f"Groq transcription failed: {e}")
+            # Try to be more specific about the error
+            if "file" in str(e).lower() and "format" in str(e).lower():
+                raise Exception("Audio format not supported - please check microphone settings")
+            elif "timeout" in str(e).lower():
+                raise Exception("Transcription service timeout - please try again")
+            else:
+                raise Exception(f"Groq transcription failed: {e}")
 
 class UltraFastTTSProcessor:
     def __init__(self):
