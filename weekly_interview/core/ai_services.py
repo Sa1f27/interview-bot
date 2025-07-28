@@ -19,6 +19,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
 import concurrent.futures
+import traceback
 
 from .config import config
 from .content_service import ContentService
@@ -130,87 +131,203 @@ class InterviewSession:
                 self.audio_quality_scores.append(quality)
 
 # =============================================================================
-# SHARED CLIENT MANAGER
+# ENHANCED SHARED CLIENT MANAGER
 # =============================================================================
 
 class SharedClientManager:
-    """Optimized client management with connection pooling"""
+    """Enhanced client management with proper initialization and error handling"""
     
     def __init__(self):
         self._groq_client = None
         self._openai_client = None
-        self._executor = concurrent.futures.ThreadPoolExecutor(
-            max_workers=config.THREAD_POOL_MAX_WORKERS
-        )
+        self._executor = None
+        self._initialized = False
+        self._initialization_error = None
         
+    async def initialize(self):
+        """Initialize clients with proper error handling"""
+        try:
+            logger.info("?? Initializing shared AI clients...")
+            
+            # Initialize thread pool executor
+            self._executor = concurrent.futures.ThreadPoolExecutor(
+                max_workers=config.THREAD_POOL_MAX_WORKERS
+            )
+            logger.info("? Thread pool executor initialized")
+            
+            # Validate API keys
+            await self._validate_api_keys()
+            logger.info("? API keys validated")
+            
+            # Initialize clients (lazy loading)
+            # Clients will be created on first access
+            self._initialized = True
+            logger.info("? Shared AI clients initialized successfully")
+            
+        except Exception as e:
+            self._initialization_error = str(e)
+            logger.error(f"? Shared clients initialization failed: {e}")
+            raise RuntimeError(f"AI clients initialization failed: {e}")
+    
+    async def _validate_api_keys(self):
+        """Validate required API keys are present and accessible"""
+        # Check for required environment variables
+        groq_key = os.getenv("GROQ_API_KEY")
+        openai_key = os.getenv("OPENAI_API_KEY")
+        
+        if not groq_key:
+            raise RuntimeError("GROQ_API_KEY not found in environment variables")
+        
+        if not openai_key:
+            raise RuntimeError("OPENAI_API_KEY not found in environment variables")
+        
+        # Basic validation - check if keys are not empty/default values
+        if groq_key in ["", "your_groq_key_here", "sk-"]:
+            raise RuntimeError("GROQ_API_KEY appears to be invalid or placeholder")
+        
+        if openai_key in ["", "your_openai_key_here", "sk-"]:
+            raise RuntimeError("OPENAI_API_KEY appears to be invalid or placeholder")
+        
+        logger.info("? API keys validation passed")
+    
     @property
     def groq_client(self) -> Groq:
+        """Get Groq client with lazy initialization"""
+        if not self._initialized:
+            raise RuntimeError("SharedClientManager not initialized")
+        
         if self._groq_client is None:
-            api_key = os.getenv("GROQ_API_KEY")
-            if not api_key:
-                raise Exception("GROQ_API_KEY not found in environment variables")
-            self._groq_client = Groq(api_key=api_key)
-            logger.info("✅ Groq client initialized")
+            try:
+                api_key = os.getenv("GROQ_API_KEY")
+                self._groq_client = Groq(api_key=api_key)
+                logger.info("? Groq client created")
+            except Exception as e:
+                logger.error(f"? Groq client creation failed: {e}")
+                raise RuntimeError(f"Groq client creation failed: {e}")
+        
         return self._groq_client
     
     @property 
     def openai_client(self) -> openai.OpenAI:
+        """Get OpenAI client with lazy initialization"""
+        if not self._initialized:
+            raise RuntimeError("SharedClientManager not initialized")
+        
         if self._openai_client is None:
-            api_key = os.getenv("OPENAI_API_KEY")
-            if not api_key:
-                raise Exception("OPENAI_API_KEY not found in environment variables")
-            self._openai_client = openai.OpenAI(api_key=api_key)
-            logger.info("✅ OpenAI client initialized")
+            try:
+                api_key = os.getenv("OPENAI_API_KEY")
+                self._openai_client = openai.OpenAI(api_key=api_key)
+                logger.info("? OpenAI client created")
+            except Exception as e:
+                logger.error(f"? OpenAI client creation failed: {e}")
+                raise RuntimeError(f"OpenAI client creation failed: {e}")
+        
         return self._openai_client
     
     @property
     def executor(self):
+        """Get thread pool executor"""
+        if not self._initialized:
+            raise RuntimeError("SharedClientManager not initialized")
         return self._executor
     
     async def close_connections(self):
         """Cleanup method for graceful shutdown"""
-        if self._executor:
-            self._executor.shutdown(wait=True)
-        logger.info("✅ AI client connections closed")
+        try:
+            if self._executor:
+                self._executor.shutdown(wait=True)
+            logger.info("? AI client connections closed")
+        except Exception as e:
+            logger.warning(f"?? Client cleanup warning: {e}")
 
 # Global shared client manager
 shared_clients = SharedClientManager()
 
 # =============================================================================
-# INTERVIEW SESSION MANAGER
+# ENHANCED INTERVIEW SESSION MANAGER
 # =============================================================================
 
 class InterviewSessionManager:
-    """Enhanced session management with WebSocket support"""
+    """Enhanced session management with proper initialization and error handling"""
     
     def __init__(self, db_manager):
         self.active_sessions: Dict[str, InterviewSession] = {}
         self.db_manager = db_manager
-        self.content_service = ContentService(db_manager)
+        self.content_service = None
+        self._initialized = False
+        
+    async def initialize(self):
+        """Initialize session manager with enhanced error handling"""
+        try:
+            logger.info("?? Initializing session manager...")
+            
+            # Initialize content service
+            if not self.db_manager:
+                raise RuntimeError("Database manager is required for session manager")
+            
+            self.content_service = ContentService(self.db_manager)
+            
+            self._initialized = True
+            logger.info("? Session manager initialized")
+            
+        except Exception as e:
+            logger.error(f"? Session manager initialization failed: {e}")
+            raise RuntimeError(f"Session manager initialization failed: {e}")
         
     async def create_session_fast(self, websocket: Optional[Any] = None) -> InterviewSession:
-        """Ultra-fast session creation with real database connections"""
+        """Ultra-fast session creation with enhanced error handling"""
+        if not self._initialized:
+            raise RuntimeError("Session manager not initialized")
+        
         session_id = str(uuid.uuid4())
         test_id = f"interview_{int(time.time())}"
         
         try:
-            # Get student info and content in parallel
-            student_info_task = asyncio.create_task(
-                self.db_manager.get_student_info_fast()
-            )
-            content_task = asyncio.create_task(
-                self.content_service.get_interview_content_context()
-            )
+            logger.info(f"?? Creating session: {session_id}")
             
-            student_id, first_name, last_name, session_key = await student_info_task
-            interview_content = await content_task
+            # Get student info and content in parallel with timeout
+            async def get_student_info_with_timeout():
+                try:
+                    return await asyncio.wait_for(
+                        self.db_manager.get_student_info_fast(),
+                        timeout=10.0
+                    )
+                except asyncio.TimeoutError:
+                    logger.error("? Student info fetch timeout")
+                    raise RuntimeError("Database timeout while fetching student info")
+            
+            async def get_content_with_timeout():
+                try:
+                    return await asyncio.wait_for(
+                        self.content_service.get_interview_content_context(),
+                        timeout=15.0
+                    )
+                except asyncio.TimeoutError:
+                    logger.error("? Content fetch timeout")
+                    raise RuntimeError("Database timeout while fetching interview content")
+            
+            # Execute both operations in parallel
+            student_info_task = asyncio.create_task(get_student_info_with_timeout())
+            content_task = asyncio.create_task(get_content_with_timeout())
+            
+            try:
+                student_id, first_name, last_name, session_key = await student_info_task
+                interview_content = await content_task
+            except Exception as e:
+                # Cancel pending tasks
+                student_info_task.cancel()
+                content_task.cancel()
+                raise e
             
             # Validate data
             if not interview_content or len(interview_content.strip()) < config.MIN_CONTENT_LENGTH:
-                raise Exception("Invalid interview content retrieved")
+                raise RuntimeError(f"Invalid interview content retrieved (length: {len(interview_content)})")
             
             if not first_name or not last_name:
-                raise Exception("Invalid student data retrieved")
+                raise RuntimeError("Invalid student data retrieved - missing name")
+            
+            if not student_id:
+                raise RuntimeError("Invalid student data retrieved - missing ID")
             
             # Create session
             session_data = InterviewSession(
@@ -229,13 +346,14 @@ class InterviewSessionManager:
             
             self.active_sessions[session_id] = session_data
             
-            logger.info(f"✅ Interview session created: {session_id} for {session_data.student_name}")
+            logger.info(f"? Interview session created: {session_id} for {session_data.student_name}")
             
             return session_data
             
         except Exception as e:
-            logger.error(f"❌ Failed to create interview session: {e}")
-            raise Exception(f"Session creation failed: {e}")
+            logger.error(f"? Failed to create interview session: {e}")
+            logger.error(f"? Traceback: {traceback.format_exc()}")
+            raise RuntimeError(f"Session creation failed: {e}")
     
     def get_session(self, session_id: str) -> Optional[InterviewSession]:
         """Get session by ID with activity update"""
@@ -248,11 +366,11 @@ class InterviewSessionManager:
         """Validate session and check timeout"""
         session = self.get_session(session_id)
         if not session:
-            raise Exception("Interview session not found")
+            raise RuntimeError("Interview session not found")
         
         if time.time() > session.last_activity + config.SESSION_TIMEOUT:
             self.cleanup_session(session_id)
-            raise Exception("Interview session timed out")
+            raise RuntimeError("Interview session timed out")
         
         return session
     
@@ -260,7 +378,7 @@ class InterviewSessionManager:
         """Remove session from active sessions"""
         if session_id in self.active_sessions:
             del self.active_sessions[session_id]
-            logger.info(f"🗑️ Session cleaned up: {session_id}")
+            logger.info(f"??? Session cleaned up: {session_id}")
     
     def cleanup_expired_sessions(self):
         """Clean up expired sessions"""
@@ -276,67 +394,110 @@ class InterviewSessionManager:
         return len(expired_sessions)
 
 # =============================================================================
-# AUDIO PROCESSING
+# ENHANCED AUDIO PROCESSING
 # =============================================================================
 
 class OptimizedAudioProcessor:
-    """Enhanced audio processing with real-time capabilities"""
+    """Enhanced audio processing with proper initialization and error handling"""
     
     def __init__(self, client_manager: SharedClientManager):
         self.client_manager = client_manager
+        self._initialized = False
+    
+    async def initialize(self):
+        """Initialize audio processor"""
+        try:
+            if not self.client_manager._initialized:
+                raise RuntimeError("Client manager not initialized")
+            
+            self._initialized = True
+            logger.info("? Audio processor initialized")
+            
+        except Exception as e:
+            logger.error(f"? Audio processor initialization failed: {e}")
+            raise RuntimeError(f"Audio processor initialization failed: {e}")
     
     @property
     def groq_client(self):
+        if not self._initialized:
+            raise RuntimeError("Audio processor not initialized")
         return self.client_manager.groq_client
     
     async def transcribe_audio_fast(self, audio_data: bytes) -> Tuple[str, float]:
         """Ultra-fast transcription with enhanced error handling"""
+        if not self._initialized:
+            raise RuntimeError("Audio processor not initialized")
+        
         try:
             audio_size = len(audio_data)
-            logger.info(f"🎙️ Transcribing {audio_size} bytes of audio")
+            logger.info(f"??? Transcribing {audio_size} bytes of audio")
             
             if audio_size < 100:
-                raise Exception(f"Audio data too small for transcription ({audio_size} bytes)")
+                raise RuntimeError(f"Audio data too small for transcription ({audio_size} bytes)")
+            
+            if audio_size > 25 * 1024 * 1024:  # 25MB limit
+                raise RuntimeError(f"Audio data too large for transcription ({audio_size} bytes)")
             
             loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(
-                self.client_manager.executor,
-                self._sync_transcribe,
-                audio_data
+            result = await asyncio.wait_for(
+                loop.run_in_executor(
+                    self.client_manager.executor,
+                    self._sync_transcribe,
+                    audio_data
+                ),
+                timeout=30.0  # 30 second timeout
             )
             
             return result
             
+        except asyncio.TimeoutError:
+            logger.error(f"? Transcription timeout for {audio_size} bytes")
+            raise RuntimeError("Transcription timeout - audio too long or service unavailable")
         except Exception as e:
-            logger.error(f"❌ Transcription error: {e}")
-            raise Exception(f"Transcription failed: {e}")
+            logger.error(f"? Transcription error: {e}")
+            raise RuntimeError(f"Transcription failed: {e}")
     
     def _sync_transcribe(self, audio_data: bytes) -> Tuple[str, float]:
-        """Synchronous transcription for thread pool"""
+        """Synchronous transcription for thread pool with enhanced error handling"""
+        temp_file = None
         try:
-            temp_file = config.TEMP_DIR / f"audio_{int(time.time() * 1000000)}.webm"
+            # Create temporary file with unique name
+            temp_file = config.TEMP_DIR / f"audio_{int(time.time() * 1000000)}_{uuid.uuid4().hex[:8]}.webm"
             
+            # Ensure temp directory exists
+            config.TEMP_DIR.mkdir(parents=True, exist_ok=True)
+            
+            # Write audio data
             with open(temp_file, "wb") as f:
                 f.write(audio_data)
             
+            # Transcribe with Groq
             with open(temp_file, "rb") as file:
-                result = self.groq_client.audio.transcriptions.create(
-                    file=(temp_file.name, file.read()),
-                    model=config.GROQ_MODEL,
-                    response_format="verbose_json",
-                    prompt="Please transcribe this interview response clearly."
-                )
-            
-            # Cleanup
-            try:
-                temp_file.unlink()
-            except:
-                pass
+                try:
+                    result = self.groq_client.audio.transcriptions.create(
+                        file=(temp_file.name, file.read()),
+                        model=config.GROQ_MODEL,
+                        response_format="verbose_json",
+                        prompt="Please transcribe this interview response clearly and accurately."
+                    )
+                except Exception as e:
+                    if "rate_limit" in str(e).lower():
+                        logger.warning("?? Groq rate limit hit, retrying after delay...")
+                        time.sleep(2)  # Wait 2 seconds and retry
+                        with open(temp_file, "rb") as retry_file:
+                            result = self.groq_client.audio.transcriptions.create(
+                                file=(temp_file.name, retry_file.read()),
+                                model=config.GROQ_MODEL,
+                                response_format="verbose_json",
+                                prompt="Please transcribe this interview response clearly and accurately."
+                            )
+                    else:
+                        raise e
             
             transcript = result.text.strip() if result.text else ""
             
             if not transcript:
-                logger.warning(f"⚠️ Groq returned empty transcript")
+                logger.warning(f"?? Groq returned empty transcript for {len(audio_data)} bytes")
                 return "", 0.0
             
             # Quality assessment
@@ -347,19 +508,55 @@ class OptimizedAudioProcessor:
                     avg_confidence = sum(confidences) / len(confidences)
                     quality = (quality + avg_confidence) / 2
             
-            logger.info(f"✅ Transcription: '{transcript}' (quality: {quality:.2f})")
+            logger.info(f"? Transcription: '{transcript[:100]}...' (quality: {quality:.2f})")
             return transcript, quality
             
         except Exception as e:
-            logger.error(f"❌ Sync transcription error: {e}")
-            raise Exception(f"Groq transcription failed: {e}")
+            logger.error(f"? Sync transcription error: {e}")
+            raise RuntimeError(f"Groq transcription failed: {e}")
+        finally:
+            # Cleanup temp file
+            if temp_file and temp_file.exists():
+                try:
+                    temp_file.unlink()
+                except Exception as cleanup_error:
+                    logger.warning(f"?? Failed to cleanup temp file {temp_file}: {cleanup_error}")
+
+# =============================================================================
+# ENHANCED TTS PROCESSOR
+# =============================================================================
 
 class UltraFastTTSProcessor:
-    """Enhanced TTS processor with streaming and optimization"""
+    """Enhanced TTS processor with proper initialization and error handling"""
     
     def __init__(self):
         self.voice = config.TTS_VOICE
         self.speed = config.TTS_SPEED
+        self._initialized = False
+    
+    async def initialize(self):
+        """Initialize TTS processor"""
+        try:
+            # Test TTS availability
+            test_text = "Test"
+            tts = edge_tts.Communicate(test_text, self.voice)
+            
+            # Quick test to ensure TTS is working
+            test_chunks = []
+            async for chunk in tts.stream():
+                if chunk["type"] == "audio":
+                    test_chunks.append(chunk["data"])
+                    break  # Just test first chunk
+            
+            if not test_chunks:
+                raise RuntimeError("TTS test failed - no audio generated")
+            
+            self._initialized = True
+            logger.info("? TTS processor initialized and tested")
+            
+        except Exception as e:
+            logger.error(f"? TTS processor initialization failed: {e}")
+            raise RuntimeError(f"TTS processor initialization failed: {e}")
     
     def split_text_for_streaming(self, text: str) -> List[str]:
         """Split text into optimal chunks for streaming"""
@@ -391,31 +588,40 @@ class UltraFastTTSProcessor:
         return chunks if chunks else [text]
     
     async def generate_audio_stream(self, text: str) -> AsyncGenerator[bytes, None]:
-        """Generate audio stream with enhanced optimization"""
+        """Generate audio stream with enhanced error handling"""
+        if not self._initialized:
+            raise RuntimeError("TTS processor not initialized")
+        
         try:
             chunks = self.split_text_for_streaming(text)
-            logger.info(f"🔊 Generating TTS for {len(chunks)} chunks")
+            logger.info(f"?? Generating TTS for {len(chunks)} chunks")
             
             for i, chunk in enumerate(chunks):
                 if not chunk.strip():
                     continue
                 
                 try:
-                    # Generate audio for chunk
-                    async for audio_data in self._generate_chunk_audio(chunk):
+                    # Generate audio for chunk with timeout
+                    async for audio_data in asyncio.wait_for(
+                        self._generate_chunk_audio(chunk),
+                        timeout=10.0  # 10 second timeout per chunk
+                    ):
                         if audio_data:
                             yield audio_data
                             
+                except asyncio.TimeoutError:
+                    logger.error(f"? TTS timeout for chunk {i}: {chunk[:50]}...")
+                    continue
                 except Exception as e:
-                    logger.error(f"❌ TTS chunk {i} failed: {e}")
+                    logger.error(f"? TTS chunk {i} failed: {e}")
                     continue
                     
         except Exception as e:
-            logger.error(f"❌ TTS stream generation failed: {e}")
-            raise Exception(f"TTS generation failed: {e}")
+            logger.error(f"? TTS stream generation failed: {e}")
+            raise RuntimeError(f"TTS generation failed: {e}")
     
     async def _generate_chunk_audio(self, chunk: str) -> AsyncGenerator[bytes, None]:
-        """Generate audio for a single text chunk"""
+        """Generate audio for a single text chunk with enhanced error handling"""
         try:
             # Configure TTS with speed adjustment
             rate_modifier = f"+{int((self.speed - 1) * 100)}%" if self.speed > 1 else f"{int((self.speed - 1) * 100)}%"
@@ -430,28 +636,47 @@ class UltraFastTTSProcessor:
             if audio_buffer:
                 yield audio_buffer
             else:
-                logger.warning(f"⚠️ Empty audio buffer for chunk: {chunk[:50]}...")
+                logger.warning(f"?? Empty audio buffer for chunk: {chunk[:50]}...")
                 
         except Exception as e:
-            logger.error(f"❌ Chunk TTS generation failed: {e}")
-            raise Exception(f"TTS chunk failed: {e}")
+            logger.error(f"? Chunk TTS generation failed: {e}")
+            raise RuntimeError(f"TTS chunk failed: {e}")
 
 # =============================================================================
-# CONVERSATION MANAGEMENT
+# ENHANCED CONVERSATION MANAGEMENT
 # =============================================================================
 
 class OptimizedConversationManager:
-    """Enhanced conversation management with interview-specific logic"""
+    """Enhanced conversation management with proper initialization and error handling"""
     
     def __init__(self, client_manager: SharedClientManager):
         self.client_manager = client_manager
+        self._initialized = False
+    
+    async def initialize(self):
+        """Initialize conversation manager"""
+        try:
+            if not self.client_manager._initialized:
+                raise RuntimeError("Client manager not initialized")
+            
+            self._initialized = True
+            logger.info("? Conversation manager initialized")
+            
+        except Exception as e:
+            logger.error(f"? Conversation manager initialization failed: {e}")
+            raise RuntimeError(f"Conversation manager initialization failed: {e}")
     
     @property
     def openai_client(self):
+        if not self._initialized:
+            raise RuntimeError("Conversation manager not initialized")
         return self.client_manager.openai_client
     
     async def generate_interview_response(self, session: InterviewSession, user_input: str = "") -> str:
-        """Generate interview response based on current stage"""
+        """Generate interview response with enhanced error handling"""
+        if not self._initialized:
+            raise RuntimeError("Conversation manager not initialized")
+        
         try:
             start_time = time.time()
             
@@ -467,13 +692,16 @@ class OptimizedConversationManager:
                 response = "Thank you for completing the interview. Your evaluation is being prepared."
             
             processing_time = time.time() - start_time
-            logger.info(f"✅ Generated {session.current_stage.value} response in {processing_time:.2f}s")
+            logger.info(f"? Generated {session.current_stage.value} response in {processing_time:.2f}s")
+            
+            if not response or len(response.strip()) < 10:
+                raise RuntimeError("Generated response is too short or empty")
             
             return response
             
         except Exception as e:
-            logger.error(f"❌ Response generation error: {e}")
-            raise Exception(f"AI response generation failed: {e}")
+            logger.error(f"? Response generation error: {e}")
+            raise RuntimeError(f"AI response generation failed: {e}")
     
     async def _generate_greeting_response(self, session: InterviewSession, user_input: str) -> str:
         """Generate greeting and introduction"""
@@ -625,39 +853,65 @@ Generate your behavioral assessment question:"""
         return "\n".join(context_parts)
     
     async def _call_openai(self, prompt: str, max_tokens: int = None) -> str:
-        """Call OpenAI API with retry logic"""
+        """Call OpenAI API with enhanced error handling and retry logic"""
         if max_tokens is None:
             max_tokens = config.OPENAI_MAX_TOKENS
         
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(
-            self.client_manager.executor,
-            self._sync_openai_call,
-            prompt,
-            max_tokens
-        )
+        
+        try:
+            return await asyncio.wait_for(
+                loop.run_in_executor(
+                    self.client_manager.executor,
+                    self._sync_openai_call,
+                    prompt,
+                    max_tokens
+                ),
+                timeout=30.0  # 30 second timeout
+            )
+        except asyncio.TimeoutError:
+            logger.error("? OpenAI API call timeout")
+            raise RuntimeError("OpenAI API timeout - service unavailable")
     
     def _sync_openai_call(self, prompt: str, max_tokens: int) -> str:
-        """Synchronous OpenAI call for thread pool"""
-        try:
-            response = self.openai_client.chat.completions.create(
-                model=config.OPENAI_MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=config.OPENAI_TEMPERATURE,
-                max_tokens=max_tokens
-            )
-            
-            result = response.choices[0].message.content.strip()
-            if not result:
-                raise Exception("OpenAI returned empty response")
-            return result
-            
-        except Exception as e:
-            logger.error(f"❌ OpenAI API call failed: {e}")
-            raise Exception(f"OpenAI API failed: {e}")
+        """Synchronous OpenAI call with enhanced error handling and retry logic"""
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = self.openai_client.chat.completions.create(
+                    model=config.OPENAI_MODEL,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=config.OPENAI_TEMPERATURE,
+                    max_tokens=max_tokens
+                )
+                
+                result = response.choices[0].message.content.strip()
+                if not result:
+                    raise RuntimeError("OpenAI returned empty response")
+                return result
+                
+            except Exception as e:
+                error_str = str(e).lower()
+                if "rate_limit" in error_str and attempt < max_retries - 1:
+                    wait_time = (attempt + 1) * 2  # 2, 4, 6 seconds
+                    logger.warning(f"?? OpenAI rate limit hit, retrying in {wait_time}s...")
+                    time.sleep(wait_time)
+                    continue
+                elif "timeout" in error_str and attempt < max_retries - 1:
+                    logger.warning(f"?? OpenAI timeout, retrying attempt {attempt + 2}...")
+                    time.sleep(1)
+                    continue
+                else:
+                    logger.error(f"? OpenAI API call failed: {e}")
+                    raise RuntimeError(f"OpenAI API failed: {e}")
+        
+        raise RuntimeError("OpenAI API failed after all retries")
     
     async def generate_comprehensive_evaluation(self, session: InterviewSession) -> Tuple[str, Dict[str, float]]:
-        """Generate comprehensive interview evaluation with strict scoring"""
+        """Generate comprehensive interview evaluation with enhanced error handling"""
+        if not self._initialized:
+            raise RuntimeError("Conversation manager not initialized")
+        
         try:
             # Separate exchanges by round
             technical_exchanges = [ex for ex in session.exchanges if ex.stage == InterviewStage.TECHNICAL]
@@ -686,12 +940,13 @@ Generate your behavioral assessment question:"""
             # Extract scores
             scores = self._extract_scores_from_evaluation(evaluation)
             
-            logger.info(f"✅ Evaluation generated for {session.test_id}")
+            logger.info(f"? Evaluation generated for {session.test_id}")
             return evaluation, scores
             
         except Exception as e:
-            logger.error(f"❌ Evaluation generation failed: {e}")
-            raise Exception(f"Evaluation generation failed: {e}")
+            logger.error(f"? Evaluation generation failed: {e}")
+            logger.error(f"? Traceback: {traceback.format_exc()}")
+            raise RuntimeError(f"Evaluation generation failed: {e}")
     
     def _create_evaluation_prompt(self, technical_exchanges: List, communication_exchanges: List, 
                                 hr_exchanges: List, analytics: Dict) -> str:
@@ -781,7 +1036,7 @@ Be thorough, honest, and constructive. Use specific examples from their response
                     score = float(match.group(1))
                     scores[key] = min(max(score, 0.0), 10.0)  # Ensure score is between 0-10
                 except ValueError:
-                    logger.warning(f"⚠️ Could not parse {key} from evaluation")
+                    logger.warning(f"?? Could not parse {key} from evaluation")
         
         # Calculate weighted overall score if individual scores are available
         if any(scores.values()):
