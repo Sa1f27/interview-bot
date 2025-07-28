@@ -42,22 +42,11 @@ class DatabaseManager:
                 self._mongo_client.close()
             
             if self._mysql_pool:
-                # MySQL pool doesn't have explicit close, connections auto-close
                 self._mysql_pool = None
             
             logger.info("✅ Database connections closed")
         except Exception as e:
             logger.warning(f"⚠️ Connection cleanup warning: {e}")
-
-# Singleton pattern for database manager
-_db_manager = None
-
-def get_db_manager(client_manager=None):
-    """Get database manager singleton"""
-    global _db_manager
-    if _db_manager is None and client_manager is not None:
-        _db_manager = DatabaseManager(client_manager)
-    return _db_manager
     
     async def _init_mongodb(self):
         """Initialize MongoDB connection with connection pooling"""
@@ -70,15 +59,12 @@ def get_db_manager(client_manager=None):
                 socketTimeoutMS=5000
             )
             
-            # Test connection
             await self._mongo_client.admin.command('ping')
             
-            # Initialize database and collections
             self._mongo_db = self._mongo_client[config.MONGODB_DATABASE]
             self.summaries_collection = self._mongo_db[config.SUMMARIES_COLLECTION]
             self.interview_results_collection = self._mongo_db[config.INTERVIEW_RESULTS_COLLECTION]
             
-            # Create indexes for performance
             await self._create_mongodb_indexes()
             
             logger.info("✅ MongoDB connection established")
@@ -100,7 +86,6 @@ def get_db_manager(client_manager=None):
             
             self._mysql_pool = pooling.MySQLConnectionPool(**mysql_config)
             
-            # Test connection
             conn = self._mysql_pool.get_connection()
             conn.close()
             
@@ -113,7 +98,6 @@ def get_db_manager(client_manager=None):
     async def _create_mongodb_indexes(self):
         """Create MongoDB indexes for performance"""
         try:
-            # Summaries collection indexes
             await self.summaries_collection.create_index([("timestamp", -1)])
             await self.summaries_collection.create_index([("date", -1)])
             await self.summaries_collection.create_index([
@@ -121,7 +105,6 @@ def get_db_manager(client_manager=None):
                 ("content", "text")
             ])
             
-            # Interview results indexes
             await self.interview_results_collection.create_index([("test_id", 1)], unique=True)
             await self.interview_results_collection.create_index([("timestamp", -1)])
             await self.interview_results_collection.create_index([("Student_ID", 1)])
@@ -130,7 +113,8 @@ def get_db_manager(client_manager=None):
             logger.info("📊 MongoDB indexes created")
             
         except Exception as e:
-            logger.warning(f"⚠️ Index creation warning: {e}")
+            logger.error(f"❌ Index creation failed: {e}")
+            raise Exception(f"Failed to create indexes: {e}")
     
     def get_mysql_connection(self):
         """Get MySQL connection from pool"""
@@ -154,7 +138,6 @@ def get_db_manager(client_manager=None):
             conn = self.get_mysql_connection()
             cursor = conn.cursor(dictionary=True)
             
-            # Get random student with proper data validation
             cursor.execute("""
                 SELECT ID, First_Name, Last_Name 
                 FROM tbl_Student 
@@ -172,7 +155,6 @@ def get_db_manager(client_manager=None):
             if not student:
                 raise Exception("No valid student records found")
             
-            # Get random session ID
             cursor.execute("""
                 SELECT Session_ID 
                 FROM tbl_Session 
@@ -221,19 +203,15 @@ def get_db_manager(client_manager=None):
         try:
             from pymongo import MongoClient
             
-            # Use sync MongoDB client for thread execution
             client = MongoClient(config.mongodb_connection_string, serverSelectionTimeoutMS=5000)
             db = client[config.MONGODB_DATABASE]
             collection = db[config.SUMMARIES_COLLECTION]
             
-            # Calculate date range for last N days
             end_date = datetime.now()
             start_date = end_date - timedelta(days=days)
             start_timestamp = start_date.timestamp()
             
-            # Enhanced query with multiple fallback strategies
             query_strategies = [
-                # Strategy 1: Recent summaries with timestamp
                 {
                     "filter": {
                         "summary": {"$exists": True, "$ne": "", "$type": "string"},
@@ -242,7 +220,6 @@ def get_db_manager(client_manager=None):
                     },
                     "sort": [("timestamp", -1)]
                 },
-                # Strategy 2: Recent summaries without timestamp filter (fallback)
                 {
                     "filter": {
                         "summary": {"$exists": True, "$ne": "", "$type": "string"},
@@ -250,7 +227,6 @@ def get_db_manager(client_manager=None):
                     },
                     "sort": [("_id", -1)]
                 },
-                # Strategy 3: Any valid summaries (last resort)
                 {
                     "filter": {
                         "summary": {"$exists": True, "$ne": "", "$type": "string"}
@@ -289,7 +265,6 @@ def get_db_manager(client_manager=None):
             if not summaries:
                 raise Exception("No valid summaries found in database")
             
-            # Log sample for verification
             if summaries:
                 first_summary = summaries[0]["summary"]
                 sample_length = min(len(first_summary), 150)
@@ -323,7 +298,6 @@ def get_db_manager(client_manager=None):
             db = client[config.MONGODB_DATABASE]
             collection = db[config.INTERVIEW_RESULTS_COLLECTION]
             
-            # Enhanced document structure
             document = {
                 "test_id": interview_data["test_id"],
                 "session_id": interview_data["session_id"],
@@ -332,12 +306,10 @@ def get_db_manager(client_manager=None):
                 "timestamp": time.time(),
                 "created_at": interview_data.get("created_at", time.time()),
                 
-                # Interview content
                 "conversation_log": interview_data.get("conversation_log", []),
                 "evaluation": interview_data.get("evaluation", ""),
                 "scores": interview_data.get("scores", {}),
                 
-                # Enhanced analytics
                 "interview_analytics": {
                     "total_duration_minutes": interview_data.get("duration_minutes", 0),
                     "total_questions": len(interview_data.get("conversation_log", [])),
@@ -350,11 +322,10 @@ def get_db_manager(client_manager=None):
                     "interview_flow_analytics": interview_data.get("flow_analytics", {})
                 },
                 
-                # System metadata
                 "system_info": {
                     "version": config.APP_VERSION,
                     "processing_time": interview_data.get("processing_time", 0),
-                    "websocket_used": interview_data.get("websocket_used", True),
+                    "websocket_used": interview_data.get("websocket_used", False),
                     "audio_format": interview_data.get("audio_format", "webm"),
                     "tts_voice": interview_data.get("tts_voice", config.TTS_VOICE)
                 }
@@ -466,7 +437,6 @@ def get_db_manager(client_manager=None):
         try:
             await self._mongo_client.admin.command('ping')
             
-            # Test collections
             summaries_count = await self.summaries_collection.count_documents({}, limit=1)
             results_count = await self.interview_results_collection.count_documents({}, limit=1)
             
@@ -479,18 +449,6 @@ def get_db_manager(client_manager=None):
                 }
             }
         except Exception as e:
-            health_status["mysql"] = {
-                "status": "error", 
-                "details": {"error": str(e)}
-            }
-        
-        # Overall status
-        health_status["overall"] = (
-            health_status["mongodb"]["status"] == "healthy" and
-            health_status["mysql"]["status"] == "healthy"
-        )
-        
-        return health_status
             health_status["mongodb"] = {
                 "status": "error",
                 "details": {"error": str(e)}
@@ -513,3 +471,25 @@ def get_db_manager(client_manager=None):
                 }
             }
         except Exception as e:
+            health_status["mysql"] = {
+                "status": "error", 
+                "details": {"error": str(e)}
+            }
+        
+        # Overall status
+        health_status["overall"] = (
+            health_status["mongodb"]["status"] == "healthy" and
+            health_status["mysql"]["status"] == "healthy"
+        )
+        
+        return health_status
+
+# Singleton pattern for database manager
+_db_manager = None
+
+def get_db_manager(client_manager=None):
+    """Get database manager singleton"""
+    global _db_manager
+    if _db_manager is None and client_manager is not None:
+        _db_manager = DatabaseManager(client_manager)
+    return _db_manager
