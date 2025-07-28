@@ -32,18 +32,8 @@ class DatabaseManager:
             self._init_mysql_pool()
             logger.info("✅ Database connections initialized successfully")
         except Exception as e:
-            health_status["mysql"] = {
-                "status": "error", 
-                "details": {"error": str(e)}
-            }
-        
-        # Overall status
-        health_status["overall"] = (
-            health_status["mongodb"]["status"] == "healthy" and
-            health_status["mysql"]["status"] == "healthy"
-        )
-        
-        return health_status
+            logger.error(f"❌ Database initialization failed: {e}")
+            raise Exception(f"Database initialization failed: {e}")
     
     async def close_connections(self):
         """Cleanup method for graceful shutdown"""
@@ -68,8 +58,6 @@ def get_db_manager(client_manager=None):
     if _db_manager is None and client_manager is not None:
         _db_manager = DatabaseManager(client_manager)
     return _db_manager
-            logger.error(f"❌ Database initialization failed: {e}")
-            raise Exception(f"Database initialization failed: {e}")
     
     async def _init_mongodb(self):
         """Initialize MongoDB connection with connection pooling"""
@@ -491,6 +479,18 @@ def get_db_manager(client_manager=None):
                 }
             }
         except Exception as e:
+            health_status["mysql"] = {
+                "status": "error", 
+                "details": {"error": str(e)}
+            }
+        
+        # Overall status
+        health_status["overall"] = (
+            health_status["mongodb"]["status"] == "healthy" and
+            health_status["mysql"]["status"] == "healthy"
+        )
+        
+        return health_status
             health_status["mongodb"] = {
                 "status": "error",
                 "details": {"error": str(e)}
