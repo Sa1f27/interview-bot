@@ -27,7 +27,9 @@ import {
   FiberManualRecord,
   CheckCircle,
   Mic,
-  MicOff
+  MicOff,
+  VolumeUp,
+  Pause
 } from '@mui/icons-material';
 import { useParams, useNavigate } from 'react-router-dom';
 import { wsManager, recordAudio } from '../../../services/API/index2';
@@ -129,7 +131,6 @@ const StudentStartInterview = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const theme = useTheme();
-  const audioRef = useRef(null);
   
   // Interview state
   const [sessionId, setSessionId] = useState(null);
@@ -149,6 +150,7 @@ const StudentStartInterview = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [canRecord, setCanRecord] = useState(false);
+  const [autoRecordingEnabled, setAutoRecordingEnabled] = useState(false);
 
   // WebSocket state
   const [wsConnected, setWsConnected] = useState(false);
@@ -159,7 +161,6 @@ const StudentStartInterview = () => {
 
   // Audio playback state
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
-  const [audioQueue, setAudioQueue] = useState([]);
 
   // Round configuration
   const rounds = {
@@ -169,16 +170,13 @@ const StudentStartInterview = () => {
   };
 
   useEffect(() => {
-    // Set session ID from URL param
     setSessionId(id);
     setInterviewStartTime(new Date().toISOString());
     setRoundName(rounds[1].name);
     setTotalQuestions(rounds[1].questions);
     
-    // Test microphone on component mount
     testMicrophone();
     
-    // Initialize WebSocket connection
     if (id) {
       initializeWebSocket(id);
     }
@@ -186,7 +184,6 @@ const StudentStartInterview = () => {
     setLoading(false);
   }, [id]);
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (sessionId) {
@@ -228,7 +225,6 @@ const StudentStartInterview = () => {
       handleWebSocketClose
     );
 
-    // Set connected state when WebSocket opens
     ws.addEventListener('open', () => {
       setWsConnected(true);
       setConnectionStatus('connected');
@@ -245,7 +241,6 @@ const StudentStartInterview = () => {
         setInterviewerSpeaking(true);
         setIsSubmitting(false);
         
-        // Update question counter based on stage
         if (data.stage) {
           const stageMap = { 'greeting': 1, 'technical': 1, 'communication': 2, 'hr': 3 };
           const newRound = stageMap[data.stage] || currentRound;
@@ -265,17 +260,20 @@ const StudentStartInterview = () => {
         
       case 'audio_end':
         setInterviewerSpeaking(false);
-        setCanRecord(true);
-        // Auto-start recording after audio ends
-        setTimeout(() => {
-          if (!isRecording) {
-            startRecording();
-          }
-        }, 1000);
+        setIsPlayingAudio(false);
+        
+        // AUTOMATIC RECORDING START - No button needed!
+        if (autoRecordingEnabled) {
+          console.log('🤖 AI finished speaking, auto-starting user recording...');
+          setTimeout(() => {
+            startAutomaticRecording();
+          }, 1000); // 1 second delay for natural flow
+        }
         break;
         
       case 'interview_complete':
         setInterviewStarted(false);
+        setAutoRecordingEnabled(false);
         handleInterviewComplete(data.result);
         break;
         
@@ -315,7 +313,6 @@ const StudentStartInterview = () => {
     try {
       setIsPlayingAudio(true);
       
-      // Convert base64 to audio blob
       const audioData = atob(audioBase64);
       const audioArray = new Uint8Array(audioData.length);
       for (let i = 0; i < audioData.length; i++) {
@@ -325,7 +322,6 @@ const StudentStartInterview = () => {
       const audioBlob = new Blob([audioArray], { type: 'audio/webm' });
       const audioUrl = URL.createObjectURL(audioBlob);
       
-      // Play audio
       const audio = new Audio(audioUrl);
       audio.onended = () => {
         setIsPlayingAudio(false);
@@ -345,8 +341,8 @@ const StudentStartInterview = () => {
     }
   };
 
-  const startRecording = async () => {
-    if (!canRecord || isRecording) {
+  const startAutomaticRecording = async () => {
+    if (!canRecord || isRecording || !autoRecordingEnabled) {
       return;
     }
 
@@ -354,9 +350,9 @@ const StudentStartInterview = () => {
       setIsRecording(true);
       setError(null);
       
-      console.log('🎤 Starting audio recording...');
+      console.log('🎤 Starting automatic audio recording...');
       
-      // Record audio for up to 30 seconds
+      // Use the enhanced natural recording with silence detection
       const audioBlob = await recordAudio(30000);
       
       setIsRecording(false);
@@ -395,13 +391,6 @@ const StudentStartInterview = () => {
     }
   };
 
-  const stopRecording = () => {
-    if (isRecording) {
-      setIsRecording(false);
-      console.log('⏹️ Recording stopped manually');
-    }
-  };
-
   const startInterview = async () => {
     if (!wsConnected) {
       setError('Not connected to server. Please refresh and try again.');
@@ -411,10 +400,10 @@ const StudentStartInterview = () => {
     try {
       setLoading(true);
       setInterviewStarted(true);
+      setAutoRecordingEnabled(true); // Enable automatic recording after this point
       
-      console.log('🚀 Starting interview session...');
+      console.log('🚀 Starting fully automatic interview session...');
       
-      // Send start message via WebSocket (greeting should come automatically from backend)
       const message = {
         type: 'start_interview'
       };
@@ -429,6 +418,7 @@ const StudentStartInterview = () => {
       console.error('❌ Failed to start interview:', error);
       setError('Failed to start interview: ' + error.message);
       setInterviewStarted(false);
+      setAutoRecordingEnabled(false);
     } finally {
       setLoading(false);
     }
@@ -438,6 +428,8 @@ const StudentStartInterview = () => {
     const message = {
       type: 'complete_interview'
     };
+    
+    setAutoRecordingEnabled(false); // Disable automatic recording
     
     if (wsManager.send(sessionId, message)) {
       console.log('📤 Complete interview message sent');
@@ -449,8 +441,8 @@ const StudentStartInterview = () => {
   const handleInterviewComplete = (result) => {
     try {
       console.log('✅ Interview completed:', result);
+      setAutoRecordingEnabled(false);
       
-      // Navigate to results page with evaluation data
       navigate(`/student/mock-interviews/results/${id}`, {
         state: { evaluation: result }
       });
@@ -547,8 +539,18 @@ const StudentStartInterview = () => {
         {wsConnected && ' - Ready for interview'}
       </Alert>
 
+      {/* Automatic Mode Indicator */}
+      {autoRecordingEnabled && (
+        <Alert severity="info" sx={{ mb: 3 }}>
+          <Typography variant="body2">
+            🤖 <strong>Automatic Mode Active:</strong> The interview will flow naturally. 
+            Speak after the AI finishes, and recording will stop automatically when you pause for 2 seconds.
+          </Typography>
+        </Alert>
+      )}
+
       {!interviewStarted && !loading ? (
-        /* Start Interview Card */
+        /* Start Interview Card - ONLY BUTTON IN ENTIRE INTERVIEW */
         <StyledCard sx={{ textAlign: 'center', maxWidth: 600, mx: 'auto' }}>
           <CardContent sx={{ p: 6 }}>
             <Box display="flex" justifyContent="center" gap={2} mb={3}>
@@ -563,25 +565,26 @@ const StudentStartInterview = () => {
               Ready to Begin Your Interview?
             </Typography>
             <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>
-              You'll be interviewed through real-time audio communication. The session consists of three rounds: 
-              Technical, Communication, and HR.
+              This will be a fully automatic interview experience. After you press "Start Interview", 
+              everything will flow naturally like a real conversation.
             </Typography>
             <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>
-              Listen carefully to each question and answer naturally. Recording will start and stop automatically.
+              <strong>How it works:</strong> The AI will ask questions, you speak naturally, 
+              and recording stops automatically when you pause for 2 seconds.
             </Typography>
             
-            {/* Enhanced Microphone Permission Notice */}
+            {/* Enhanced Audio Setup Notice */}
             <Box sx={{ mb: 4, p: 2, bgcolor: 'info.light', borderRadius: 2 }}>
               <Typography variant="body2" color="info.dark" gutterBottom>
-                <strong>🎤 Audio Setup:</strong>
+                <strong>🎤 Automatic Audio Setup:</strong>
               </Typography>
               <Typography variant="body2" color="info.dark" sx={{ mb: 2 }}>
-                • Make sure your speakers/headphones are on and volume is up<br/>
-                • Allow microphone access when prompted<br/>
-                • Ensure you're in a quiet environment
+                • Your speakers/headphones should be on and volume up<br/>
+                • Microphone permissions will be requested<br/>
+                • Recording starts and stops automatically<br/>
+                • Speak naturally - pauses of 2+ seconds will trigger AI response
               </Typography>
               
-              {/* Test Recording Button */}
               <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', justifyContent: 'center' }}>
                 <Button
                   variant="outlined"
@@ -596,9 +599,11 @@ const StudentStartInterview = () => {
             </Box>
             
             <Typography variant="body2" color="text.secondary" sx={{ mb: 4 }}>
-              <strong>Note:</strong> This interview uses real-time WebSocket communication for the best experience.
+              <strong>Note:</strong> This is the ONLY button you'll need to click. 
+              Everything else happens automatically for a natural interview experience.
             </Typography>
             
+            {/* THE ONLY BUTTON IN THE ENTIRE INTERVIEW */}
             <Button
               variant="contained"
               size="large"
@@ -610,7 +615,13 @@ const StudentStartInterview = () => {
                 py: 2,
                 fontSize: '1.2rem',
                 borderRadius: 3,
-                boxShadow: 4
+                boxShadow: 4,
+                background: 'linear-gradient(45deg, #2196F3 30%, #21CBF3 90%)',
+                '&:hover': {
+                  background: 'linear-gradient(45deg, #1976D2 30%, #2196F3 90%)',
+                  transform: 'translateY(-2px)',
+                  boxShadow: 6
+                }
               }}
             >
               {loading ? 'Starting Interview...' : 'Start Interview'}
@@ -624,7 +635,7 @@ const StudentStartInterview = () => {
           </CardContent>
         </StyledCard>
       ) : (
-        /* Main Interview Interface - Side by Side */
+        /* Main Interview Interface - Fully Automatic */
         <Grid container spacing={3} sx={{ height: 'calc(100vh - 250px)' }}>
           {/* Interviewer Side - Left */}
           <Grid item xs={6}>
@@ -660,7 +671,7 @@ const StudentStartInterview = () => {
                 <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   {interviewerSpeaking || isPlayingAudio ? (
                     <Box textAlign="center">
-                      <Person sx={{ fontSize: 120, color: 'primary.main', mb: 3 }} />
+                      <VolumeUp sx={{ fontSize: 120, color: 'primary.main', mb: 3 }} />
                       <Typography variant="h5" color="primary" gutterBottom>
                         Speaking
                       </Typography>
@@ -713,7 +724,7 @@ const StudentStartInterview = () => {
                     ? "Processing response..." 
                     : interviewerSpeaking || isPlayingAudio
                     ? "Listen to the question" 
-                    : "Ready to answer"
+                    : "Speak naturally - it's recording automatically"
                 }
                 action={
                   isRecording && (
@@ -734,7 +745,7 @@ const StudentStartInterview = () => {
                 <Box textAlign="center">
                   {interviewerSpeaking || isPlayingAudio ? (
                     <Box>
-                      <Person sx={{ fontSize: 120, color: 'primary.main', mb: 3 }} />
+                      <VolumeUp sx={{ fontSize: 120, color: 'primary.main', mb: 3 }} />
                       <Typography variant="h5" color="primary" gutterBottom>
                         Listen to Question
                       </Typography>
@@ -744,28 +755,22 @@ const StudentStartInterview = () => {
                     </Box>
                   ) : isRecording ? (
                     <Box>
-                      <Person sx={{ fontSize: 120, color: 'error.main', mb: 3 }} />
-                      <FiberManualRecord sx={{ fontSize: 40, color: 'error.main', mb: 2 }} />
+                      <FiberManualRecord sx={{ fontSize: 120, color: 'error.main', mb: 3 }} />
                       <Typography variant="h5" color="error" gutterBottom>
                         Recording Your Answer
                       </Typography>
                       <Typography variant="body1" color="text.secondary" sx={{ mt: 1 }}>
-                        Speak naturally. Recording will stop automatically when you pause.
+                        Speak naturally. Recording will stop automatically when you pause for 2 seconds.
                       </Typography>
-                      <Button
-                        variant="outlined"
-                        color="error"
-                        onClick={stopRecording}
-                        sx={{ mt: 2 }}
-                        startIcon={<FiberManualRecord />}
-                      >
-                        Stop Recording
-                      </Button>
+                      <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+                        <Typography variant="body2" color="text.secondary">
+                          💡 Just speak naturally - no buttons needed!
+                        </Typography>
+                      </Box>
                     </Box>
                   ) : isSubmitting ? (
                     <Box>
-                      <Person sx={{ fontSize: 120, color: 'primary.main', mb: 3 }} />
-                      <CircularProgress size={60} sx={{ mb: 2 }} />
+                      <CircularProgress size={120} sx={{ mb: 3, color: 'primary.main' }} />
                       <Typography variant="h5" color="primary" gutterBottom>
                         Processing Response
                       </Typography>
@@ -775,30 +780,23 @@ const StudentStartInterview = () => {
                     </Box>
                   ) : (
                     <Box>
-                      <Person sx={{ fontSize: 120, color: 'success.main', mb: 3 }} />
-                      <CheckCircle sx={{ fontSize: 40, color: 'success.main', mb: 2 }} />
+                      <CheckCircle sx={{ fontSize: 120, color: 'success.main', mb: 3 }} />
                       <Typography variant="h5" color="success.main" gutterBottom>
-                        Ready to Record
+                        Ready for Next Question
                       </Typography>
                       <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
-                        Click the button below or wait for automatic recording to start
+                        Automatic recording is active. Speak when ready.
                       </Typography>
-                      <Button
-                        variant="contained"
-                        color="primary"
-                        onClick={startRecording}
-                        disabled={!canRecord || interviewerSpeaking || isPlayingAudio}
-                        startIcon={<Mic />}
-                        sx={{ mr: 2 }}
-                      >
-                        Start Recording
-                      </Button>
+                      
+                      {/* ONLY Emergency Complete Button - Hidden During Normal Flow */}
                       <Button
                         variant="outlined"
                         color="secondary"
                         onClick={completeInterview}
+                        size="small"
+                        sx={{ mt: 2 }}
                       >
-                        Complete Interview
+                        Complete Interview Early
                       </Button>
                     </Box>
                   )}
@@ -820,10 +818,10 @@ const StudentStartInterview = () => {
           <Grid item xs={2}>
             <Typography variant="body2" color="text.secondary">
               <strong>Status:</strong> {
-                interviewerSpeaking || isPlayingAudio ? 'Speaking' :
+                interviewerSpeaking || isPlayingAudio ? 'AI Speaking' :
                 isRecording ? 'Recording' :
                 isSubmitting ? 'Processing' :
-                'Ready'
+                autoRecordingEnabled ? 'Auto Mode' : 'Ready'
               }
             </Typography>
           </Grid>
@@ -844,7 +842,7 @@ const StudentStartInterview = () => {
           </Grid>
           <Grid item xs={2}>
             <Typography variant="body2" color="text.secondary">
-              <strong>Mic:</strong> {canRecord ? '🎤 Ready' : '❌ Not Ready'}
+              <strong>Auto Mode:</strong> {autoRecordingEnabled ? '🤖 Active' : '⏸️ Inactive'}
             </Typography>
           </Grid>
         </Grid>
