@@ -1,14 +1,15 @@
 // src/services/API/index2.js
 // Assessment API configuration - Environment driven with WebSocket support
 
-// Assessment API Base URL from environment
+// Assessment API Base URL from environment - keeping your server IP
 const ASSESSMENT_API_BASE_URL = import.meta.env.VITE_ASSESSMENT_API_URL || 
                                 import.meta.env.VITE_API_BASE_URL ||
-                                'http://localhost:8060';
+                                'https://192.168.48.201:8060';  // Your Linux server IP
 
-// WebSocket URL configuration
+// WebSocket URL configuration - supporting both HTTP and HTTPS
 const getWebSocketURL = () => {
   const baseURL = ASSESSMENT_API_BASE_URL;
+  // Use WSS for HTTPS, WS for HTTP
   const protocol = baseURL.startsWith('https://') ? 'wss://' : 'ws://';
   const host = baseURL.replace(/^https?:\/\//, '');
   return `${protocol}${host}`;
@@ -57,32 +58,32 @@ class WebSocketManager {
 
   connect(sessionId, onMessage, onError, onClose) {
     const wsURL = `${getWebSocketURL()}/weekly_interview/ws/${sessionId}`;
-    console.log('🔌 Connecting to WebSocket:', wsURL);
+    console.log('?? Connecting to WebSocket:', wsURL);
 
     const ws = new WebSocket(wsURL);
     
     ws.onopen = () => {
-      console.log('✅ WebSocket connected for session:', sessionId);
+      console.log('? WebSocket connected for session:', sessionId);
     };
 
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        console.log('📨 WebSocket message received:', data);
+        console.log('?? WebSocket message received:', data);
         if (onMessage) onMessage(data);
       } catch (error) {
-        console.error('❌ WebSocket message parse error:', error);
+        console.error('? WebSocket message parse error:', error);
         if (onError) onError(error);
       }
     };
 
     ws.onerror = (error) => {
-      console.error('❌ WebSocket error:', error);
+      console.error('? WebSocket error:', error);
       if (onError) onError(error);
     };
 
     ws.onclose = (event) => {
-      console.log('🔌 WebSocket closed:', event.code, event.reason);
+      console.log('?? WebSocket closed:', event.code, event.reason);
       this.connections.delete(sessionId);
       if (onClose) onClose(event);
     };
@@ -95,10 +96,10 @@ class WebSocketManager {
     const ws = this.connections.get(sessionId);
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify(data));
-      console.log('📤 WebSocket message sent:', data);
+      console.log('?? WebSocket message sent:', data);
       return true;
     } else {
-      console.error('❌ WebSocket not connected for session:', sessionId);
+      console.error('? WebSocket not connected for session:', sessionId);
       return false;
     }
   }
@@ -108,7 +109,7 @@ class WebSocketManager {
     if (ws) {
       ws.close();
       this.connections.delete(sessionId);
-      console.log('🔌 WebSocket disconnected for session:', sessionId);
+      console.log('?? WebSocket disconnected for session:', sessionId);
     }
   }
 
@@ -117,7 +118,7 @@ class WebSocketManager {
       ws.close();
     }
     this.connections.clear();
-    console.log('🔌 All WebSocket connections closed');
+    console.log('?? All WebSocket connections closed');
   }
 }
 
@@ -146,7 +147,7 @@ export const assessmentApiRequest = async (endpoint, options = {}) => {
   // Retry logic
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
-      console.log(`🔗 Assessment API Request (attempt ${attempt}):`, {
+      console.log(`?? Assessment API Request (attempt ${attempt}):`, {
         url,
         method: config.method || 'GET',
         headers: config.headers,
@@ -156,7 +157,7 @@ export const assessmentApiRequest = async (endpoint, options = {}) => {
 
       const response = await fetch(url, config);
       
-      console.log('📡 Assessment API Response:', {
+      console.log('?? Assessment API Response:', {
         status: response.status,
         statusText: response.statusText,
         url: response.url,
@@ -181,7 +182,7 @@ export const assessmentApiRequest = async (endpoint, options = {}) => {
           errorData = response.statusText;
         }
         
-        console.error('❌ Assessment API Error Response:', {
+        console.error('? Assessment API Error Response:', {
           status: response.status,
           data: errorData,
           attempt: attempt
@@ -222,22 +223,22 @@ export const assessmentApiRequest = async (endpoint, options = {}) => {
       const contentType = response.headers.get('content-type');
       if (contentType && contentType.includes('application/json')) {
         const jsonData = await response.json();
-        console.log('✅ Assessment API JSON Response:', jsonData);
+        console.log('? Assessment API JSON Response:', jsonData);
         return jsonData;
       } else if (contentType && contentType.includes('application/pdf')) {
         const blob = await response.blob();
-        console.log('✅ Assessment API PDF Response:', blob.size, 'bytes');
+        console.log('? Assessment API PDF Response:', blob.size, 'bytes');
         return blob;
       } else {
         const textData = await response.text();
-        console.log('✅ Assessment API Text Response:', textData);
+        console.log('? Assessment API Text Response:', textData);
         return textData;
       }
       
     } catch (error) {
       clearTimeout(timeoutId);
       
-      console.error(`💥 Assessment API request failed (attempt ${attempt}):`, {
+      console.error(`?? Assessment API request failed (attempt ${attempt}):`, {
         url,
         error: error.message,
         name: error.name,
@@ -298,14 +299,14 @@ export const assessmentApiRequest = async (endpoint, options = {}) => {
 // Connection test function
 export const testAPIConnection = async () => {
   try {
-    console.log('🔍 Testing API connection...');
+    console.log('?? Testing API connection...');
     
     const response = await assessmentApiRequest('/weekly_interview/health', {
       method: 'GET',
       timeout: 10000 // Shorter timeout for connection test
     });
     
-    console.log('✅ API connection test successful:', response);
+    console.log('? API connection test successful:', response);
     return {
       status: 'success',
       message: 'API connection successful',
@@ -313,7 +314,7 @@ export const testAPIConnection = async () => {
       baseUrl: ASSESSMENT_API_BASE_URL
     };
   } catch (error) {
-    console.error('❌ API connection test failed:', error);
+    console.error('? API connection test failed:', error);
     return {
       status: 'failed',
       message: error.message,
@@ -336,7 +337,7 @@ export const validateAPIConfig = () => {
        'sessionStorage(authToken)') : 'none'
   };
   
-  console.log('🔧 API Configuration:', config);
+  console.log('?? API Configuration:', config);
   
   const issues = [];
   
@@ -375,7 +376,7 @@ export const getEnvironmentInfo = () => {
 // Audio recording utility
 export const recordAudio = async (duration = 30000) => {
   try {
-    console.log('🎤 Starting audio recording...');
+    console.log('?? Starting audio recording...');
     
     const stream = await navigator.mediaDevices.getUserMedia({ 
       audio: {
@@ -402,7 +403,7 @@ export const recordAudio = async (duration = 30000) => {
       
       mediaRecorder.onstop = () => {
         const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-        console.log('✅ Audio recording completed, size:', audioBlob.size, 'bytes');
+        console.log('? Audio recording completed, size:', audioBlob.size, 'bytes');
         
         // Stop all tracks to release microphone
         stream.getTracks().forEach(track => track.stop());
@@ -411,25 +412,25 @@ export const recordAudio = async (duration = 30000) => {
       };
       
       mediaRecorder.onerror = (error) => {
-        console.error('❌ MediaRecorder error:', error);
+        console.error('? MediaRecorder error:', error);
         stream.getTracks().forEach(track => track.stop());
         reject(error);
       };
       
       mediaRecorder.start();
-      console.log('🔴 Recording started...');
+      console.log('?? Recording started...');
       
       // Auto-stop after duration
       setTimeout(() => {
         if (mediaRecorder.state === 'recording') {
           mediaRecorder.stop();
-          console.log('⏹️ Auto-stopped recording after', duration, 'ms');
+          console.log('?? Auto-stopped recording after', duration, 'ms');
         }
       }, duration);
     });
     
   } catch (error) {
-    console.error('❌ Failed to start audio recording:', error);
+    console.error('? Failed to start audio recording:', error);
     throw new Error(`Audio recording failed: ${error.message}`);
   }
 };

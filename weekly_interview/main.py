@@ -77,9 +77,9 @@ class EnhancedInterviewManager:
             self.tts_processor = UltraFastTTSProcessor()
             self.conversation_manager = OptimizedConversationManager(shared_clients)
             
-            logger.info("✅ Enhanced Interview Manager initialized")
+            logger.info("? Enhanced Interview Manager initialized")
         except Exception as e:
-            logger.error(f"❌ Interview Manager initialization failed: {e}")
+            logger.error(f"? Interview Manager initialization failed: {e}")
             raise Exception(f"Interview Manager initialization failed: {e}")
     
     async def start_interview_session(self, websocket: Optional[WebSocket] = None) -> Dict[str, Any]:
@@ -101,7 +101,7 @@ class EnhancedInterviewManager:
                 "message": "Interview session created successfully"
             }
         except Exception as e:
-            logger.error(f"❌ Start interview failed: {e}")
+            logger.error(f"? Start interview failed: {e}")
             raise Exception(f"Failed to start interview: {e}")
     
     async def process_audio_message(self, session_id: str, audio_data: bytes) -> Dict[str, Any]:
@@ -118,7 +118,7 @@ class EnhancedInterviewManager:
                     "status": session.current_stage.value
                 }
             
-            logger.info(f"🎙️ User response: '{transcript}' (quality: {quality:.2f})")
+            logger.info(f"??? User response: '{transcript}' (quality: {quality:.2f})")
             
             if session.exchanges:
                 session.update_last_response(transcript, quality)
@@ -139,7 +139,7 @@ class EnhancedInterviewManager:
                 "processing_time": processing_time
             }
         except Exception as e:
-            logger.error(f"❌ Audio processing failed: {e}")
+            logger.error(f"? Audio processing failed: {e}")
             return {
                 "type": "error",
                 "message": f"Processing failed: {str(e)}",
@@ -153,22 +153,22 @@ class EnhancedInterviewManager:
         if current_stage == InterviewStage.GREETING and questions_in_stage >= 2:
             session.current_stage = InterviewStage.TECHNICAL
             session.round_start_times["technical"] = time.time()
-            logger.info(f"🔄 Transitioned to TECHNICAL stage")
+            logger.info(f"?? Transitioned to TECHNICAL stage")
             
         elif current_stage == InterviewStage.TECHNICAL and questions_in_stage >= config.MAX_QUESTIONS_PER_ROUND:
             session.current_stage = InterviewStage.COMMUNICATION
             session.round_start_times["communication"] = time.time()
-            logger.info(f"🔄 Transitioned to COMMUNICATION stage")
+            logger.info(f"?? Transitioned to COMMUNICATION stage")
             
         elif current_stage == InterviewStage.COMMUNICATION and questions_in_stage >= config.MAX_QUESTIONS_PER_ROUND:
             session.current_stage = InterviewStage.HR
             session.round_start_times["hr"] = time.time()
-            logger.info(f"🔄 Transitioned to HR stage")
+            logger.info(f"?? Transitioned to HR stage")
             
         elif current_stage == InterviewStage.HR and questions_in_stage >= config.MAX_QUESTIONS_PER_ROUND:
             session.current_stage = InterviewStage.COMPLETE
             session.current_state = InterviewState.COMPLETED
-            logger.info(f"🏁 Interview completed")
+            logger.info(f"?? Interview completed")
     
     def _determine_if_followup(self, session, ai_response: str) -> bool:
         followup_indicators = [
@@ -185,7 +185,7 @@ class EnhancedInterviewManager:
                 if audio_chunk and session.is_active:
                     yield audio_chunk
         except Exception as e:
-            logger.error(f"❌ TTS streaming failed: {e}")
+            logger.error(f"? TTS streaming failed: {e}")
     
     async def complete_interview(self, session_id: str) -> Dict[str, Any]:
         try:
@@ -234,7 +234,7 @@ class EnhancedInterviewManager:
             await self.db_manager.save_interview_result_fast(interview_data)
             self.session_manager.cleanup_session(session_id)
             
-            logger.info(f"✅ Interview completed and saved: {session.test_id}")
+            logger.info(f"? Interview completed and saved: {session.test_id}")
             
             return {
                 "evaluation": evaluation,
@@ -243,7 +243,7 @@ class EnhancedInterviewManager:
                 "pdf_url": f"/weekly_interview/download_results/{session.test_id}"
             }
         except Exception as e:
-            logger.error(f"❌ Interview completion failed: {e}")
+            logger.error(f"? Interview completion failed: {e}")
             raise Exception(f"Interview completion failed: {e}")
     
     def _calculate_stage_times(self, session) -> Dict[str, float]:
@@ -285,7 +285,7 @@ class EnhancedInterviewManager:
         try:
             return await self.db_manager.get_interview_result_fast(test_id)
         except Exception as e:
-            logger.error(f"❌ Get interview result failed: {e}")
+            logger.error(f"? Get interview result failed: {e}")
             return None
     
     def cleanup_expired_sessions(self):
@@ -299,27 +299,27 @@ class EnhancedInterviewManager:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("🚀 Enhanced Mock Interview System starting...")
+    logger.info("?? Enhanced Mock Interview System starting...")
     
     try:
         await interview_manager.initialize()
         cleanup_task = asyncio.create_task(periodic_cleanup())
-        logger.info("✅ Enhanced Mock Interview System operational")
+        logger.info("? Enhanced Mock Interview System operational")
     except Exception as e:
-        logger.error(f"❌ Startup failed: {e}")
+        logger.error(f"? Startup failed: {e}")
         raise Exception(f"Application startup failed: {e}")
     
     yield
     
-    logger.info("👋 Shutting down Enhanced Mock Interview System...")
+    logger.info("?? Shutting down Enhanced Mock Interview System...")
     try:
         cleanup_task.cancel()
         await shared_clients.close_connections()
         if interview_manager.db_manager:
             await interview_manager.db_manager.close_connections()
-        logger.info("✅ Graceful shutdown completed")
+        logger.info("? Graceful shutdown completed")
     except Exception as e:
-        logger.error(f"❌ Shutdown error: {e}")
+        logger.error(f"? Shutdown error: {e}")
 
 async def periodic_cleanup():
     while True:
@@ -327,11 +327,11 @@ async def periodic_cleanup():
             await asyncio.sleep(config.CLEANUP_INTERVAL)
             cleaned = interview_manager.cleanup_expired_sessions()
             if cleaned > 0:
-                logger.info(f"🧹 Cleaned up {cleaned} expired sessions")
+                logger.info(f"?? Cleaned up {cleaned} expired sessions")
         except asyncio.CancelledError:
             break
         except Exception as e:
-            logger.error(f"❌ Cleanup task error: {e}")
+            logger.error(f"? Cleanup task error: {e}")
 
 app = FastAPI(
     title=config.APP_TITLE,
@@ -377,7 +377,7 @@ async def health_check():
         
         return health_status
     except Exception as e:
-        logger.error(f"❌ Health check failed: {e}")
+        logger.error(f"? Health check failed: {e}")
         return JSONResponse(
             status_code=503,
             content={
@@ -400,7 +400,7 @@ async def start_interview():
             message=result["message"]
         )
     except Exception as e:
-        logger.error(f"❌ Start interview error: {e}")
+        logger.error(f"? Start interview error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.websocket("/ws/{session_id}")
@@ -408,7 +408,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
     await websocket.accept()
     
     try:
-        logger.info(f"🔌 WebSocket connected for session: {session_id}")
+        logger.info(f"?? WebSocket connected for session: {session_id}")
         
         session = interview_manager.session_manager.get_session(session_id)
         if not session:
@@ -455,7 +455,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 }))
                 
             except Exception as e:
-                logger.error(f"❌ Initial audio generation failed: {e}")
+                logger.error(f"? Initial audio generation failed: {e}")
         
         # Main WebSocket communication loop
         while session.is_active and session.current_stage != InterviewStage.COMPLETE:
@@ -502,7 +502,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                                     }))
                                     
                                 except Exception as e:
-                                    logger.error(f"❌ TTS generation failed: {e}")
+                                    logger.error(f"? TTS generation failed: {e}")
                                     await websocket.send_text(json.dumps({
                                         "type": "error",
                                         "message": "Audio generation failed",
@@ -510,7 +510,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                                     }))
                             
                         except Exception as e:
-                            logger.error(f"❌ Audio processing failed: {e}")
+                            logger.error(f"? Audio processing failed: {e}")
                             await websocket.send_text(json.dumps({
                                 "type": "error",
                                 "message": "Audio processing failed",
@@ -529,7 +529,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                         }))
                         break
                     except Exception as e:
-                        logger.error(f"❌ Interview completion failed: {e}")
+                        logger.error(f"? Interview completion failed: {e}")
                         await websocket.send_text(json.dumps({
                             "type": "error",
                             "message": "Interview completion failed",
@@ -537,7 +537,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                         }))
                 
             except asyncio.TimeoutError:
-                logger.info(f"⏰ WebSocket timeout for session: {session_id}")
+                logger.info(f"? WebSocket timeout for session: {session_id}")
                 await websocket.send_text(json.dumps({
                     "type": "timeout",
                     "message": "Session timeout due to inactivity",
@@ -546,11 +546,11 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 break
                 
             except WebSocketDisconnect:
-                logger.info(f"🔌 WebSocket disconnected: {session_id}")
+                logger.info(f"?? WebSocket disconnected: {session_id}")
                 break
                 
             except Exception as e:
-                logger.error(f"❌ WebSocket error: {e}")
+                logger.error(f"? WebSocket error: {e}")
                 await websocket.send_text(json.dumps({
                     "type": "error",
                     "message": f"Communication error: {str(e)}",
@@ -567,10 +567,10 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                     "result": result
                 }))
             except Exception as e:
-                logger.error(f"❌ Final completion failed: {e}")
+                logger.error(f"? Final completion failed: {e}")
     
     except Exception as e:
-        logger.error(f"❌ WebSocket endpoint error: {e}")
+        logger.error(f"? WebSocket endpoint error: {e}")
     
     finally:
         if session_id in interview_manager.session_manager.active_sessions:
@@ -593,7 +593,7 @@ async def get_evaluation(test_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Get evaluation error: {e}")
+        logger.error(f"? Get evaluation error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/download_results/{test_id}")
@@ -614,7 +614,7 @@ async def download_results(test_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ PDF generation error: {e}")
+        logger.error(f"? PDF generation error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/interview-students")
@@ -637,7 +637,7 @@ async def get_interview_students():
             "timestamp": time.time()
         }
     except Exception as e:
-        logger.error(f"❌ Get students error: {e}")
+        logger.error(f"? Get students error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/interview-students/{student_id}/interviews")
@@ -662,7 +662,7 @@ async def get_student_interviews(student_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Get student interviews error: {e}")
+        logger.error(f"? Get student interviews error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # =============================================================================
@@ -772,32 +772,35 @@ if __name__ == "__main__":
             s.close()
         return ip
 
-    local_ip = get_local_ip()
-    port = 8062
+    # Use your actual server configuration
+    server_ip = "192.168.48.201"  # Your Linux server IP
+    port = 8060  # Your existing port
     
-    print(f"🚀 Starting Enhanced Mock Interview System")
-    print(f"📡 Server: https://{local_ip}:{port}")
-    print(f"📋 API Docs: https://{local_ip}:{port}/docs")
-    print(f"🎙️ WebSocket: wss://{local_ip}:{port}/weekly_interview/ws/{{session_id}}")
-    print(f"🔄 Real-time Communication: Enabled")
-    print(f"🧠 AI-Powered Assessment: Enabled")
-    print(f"📊 Strict Evaluation: Enabled")
-    print(f"🌐 CORS Origins: {config.CORS_ALLOW_ORIGINS}")
+    print(f"?? Starting Enhanced Mock Interview System")
+    print(f"?? Server: https://{server_ip}:{port}")
+    print(f"?? API Docs: https://{server_ip}:{port}/docs")
+    print(f"??? WebSocket: wss://{server_ip}:{port}/weekly_interview/ws/{{session_id}}")
+    print(f"?? Real-time Communication: Enabled")
+    print(f"?? AI-Powered Assessment: Enabled")
+    print(f"?? Strict Evaluation: Enabled")
+    print(f"?? CORS Origins: {config.CORS_ALLOW_ORIGINS}")
+    print(f"?? Remote Access: Windows laptop ? Linux server")
     
-    # SSL configuration
+    # SSL configuration for production
     ssl_config = {}
     if config.USE_SSL and os.path.exists(config.SSL_CERT_PATH) and os.path.exists(config.SSL_KEY_PATH):
         ssl_config = {
             "ssl_certfile": config.SSL_CERT_PATH,
             "ssl_keyfile": config.SSL_KEY_PATH
         }
-        print(f"🔒 SSL/HTTPS: Enabled")
+        print(f"?? SSL/HTTPS: Enabled with certificates")
     else:
-        print(f"🔓 SSL/HTTPS: Disabled (certificates not found)")
+        print(f"?? SSL/HTTPS: Disabled (certificates not found)")
+        print(f"??  For production, consider enabling SSL certificates")
     
     uvicorn.run(
         "weekly_interview.main:app",
-        host="0.0.0.0",
+        host="0.0.0.0",  # Listen on all interfaces for remote access
         port=port,
         reload=True,
         log_level=config.LOG_LEVEL.lower(),
