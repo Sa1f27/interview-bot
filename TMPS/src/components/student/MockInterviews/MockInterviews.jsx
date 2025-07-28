@@ -29,7 +29,6 @@ import {
   Lightbulb
 } from '@mui/icons-material';
 
-// Import the API
 import { interviewOperationsAPI } from '../../../services/API/studentmockinterview';
 
 // Interview Start Dialog Component
@@ -140,87 +139,47 @@ const StudentMockInterviews = () => {
     setStartInterviewDialog(true);
   };
 
-  // const handleConfirmStartInterview = async () => {
-  //   try {
-  //     setStartingInterview(true);
+  const handleConfirmStartInterview = async () => {
+    try {
+      setStartingInterview(true);
       
-  //     console.log('Starting new interview...');
-  //     const response = await interviewOperationsAPI.startInterview();
+      console.log('Starting new interview...');
+      const response = await interviewOperationsAPI.startInterview();
       
-  //     console.log('Interview started successfully:', response);
+      console.log('Interview started successfully:', response);
       
-  //     // Transform the response data
-  //     const interviewData = interviewOperationsAPI.transformInterviewOperationData(response);
+      // Extract test_id from response
+      const testId = response.test_id;
       
-  //     setSnackbar({
-  //       open: true,
-  //       message: `Interview started successfully! Test ID: ${interviewData.testId}`,
-  //       severity: 'success'
-  //     });
+      if (!testId) {
+        throw new Error('No test ID received from server');
+      }
+      
+      setSnackbar({
+        open: true,
+        message: `Interview started successfully! Test ID: ${testId}`,
+        severity: 'success'
+      });
 
-  //     // Close the dialog
-  //     setStartInterviewDialog(false);
+      // Close the dialog
+      setStartInterviewDialog(false);
       
-  //     // Navigate to the interview session page
-  //     if (interviewData.testId) {
-  //       navigate(`/student/interview-session/${interviewData.testId}`);
-  //     }
+      // Navigate to the interview session page
+      console.log('Navigating to:', `/student/mock-interviews/session/${testId}`);
+      navigate(`/student/mock-interviews/session/${testId}`);
       
-  //   } catch (error) {
-  //     console.error('Failed to start interview:', error);
-  //     setSnackbar({
-  //       open: true,
-  //       message: `Failed to start interview: ${error.message}`,
-  //       severity: 'error'
-  //     });
-  //   } finally {
-  //     setStartingInterview(false);
-  //   }
-  // };
-// Update your handleConfirmStartInterview function in StudentMockInterviews.jsx:
-
-const handleConfirmStartInterview = async () => {
-  try {
-    setStartingInterview(true);
-    
-    console.log('Starting new interview...');
-    const response = await interviewOperationsAPI.startInterview();
-    
-    console.log('Interview started successfully:', response);
-    
-    // Check if we got a test_id directly from response
-    const testId = response.test_id || response.testId;
-    
-    if (!testId) {
-      throw new Error('No test ID received from server');
+    } catch (error) {
+      console.error('Failed to start interview:', error);
+      setSnackbar({
+        open: true,
+        message: `Failed to start interview: ${error.message}`,
+        severity: 'error'
+      });
+    } finally {
+      setStartingInterview(false);
     }
-    
-    setSnackbar({
-      open: true,
-      message: `Interview started successfully! Test ID: ${testId}`,
-      severity: 'success'
-    });
+  };
 
-    // Close the dialog
-    setStartInterviewDialog(false);
-    
-    // Navigate to the interview session page using the CORRECT route pattern
-    // Change from: `/student/mock-interviews/${testId}`
-    // To: `/student/mock-interviews/view/${testId}`
-    console.log('Navigating to:', `/student/mock-interviews/view/${testId}`);
-    navigate(`/student/mock-interviews/view/${testId}`);
-    
-  } catch (error) {
-    console.error('Failed to start interview:', error);
-    setSnackbar({
-      open: true,
-      message: `Failed to start interview: ${error.message}`,
-      severity: 'error'
-    });
-  } finally {
-    setStartingInterview(false);
-  }
-};
   const handleCloseSnackbar = () => {
     setSnackbar({ ...snackbar, open: false });
   };

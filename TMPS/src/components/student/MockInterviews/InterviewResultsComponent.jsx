@@ -1,5 +1,3 @@
-// Create this file: src/components/student/MockInterviews/InterviewResults.jsx
-
 import React, { useState, useEffect } from 'react';
 import {
   Box,
@@ -165,25 +163,30 @@ const InterviewResults = () => {
       {/* Scores Section */}
       {results?.scores && typeof results.scores === 'object' && Object.keys(results.scores).length > 0 && (
         <Card sx={{ mb: 3, borderRadius: 2 }}>
-          <CardHeader title="Round-wise Scores" />
+          <CardHeader title="Performance Scores" />
           <CardContent>
             <Grid container spacing={3}>
-              {Object.entries(results.scores).map(([round, score]) => {
+              {Object.entries(results.scores).map(([scoreKey, score]) => {
                 // Handle different score formats
                 let numericScore = 0;
                 if (typeof score === 'number') {
                   numericScore = score;
                 } else if (typeof score === 'string') {
-                  numericScore = parseInt(score) || 0;
+                  numericScore = parseFloat(score) || 0;
                 } else if (typeof score === 'object' && score?.score) {
-                  numericScore = parseInt(score.score) || 0;
+                  numericScore = parseFloat(score.score) || 0;
                 }
                 
                 const maxScore = 10;
                 const percentage = (numericScore / maxScore) * 100;
                 
+                // Format score key for display
+                const displayName = scoreKey
+                  .replace(/_/g, ' ')
+                  .replace(/\b\w/g, l => l.toUpperCase());
+                
                 return (
-                  <Grid item xs={12} md={4} key={round}>
+                  <Grid item xs={12} md={6} lg={3} key={scoreKey}>
                     <Box
                       sx={{
                         p: 2,
@@ -196,12 +199,12 @@ const InterviewResults = () => {
                       <Box display="flex" alignItems="center" justifyContent="center" mb={1}>
                         {getScoreIcon(numericScore)}
                         <Typography variant="h6" sx={{ ml: 1 }}>
-                          {round.replace(/_/g, ' ').toUpperCase()}
+                          {displayName}
                         </Typography>
                       </Box>
                       
                       <Typography variant="h4" color={getScoreColor(numericScore)} gutterBottom>
-                        {numericScore}/{maxScore}
+                        {numericScore.toFixed(1)}/{maxScore}
                       </Typography>
                       
                       <LinearProgress
@@ -244,15 +247,29 @@ const InterviewResults = () => {
                   displayValue = value ? 'Yes' : 'No';
                 } else if (value === null || value === undefined) {
                   displayValue = 'N/A';
+                } else if (typeof value === 'object') {
+                  // Handle nested objects (like questions_per_round)
+                  if (key === 'questions_per_round') {
+                    displayValue = Object.entries(value)
+                      .map(([round, count]) => `${round}: ${count}`)
+                      .join(', ');
+                  } else {
+                    displayValue = JSON.stringify(value);
+                  }
                 } else {
                   displayValue = String(value);
                 }
+                
+                // Format key for display
+                const displayKey = key
+                  .replace(/_/g, ' ')
+                  .replace(/\b\w/g, l => l.toUpperCase());
                 
                 return (
                   <Grid item xs={12} sm={6} md={4} key={key}>
                     <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
                       <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                        {key.replace(/_/g, ' ').toUpperCase()}
+                        {displayKey}
                       </Typography>
                       <Typography variant="h6">
                         {displayValue}
@@ -266,8 +283,128 @@ const InterviewResults = () => {
         </Card>
       )}
 
-      {/* Debug Information (remove in production) */}
-    
+      {/* Interview Progress */}
+      {results?.analytics?.questions_per_round && (
+        <Card sx={{ mb: 3, borderRadius: 2 }}>
+          <CardHeader title="Round Progress" />
+          <CardContent>
+            <Grid container spacing={2}>
+              {Object.entries(results.analytics.questions_per_round).map(([round, questionCount]) => {
+                const roundName = round.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                const maxQuestions = round === 'greeting' ? 2 : 6; // Adjust based on your round config
+                const progress = (questionCount / maxQuestions) * 100;
+                
+                return (
+                  <Grid item xs={12} sm={6} md={3} key={round}>
+                    <Box sx={{ textAlign: 'center' }}>
+                      <Typography variant="h6" gutterBottom>
+                        {roundName}
+                      </Typography>
+                      <Typography variant="h4" color="primary" gutterBottom>
+                        {questionCount}
+                      </Typography>
+                      <LinearProgress
+                        variant="determinate"
+                        value={Math.min(progress, 100)}
+                        sx={{
+                          height: 8,
+                          borderRadius: 4,
+                          mb: 1
+                        }}
+                      />
+                      <Typography variant="body2" color="text.secondary">
+                        {questionCount} of {maxQuestions} questions
+                      </Typography>
+                    </Box>
+                  </Grid>
+                );
+              })}
+            </Grid>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Performance Summary */}
+      {results?.scores && (
+        <Card sx={{ mb: 3, borderRadius: 2 }}>
+          <CardHeader title="Performance Summary" />
+          <CardContent>
+            <Grid container spacing={3}>
+              <Grid item xs={12} md={6}>
+                <Typography variant="h6" gutterBottom color="primary">
+                  Strengths Identified:
+                </Typography>
+                <Box component="ul" sx={{ mt: 1, pl: 2 }}>
+                  {results.scores.technical_score >= 7 && (
+                    <li>
+                      <Typography variant="body2">
+                        Strong technical knowledge and problem-solving skills
+                      </Typography>
+                    </li>
+                  )}
+                  {results.scores.communication_score >= 7 && (
+                    <li>
+                      <Typography variant="body2">
+                        Excellent communication and presentation abilities
+                      </Typography>
+                    </li>
+                  )}
+                  {results.scores.behavioral_score >= 7 && (
+                    <li>
+                      <Typography variant="body2">
+                        Good cultural fit and behavioral responses
+                      </Typography>
+                    </li>
+                  )}
+                  {results.scores.overall_score >= 7 && (
+                    <li>
+                      <Typography variant="body2">
+                        Professional interview presence and confidence
+                      </Typography>
+                    </li>
+                  )}
+                </Box>
+              </Grid>
+              
+              <Grid item xs={12} md={6}>
+                <Typography variant="h6" gutterBottom color="warning.main">
+                  Areas for Improvement:
+                </Typography>
+                <Box component="ul" sx={{ mt: 1, pl: 2 }}>
+                  {results.scores.technical_score < 7 && (
+                    <li>
+                      <Typography variant="body2">
+                        Focus on strengthening technical fundamentals
+                      </Typography>
+                    </li>
+                  )}
+                  {results.scores.communication_score < 7 && (
+                    <li>
+                      <Typography variant="body2">
+                        Work on clear communication and articulation
+                      </Typography>
+                    </li>
+                  )}
+                  {results.scores.behavioral_score < 7 && (
+                    <li>
+                      <Typography variant="body2">
+                        Practice behavioral interview questions and STAR method
+                      </Typography>
+                    </li>
+                  )}
+                  {results.scores.overall_score < 7 && (
+                    <li>
+                      <Typography variant="body2">
+                        Build confidence and professional presentation skills
+                      </Typography>
+                    </li>
+                  )}
+                </Box>
+              </Grid>
+            </Grid>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Actions */}
       <Box display="flex" gap={2} justifyContent="center" mt={4}>

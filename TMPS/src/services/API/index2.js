@@ -1,10 +1,18 @@
 // src/services/API/index2.js
-// Assessment API configuration for Daily Standups, Mock Interviews, and Mock Tests
+// Assessment API configuration - Environment driven with WebSocket support
 
-// Assessment API Base URL with fallback
+// Assessment API Base URL from environment
 const ASSESSMENT_API_BASE_URL = import.meta.env.VITE_ASSESSMENT_API_URL || 
                                 import.meta.env.VITE_API_BASE_URL ||
-                                'https://192.168.48.201:8060';
+                                'http://localhost:8060';
+
+// WebSocket URL configuration
+const getWebSocketURL = () => {
+  const baseURL = ASSESSMENT_API_BASE_URL;
+  const protocol = baseURL.startsWith('https://') ? 'wss://' : 'ws://';
+  const host = baseURL.replace(/^https?:\/\//, '');
+  return `${protocol}${host}`;
+};
 
 // Get authentication token from localStorage with fallback
 const getAuthToken = () => {
@@ -27,7 +35,6 @@ const getAssessmentHeaders = (isFormData = false) => {
     headers['Authorization'] = `Bearer ${token}`;
   }
   
-  // Add CORS headers
   headers['Accept'] = 'application/json';
   
   return headers;
@@ -36,10 +43,86 @@ const getAssessmentHeaders = (isFormData = false) => {
 // Network timeout configuration
 const DEFAULT_TIMEOUT = 30000; // 30 seconds
 const UPLOAD_TIMEOUT = 60000;  // 60 seconds for file uploads
+const WEBSOCKET_TIMEOUT = 300000; // 5 minutes for WebSocket
 
 // Retry configuration
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000; // 1 second
+
+// WebSocket connection manager
+class WebSocketManager {
+  constructor() {
+    this.connections = new Map();
+  }
+
+  connect(sessionId, onMessage, onError, onClose) {
+    const wsURL = `${getWebSocketURL()}/weekly_interview/ws/${sessionId}`;
+    console.log('🔌 Connecting to WebSocket:', wsURL);
+
+    const ws = new WebSocket(wsURL);
+    
+    ws.onopen = () => {
+      console.log('✅ WebSocket connected for session:', sessionId);
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        console.log('📨 WebSocket message received:', data);
+        if (onMessage) onMessage(data);
+      } catch (error) {
+        console.error('❌ WebSocket message parse error:', error);
+        if (onError) onError(error);
+      }
+    };
+
+    ws.onerror = (error) => {
+      console.error('❌ WebSocket error:', error);
+      if (onError) onError(error);
+    };
+
+    ws.onclose = (event) => {
+      console.log('🔌 WebSocket closed:', event.code, event.reason);
+      this.connections.delete(sessionId);
+      if (onClose) onClose(event);
+    };
+
+    this.connections.set(sessionId, ws);
+    return ws;
+  }
+
+  send(sessionId, data) {
+    const ws = this.connections.get(sessionId);
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(data));
+      console.log('📤 WebSocket message sent:', data);
+      return true;
+    } else {
+      console.error('❌ WebSocket not connected for session:', sessionId);
+      return false;
+    }
+  }
+
+  disconnect(sessionId) {
+    const ws = this.connections.get(sessionId);
+    if (ws) {
+      ws.close();
+      this.connections.delete(sessionId);
+      console.log('🔌 WebSocket disconnected for session:', sessionId);
+    }
+  }
+
+  disconnectAll() {
+    for (const [sessionId, ws] of this.connections) {
+      ws.close();
+    }
+    this.connections.clear();
+    console.log('🔌 All WebSocket connections closed');
+  }
+}
+
+// Global WebSocket manager instance
+const wsManager = new WebSocketManager();
 
 // Generic assessment API request function with enhanced error handling
 export const assessmentApiRequest = async (endpoint, options = {}) => {
@@ -217,7 +300,7 @@ export const testAPIConnection = async () => {
   try {
     console.log('🔍 Testing API connection...');
     
-    const response = await assessmentApiRequest('/weekend_mocktest/api/health', {
+    const response = await assessmentApiRequest('/weekly_interview/health', {
       method: 'GET',
       timeout: 10000 // Shorter timeout for connection test
     });
@@ -244,6 +327,7 @@ export const testAPIConnection = async () => {
 export const validateAPIConfig = () => {
   const config = {
     baseUrl: ASSESSMENT_API_BASE_URL,
+    wsUrl: getWebSocketURL(),
     hasToken: !!getAuthToken(),
     tokenSource: getAuthToken() ? 
       (localStorage.getItem('token') ? 'localStorage' : 
@@ -278,6 +362,7 @@ export const getEnvironmentInfo = () => {
     isDevelopment: import.meta.env.DEV || false,
     isProduction: import.meta.env.PROD || true,
     baseUrl: ASSESSMENT_API_BASE_URL,
+    wsUrl: getWebSocketURL(),
     hasViteConfig: !!(import.meta.env.VITE_ASSESSMENT_API_URL || import.meta.env.VITE_API_BASE_URL),
     envVars: {
       VITE_ASSESSMENT_API_URL: import.meta.env.VITE_ASSESSMENT_API_URL,
@@ -287,8 +372,70 @@ export const getEnvironmentInfo = () => {
   };
 };
 
-// Export the base URL for use in other modules
-export { ASSESSMENT_API_BASE_URL };
+// Audio recording utility
+export const recordAudio = async (duration = 30000) => {
+  try {
+    console.log('🎤 Starting audio recording...');
+    
+    const stream = await navigator.mediaDevices.getUserMedia({ 
+      audio: {
+        sampleRate: 44100,
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+      } 
+    });
+    
+    const mediaRecorder = new MediaRecorder(stream, {
+      mimeType: 'audio/webm;codecs=opus'
+    });
+    
+    const audioChunks = [];
+    
+    return new Promise((resolve, reject) => {
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunks.push(event.data);
+        }
+      };
+      
+      mediaRecorder.onstop = () => {
+        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+        console.log('✅ Audio recording completed, size:', audioBlob.size, 'bytes');
+        
+        // Stop all tracks to release microphone
+        stream.getTracks().forEach(track => track.stop());
+        
+        resolve(audioBlob);
+      };
+      
+      mediaRecorder.onerror = (error) => {
+        console.error('❌ MediaRecorder error:', error);
+        stream.getTracks().forEach(track => track.stop());
+        reject(error);
+      };
+      
+      mediaRecorder.start();
+      console.log('🔴 Recording started...');
+      
+      // Auto-stop after duration
+      setTimeout(() => {
+        if (mediaRecorder.state === 'recording') {
+          mediaRecorder.stop();
+          console.log('⏹️ Auto-stopped recording after', duration, 'ms');
+        }
+      }, duration);
+    });
+    
+  } catch (error) {
+    console.error('❌ Failed to start audio recording:', error);
+    throw new Error(`Audio recording failed: ${error.message}`);
+  }
+};
+
+// Export the base URL and WebSocket manager for use in other modules
+export { ASSESSMENT_API_BASE_URL, wsManager, getWebSocketURL };
 
 // Default export with enhanced functionality
 export default {
@@ -296,13 +443,17 @@ export default {
   testAPIConnection,
   validateAPIConfig,
   getEnvironmentInfo,
+  recordAudio,
+  wsManager,
   ASSESSMENT_API_BASE_URL,
+  getWebSocketURL,
   getAuthToken,
   getAssessmentHeaders,
   
   // Configuration constants
   DEFAULT_TIMEOUT,
   UPLOAD_TIMEOUT,
+  WEBSOCKET_TIMEOUT,
   MAX_RETRIES,
   RETRY_DELAY
 };
