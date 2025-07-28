@@ -4,7 +4,7 @@ services:
   interview_app:
     build: .
     ports:
-      - "8060:8060"
+      - "8070:8070"
     volumes:
       - .:/app
     env_file:

@@ -96,7 +96,7 @@ app = FastAPI(
 # Configure CORS
 cors_origins = os.getenv(
     'CORS_ORIGINS', 
-    'http://localhost:5173,http://192.168.48.201:5173,https://192.168.48.201:8060'
+    'http://localhost:5173,http://192.168.48.201:5173,https://192.168.48.201:8070,https://192.168.48.201:5173,https://192.168.48.201:5175'
 ).split(',')
 
 app.add_middleware(
@@ -237,7 +237,7 @@ if __name__ == "__main__":
     import uvicorn
     
     host = os.getenv('API_HOST', '0.0.0.0')
-    port = int(os.getenv('API_PORT', '8060'))
+    port = int(os.getenv('API_PORT', '8070'))
     debug_mode = os.getenv('DEBUG_MODE', 'true').lower() == 'true'
     
     logger.info("🚀 Starting Mock Test API")

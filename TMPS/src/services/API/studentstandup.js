@@ -346,7 +346,7 @@ class UltraFastWebSocketManager {
     this.sessionId = sessionId;
     
     try {
-      const wsUrl = `wss://192.168.48.201:8060/daily_standup/ws/${sessionId}`;
+      const wsUrl = `wss://192.168.48.201:8070/daily_standup/ws/${sessionId}`;
       console.log('🔌 Connecting to ultra-fast WebSocket:', wsUrl);
       
       this.websocket = new WebSocket(wsUrl);
@@ -369,7 +369,7 @@ class UltraFastWebSocketManager {
         this.websocket.onerror = (error) => {
           clearTimeout(timeout);
           console.error('❌ WebSocket connection failed:', error);
-          reject(new Error(`WebSocket connection failed - Backend not running on wss://192.168.48.201:8060`));
+          reject(new Error(`WebSocket connection failed - Backend not running on wss://192.168.48.201:8070`));
         };
 
         this.websocket.onclose = (event) => {

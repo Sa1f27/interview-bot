@@ -82,7 +82,7 @@ export const mockTestAPI = {
       console.log('API: Downloading PDF for test:', testId);
       
       // Get base URL from environment or fallback
-      const baseUrl = import.meta.env.VITE_ASSESSMENT_API_URL || 'https://192.168.48.201:8060';
+      const baseUrl = import.meta.env.VITE_ASSESSMENT_API_URL || 'https://192.168.48.201:8070';
       const url = `${baseUrl}/weekend_mocktest/api/test/pdf/${testId}`;
       
       console.log('PDF download URL:', url);

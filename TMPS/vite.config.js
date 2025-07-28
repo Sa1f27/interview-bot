@@ -12,7 +12,7 @@ export default defineConfig({
     host: true, // or '0.0.0.0' if you prefer
     proxy: {
       '/api': {
-        target: 'https://192.168.48.201:8060',
+        target: 'https://192.168.48.201:8070',
         changeOrigin: true,
         secure: false,
       }

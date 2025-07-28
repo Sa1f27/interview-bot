@@ -69,21 +69,35 @@ class EnhancedInterviewManager:
         
     async def initialize(self):
         try:
+            # First initialize the database manager
             self.db_manager = get_db_manager(shared_clients)
             await self.db_manager.initialize()
             
+            # Initialize all components in correct order
             self.session_manager = InterviewSessionManager(self.db_manager)
-            self.audio_processor = OptimizedAudioProcessor(shared_clients)
-            self.tts_processor = UltraFastTTSProcessor()
-            self.conversation_manager = OptimizedConversationManager(shared_clients)
+            await self.session_manager.initialize()  # Add this line to initialize session manager
             
-            logger.info("? Enhanced Interview Manager initialized")
+            self.audio_processor = OptimizedAudioProcessor(shared_clients)
+            await self.audio_processor.initialize()  # Add this line if needed
+            
+            self.tts_processor = UltraFastTTSProcessor()
+            await self.tts_processor.initialize()  # Add this line if needed
+            
+            self.conversation_manager = OptimizedConversationManager(shared_clients)
+            await self.conversation_manager.initialize()  # Add this line if needed
+            
+            logger.info("? Enhanced Interview Manager initialized successfully")
         except Exception as e:
             logger.error(f"? Interview Manager initialization failed: {e}")
-            raise Exception(f"Interview Manager initialization failed: {e}")
+            # Re-raise with more context
+            raise RuntimeError(f"Interview Manager initialization failed: {str(e)}") from e
     
     async def start_interview_session(self, websocket: Optional[WebSocket] = None) -> Dict[str, Any]:
         try:
+            # Add validation to check if components are initialized
+            if not all([self.session_manager, self.db_manager, self.conversation_manager]):
+                raise RuntimeError("Interview manager components not properly initialized")
+                
             session = await self.session_manager.create_session_fast(websocket)
             greeting = await self.conversation_manager.generate_interview_response(session)
             
@@ -774,7 +788,7 @@ if __name__ == "__main__":
 
     # Use your actual server configuration
     server_ip = "192.168.48.201"  # Your Linux server IP
-    port = 8060  # Your existing port
+    port = 8070  # Your existing port
     
     print(f"?? Starting Enhanced Mock Interview System")
     print(f"?? Server: https://{server_ip}:{port}")

@@ -4,7 +4,7 @@
 // Assessment API Base URL from environment - keeping your server IP
 const ASSESSMENT_API_BASE_URL = import.meta.env.VITE_ASSESSMENT_API_URL || 
                                 import.meta.env.VITE_API_BASE_URL ||
-                                'https://192.168.48.201:8060';  // Your Linux server IP
+                                'https://192.168.48.201:8070';  // Your Linux server IP
 
 // WebSocket URL configuration - supporting both HTTP and HTTPS
 const getWebSocketURL = () => {

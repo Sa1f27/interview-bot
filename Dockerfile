@@ -101,11 +101,11 @@ RUN chown -R app:app /app
 USER app
 
 # Expose port
-EXPOSE 8060
+EXPOSE 8070
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f https://localhost:8060/health || exit 1
+    CMD curl -f https://localhost:8070/health || exit 1
 
 # Default command
 CMD ["python", "app.py"]
