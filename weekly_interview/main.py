@@ -1,7 +1,7 @@
 # weekly_interview/main.py
 """
-Enhanced Mock Interview System - Main Application with Enhanced Error Handling
-Fast WebSocket-based real-time interview system
+Enhanced Mock Interview System - Daily Standup Style Ultra-Fast Streaming
+Real-time WebSocket interview with 7-day fragment processing and streaming TTS
 """
 
 import os
@@ -12,15 +12,13 @@ import asyncio
 import json
 import base64
 from typing import Dict, Optional, Any
-from contextlib import asynccontextmanager
 import io
 from datetime import datetime
 import traceback
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request, Form, File, UploadFile
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Form, File, UploadFile
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import LETTER
@@ -29,324 +27,219 @@ from reportlab.lib.styles import getSampleStyleSheet
 import textwrap
 
 from .core.config import config
-from .core.database import DatabaseManager, get_db_manager
+from .core.database import DatabaseManager
 from .core.ai_services import (
-    shared_clients, InterviewSessionManager, OptimizedAudioProcessor,
-    UltraFastTTSProcessor, OptimizedConversationManager, InterviewStage, InterviewState
+    shared_clients, InterviewSession, InterviewStage,
+    EnhancedInterviewFragmentManager, OptimizedAudioProcessor,
+    UltraFastTTSProcessor, OptimizedConversationManager
 )
 
-logging.basicConfig(level=getattr(logging, config.LOG_LEVEL), format=config.LOG_FORMAT)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # =============================================================================
-# REQUEST/RESPONSE MODELS
+# ULTRA-FAST INTERVIEW SESSION MANAGER (Daily Standup Style)
 # =============================================================================
 
-class StartInterviewResponse(BaseModel):
-    test_id: str
-    session_id: str
-    websocket_url: str
-    student_name: str
-    estimated_duration_minutes: int
-    message: str
-
-class EvaluationResponse(BaseModel):
-    evaluation: str
-    scores: Dict[str, float]
-    analytics: Dict[str, Any]
-    pdf_url: str
-
-class HealthResponse(BaseModel):
-    status: str
-    service: str
-    version: str
-    timestamp: float
-    components: Dict[str, Any]
-    error_details: Optional[str] = None
-
-# =============================================================================
-# ENHANCED INTERVIEW MANAGER WITH PROPER ERROR HANDLING
-# =============================================================================
-
-class EnhancedInterviewManager:
+class UltraFastInterviewManager:
     def __init__(self):
-        self.session_manager = None
-        self.audio_processor = None
-        self.tts_processor = None
-        self.conversation_manager = None
-        self.db_manager = None
-        self.is_initialized = False
-        self.initialization_error = None
+        self.active_sessions: Dict[str, InterviewSession] = {}
+        self.db_manager = DatabaseManager(shared_clients)
+        self.audio_processor = OptimizedAudioProcessor(shared_clients)
+        self.tts_processor = UltraFastTTSProcessor()
+        self.conversation_manager = OptimizedConversationManager(shared_clients)
+    
+    async def create_session_fast(self, websocket: Optional[Any] = None) -> InterviewSession:
+        """Ultra-fast session creation with 7-day summary processing"""
+        session_id = str(uuid.uuid4())
+        test_id = f"interview_{int(time.time())}"
         
-    async def initialize(self):
-        """Initialize all components with comprehensive error handling"""
         try:
-            logger.info("?? Starting Enhanced Interview Manager initialization...")
+            logger.info(f"🚀 Creating ultra-fast interview session: {session_id}")
             
-            # Step 1: Initialize shared clients first
-            try:
-                logger.info("?? Initializing shared AI clients...")
-                await shared_clients.initialize()
-                logger.info("? Shared AI clients initialized")
-            except Exception as e:
-                error_msg = f"Shared clients initialization failed: {str(e)}"
-                logger.error(f"? {error_msg}")
-                raise RuntimeError(error_msg) from e
+            # Get student info and 7-day summaries in parallel
+            student_info_task = asyncio.create_task(self.db_manager.get_student_info_fast())
+            summaries_task = asyncio.create_task(self.db_manager.get_recent_summaries_fast(
+                days=config.RECENT_SUMMARIES_DAYS,
+                limit=config.SUMMARIES_LIMIT
+            ))
             
-            # Step 2: Initialize database manager
-            try:
-                logger.info("?? Initializing database manager...")
-                self.db_manager = get_db_manager(shared_clients)
-                if not self.db_manager:
-                    raise RuntimeError("Failed to create database manager instance")
-                
-                await self.db_manager.initialize()
-                logger.info("? Database manager initialized")
-                
-                # Test database connections
-                health_status = await self.db_manager.health_check()
-                if not health_status.get("overall", False):
-                    raise RuntimeError(f"Database health check failed: {health_status}")
-                logger.info("? Database health check passed")
-                
-            except Exception as e:
-                error_msg = f"Database initialization failed: {str(e)}"
-                logger.error(f"? {error_msg}")
-                raise RuntimeError(error_msg) from e
+            student_id, first_name, last_name, session_key = await student_info_task
+            summaries = await summaries_task
             
-            # Step 3: Initialize session manager
-            try:
-                logger.info("?? Initializing session manager...")
-                self.session_manager = InterviewSessionManager(self.db_manager)
-                await self.session_manager.initialize()
-                logger.info("? Session manager initialized")
-            except Exception as e:
-                error_msg = f"Session manager initialization failed: {str(e)}"
-                logger.error(f"? {error_msg}")
-                raise RuntimeError(error_msg) from e
+            # Validate data
+            if not summaries or len(summaries) == 0:
+                raise Exception("No summaries available for interview content generation")
             
-            # Step 4: Initialize audio processor
-            try:
-                logger.info("?? Initializing audio processor...")
-                self.audio_processor = OptimizedAudioProcessor(shared_clients)
-                await self.audio_processor.initialize()
-                logger.info("? Audio processor initialized")
-            except Exception as e:
-                error_msg = f"Audio processor initialization failed: {str(e)}"
-                logger.error(f"? {error_msg}")
-                raise RuntimeError(error_msg) from e
-            
-            # Step 5: Initialize TTS processor
-            try:
-                logger.info("?? Initializing TTS processor...")
-                self.tts_processor = UltraFastTTSProcessor()
-                await self.tts_processor.initialize()
-                logger.info("? TTS processor initialized")
-            except Exception as e:
-                error_msg = f"TTS processor initialization failed: {str(e)}"
-                logger.error(f"? {error_msg}")
-                raise RuntimeError(error_msg) from e
-            
-            # Step 6: Initialize conversation manager
-            try:
-                logger.info("?? Initializing conversation manager...")
-                self.conversation_manager = OptimizedConversationManager(shared_clients)
-                await self.conversation_manager.initialize()
-                logger.info("? Conversation manager initialized")
-            except Exception as e:
-                error_msg = f"Conversation manager initialization failed: {str(e)}"
-                logger.error(f"? {error_msg}")
-                raise RuntimeError(error_msg) from e
-            
-            self.is_initialized = True
-            self.initialization_error = None
-            logger.info("? Enhanced Interview Manager initialized successfully")
-            
-        except Exception as e:
-            self.is_initialized = False
-            self.initialization_error = str(e)
-            logger.error(f"? Interview Manager initialization failed: {e}")
-            logger.error(f"? Traceback: {traceback.format_exc()}")
-            # Re-raise with more context
-            raise RuntimeError(f"Interview Manager initialization failed: {str(e)}") from e
-    
-    def check_initialization(self) -> Dict[str, Any]:
-        """Check initialization status and return detailed info"""
-        return {
-            "is_initialized": self.is_initialized,
-            "initialization_error": self.initialization_error,
-            "components": {
-                "db_manager": self.db_manager is not None,
-                "session_manager": self.session_manager is not None,
-                "audio_processor": self.audio_processor is not None,
-                "tts_processor": self.tts_processor is not None,
-                "conversation_manager": self.conversation_manager is not None
-            }
-        }
-    
-    async def start_interview_session(self, websocket: Optional[WebSocket] = None) -> Dict[str, Any]:
-        """Start interview session with enhanced error handling"""
-        try:
-            # Check initialization first
-            if not self.is_initialized:
-                raise RuntimeError(f"Interview Manager not initialized: {self.initialization_error}")
-            
-            # Validate components
-            if not all([self.session_manager, self.db_manager, self.conversation_manager]):
-                raise RuntimeError("Interview manager components not properly initialized")
-            
-            logger.info("?? Starting new interview session...")
+            if not first_name or not last_name:
+                raise Exception("Invalid student data retrieved from database")
             
             # Create session
-            session = await self.session_manager.create_session_fast(websocket)
-            logger.info(f"? Session created: {session.session_id}")
+            session_data = InterviewSession(
+                session_id=session_id,
+                test_id=test_id,
+                student_id=student_id,
+                student_name=f"{first_name} {last_name}",
+                session_key=session_key,
+                created_at=time.time(),
+                last_activity=time.time(),
+                current_stage=InterviewStage.GREETING,
+                websocket=websocket
+            )
             
-            # Generate greeting
-            greeting = await self.conversation_manager.generate_interview_response(session)
-            logger.info(f"? Greeting generated: {greeting[:100]}...")
+            # Initialize enhanced fragment manager with 7-day summaries
+            fragment_manager = EnhancedInterviewFragmentManager(shared_clients, session_data)
+            if not fragment_manager.initialize_fragments(summaries):
+                raise Exception("Failed to initialize fragments from 7-day summaries")
             
-            # Update session
-            session.add_exchange(greeting, "", 0.0, False, 0.0)
-            session.current_state = InterviewState.IN_PROGRESS
-            session.round_start_times["greeting"] = time.time()
+            session_data.fragment_manager = fragment_manager
+            self.active_sessions[session_id] = session_data
             
-            result = {
-                "test_id": session.test_id,
-                "session_id": session.session_id,
-                "websocket_url": f"/weekly_interview/ws/{session.session_id}",
-                "student_name": session.student_name,
-                "estimated_duration_minutes": config.INTERVIEW_DURATION_MINUTES,
-                "greeting": greeting,
-                "message": "Interview session created successfully"
-            }
+            logger.info(f"✅ Ultra-fast interview session created: {session_id} for {session_data.student_name} "
+                       f"with {len(session_data.fragment_keys)} fragments from {len(summaries)} summaries")
             
-            logger.info(f"? Interview session started successfully: {session.test_id}")
-            return result
+            return session_data
             
         except Exception as e:
-            logger.error(f"? Start interview failed: {e}")
-            logger.error(f"? Traceback: {traceback.format_exc()}")
-            raise Exception(f"Failed to start interview: {e}")
+            logger.error(f"❌ Failed to create interview session: {e}")
+            raise Exception(f"Session creation failed: {e}")
     
-    async def process_audio_message(self, session_id: str, audio_data: bytes) -> Dict[str, Any]:
-        """Process audio message with enhanced error handling"""
+    async def remove_session(self, session_id: str):
+        """Fast session removal"""
+        if session_id in self.active_sessions:
+            del self.active_sessions[session_id]
+            logger.info(f"🗑️ Removed session {session_id}")
+    
+    async def process_audio_ultra_fast(self, session_id: str, audio_data: bytes):
+        """Ultra-fast audio processing pipeline (identical to daily_standup style)"""
+        session_data = self.active_sessions.get(session_id)
+        if not session_data or not session_data.is_active:
+            logger.warning(f"⚠️ Inactive session: {session_id}")
+            return
+        
+        start_time = time.time()
+        
         try:
-            if not self.is_initialized:
-                raise RuntimeError("Interview Manager not initialized")
+            audio_size = len(audio_data)
+            logger.info(f"🎤 Session {session_id}: Received {audio_size} bytes of audio data")
             
-            session = self.session_manager.validate_session(session_id)
-            start_time = time.time()
+            # Lenient audio size check with better error handling
+            if audio_size < 100:
+                logger.warning(f"⚠️ Very small audio chunk ({audio_size} bytes)")
+                await self._send_quick_message(session_data, {
+                    "type": "clarification",
+                    "text": "I didn't hear anything clear. Could you please speak a bit louder?",
+                    "status": session_data.current_stage.value
+                })
+                return
             
+            # Ultra-fast transcription
             transcript, quality = await self.audio_processor.transcribe_audio_fast(audio_data)
             
             if not transcript or len(transcript.strip()) < 2:
-                return {
+                # Dynamic clarification request
+                clarification_message = "The audio wasn't very clear. Could you please repeat that?"
+                await self._send_quick_message(session_data, {
                     "type": "clarification",
-                    "message": "I didn't hear your response clearly. Could you please repeat that?",
-                    "status": session.current_stage.value
-                }
+                    "text": clarification_message,
+                    "status": session_data.current_stage.value
+                })
+                return
             
-            logger.info(f"??? User response: '{transcript}' (quality: {quality:.2f})")
+            logger.info(f"✅ Session {session_id}: User said: '{transcript}' (quality: {quality:.2f})")
             
-            if session.exchanges:
-                session.update_last_response(transcript, quality)
+            # Update last exchange with user response
+            if session_data.exchanges:
+                session_data.update_last_response(transcript, quality)
             
-            await self._check_stage_transitions(session)
+            # Generate AI response immediately
+            ai_response = await self.conversation_manager.generate_fast_response(session_data, transcript)
             
-            ai_response = await self.conversation_manager.generate_interview_response(session, transcript)
+            # Add exchange to session
+            concept = session_data.current_concept if session_data.current_concept else "unknown"
+            is_followup = self._determine_if_followup(ai_response)
+            
+            session_data.add_exchange(ai_response, "", quality, concept, is_followup)
+            
+            # Update session state (check stage transitions)
+            await self._update_session_state_fast(session_data)
+            
+            # Send response with ultra-fast audio streaming
+            await self._send_response_with_ultra_fast_audio(session_data, ai_response)
             
             processing_time = time.time() - start_time
-            is_followup = self._determine_if_followup(session, ai_response)
-            session.add_exchange(ai_response, "", 0.0, is_followup, processing_time)
+            logger.info(f"⚡ Total processing time: {processing_time:.2f}s")
             
-            return {
-                "type": "ai_response",
-                "message": ai_response,
-                "stage": session.current_stage.value,
-                "question_number": session.questions_per_round[session.current_stage.value],
-                "processing_time": processing_time
-            }
         except Exception as e:
-            logger.error(f"? Audio processing failed: {e}")
-            logger.error(f"? Traceback: {traceback.format_exc()}")
-            return {
+            logger.error(f"❌ Audio processing error: {e}")
+            
+            # Send helpful error message
+            if "too small" in str(e).lower():
+                error_message = "The audio recording was too short. Please try speaking for a few seconds."
+            elif "transcription" in str(e).lower():
+                error_message = "I had trouble understanding the audio. Please try speaking clearly into your microphone."
+            else:
+                error_message = "Sorry, there was a technical issue. Please try again."
+            
+            await self._send_quick_message(session_data, {
                 "type": "error",
-                "message": f"Processing failed: {str(e)}",
+                "text": error_message,
                 "status": "error"
-            }
+            })
     
-    async def _check_stage_transitions(self, session):
-        """Check and handle stage transitions"""
-        current_stage = session.current_stage
-        questions_in_stage = session.questions_per_round[current_stage.value]
-        
-        if current_stage == InterviewStage.GREETING and questions_in_stage >= 2:
-            session.current_stage = InterviewStage.TECHNICAL
-            session.round_start_times["technical"] = time.time()
-            logger.info(f"?? Transitioned to TECHNICAL stage")
-            
-        elif current_stage == InterviewStage.TECHNICAL and questions_in_stage >= config.MAX_QUESTIONS_PER_ROUND:
-            session.current_stage = InterviewStage.COMMUNICATION
-            session.round_start_times["communication"] = time.time()
-            logger.info(f"?? Transitioned to COMMUNICATION stage")
-            
-        elif current_stage == InterviewStage.COMMUNICATION and questions_in_stage >= config.MAX_QUESTIONS_PER_ROUND:
-            session.current_stage = InterviewStage.HR
-            session.round_start_times["hr"] = time.time()
-            logger.info(f"?? Transitioned to HR stage")
-            
-        elif current_stage == InterviewStage.HR and questions_in_stage >= config.MAX_QUESTIONS_PER_ROUND:
-            session.current_stage = InterviewStage.COMPLETE
-            session.current_state = InterviewState.COMPLETED
-            logger.info(f"?? Interview completed")
-    
-    def _determine_if_followup(self, session, ai_response: str) -> bool:
+    def _determine_if_followup(self, ai_response: str) -> bool:
         """Determine if response is a follow-up question"""
         followup_indicators = [
-            "follow up", "elaborate", "can you explain", "tell me more",
-            "what about", "how did you", "could you describe"
+            "elaborate", "can you explain", "tell me more", "what about", 
+            "how did you", "could you describe", "follow up"
         ]
         return any(indicator in ai_response.lower() for indicator in followup_indicators)
     
-    async def generate_tts_stream(self, session_id: str, text: str):
-        """Generate TTS stream with error handling"""
-        try:
-            if not self.is_initialized:
-                raise RuntimeError("Interview Manager not initialized")
-            
-            session = self.session_manager.validate_session(session_id)
-            
-            async for audio_chunk in self.tts_processor.generate_audio_stream(text):
-                if audio_chunk and session.is_active:
-                    yield audio_chunk
-        except Exception as e:
-            logger.error(f"? TTS streaming failed: {e}")
+    async def _update_session_state_fast(self, session_data: InterviewSession):
+        """Ultra-fast session state updates with interview round logic"""
+        current_stage = session_data.current_stage
+        fragment_manager = session_data.fragment_manager
+        
+        if current_stage == InterviewStage.GREETING:
+            if session_data.questions_per_round["greeting"] >= 2:
+                session_data.current_stage = InterviewStage.TECHNICAL
+                logger.info(f"🔄 Session {session_data.session_id} moved to TECHNICAL stage")
+        
+        elif current_stage in [InterviewStage.TECHNICAL, InterviewStage.COMMUNICATION, InterviewStage.HR]:
+            # Check if current round should continue
+            if not fragment_manager.should_continue_round(current_stage):
+                # Move to next stage
+                next_stage = self._get_next_stage(current_stage)
+                session_data.current_stage = next_stage
+                logger.info(f"🔄 Session {session_data.session_id} moved to {next_stage.value} stage")
+                
+                # Check if interview is complete
+                if next_stage == InterviewStage.COMPLETE:
+                    logger.info(f"🏁 Session {session_data.session_id} interview completed")
+                    # Generate evaluation and save session in background
+                    asyncio.create_task(self._finalize_session_fast(session_data))
     
-    async def complete_interview(self, session_id: str) -> Dict[str, Any]:
-        """Complete interview with enhanced error handling"""
+    def _get_next_stage(self, current_stage: InterviewStage) -> InterviewStage:
+        """Get next interview stage"""
+        stage_progression = {
+            InterviewStage.TECHNICAL: InterviewStage.COMMUNICATION,
+            InterviewStage.COMMUNICATION: InterviewStage.HR,
+            InterviewStage.HR: InterviewStage.COMPLETE
+        }
+        return stage_progression.get(current_stage, InterviewStage.COMPLETE)
+    
+    async def _finalize_session_fast(self, session_data: InterviewSession):
+        """Fast session finalization with real database save"""
         try:
-            if not self.is_initialized:
-                raise RuntimeError("Interview Manager not initialized")
+            # Generate evaluation
+            evaluation, scores = await self.conversation_manager.generate_fast_evaluation(session_data)
             
-            session = self.session_manager.validate_session(session_id)
-            
-            evaluation, scores = await self.conversation_manager.generate_comprehensive_evaluation(session)
-            
-            analytics = {
-                "total_duration_minutes": round((time.time() - session.created_at) / 60, 1),
-                "questions_per_round": dict(session.questions_per_round),
-                "total_questions": session.total_questions_asked,
-                "followup_questions": session.followup_questions,
-                "audio_quality_avg": round(sum(session.audio_quality_scores) / len(session.audio_quality_scores), 2) if session.audio_quality_scores else 0,
-                "stage_completion_times": self._calculate_stage_times(session),
-                "response_quality_metrics": self._calculate_response_metrics(session)
-            }
-            
+            # Prepare interview data for database
             interview_data = {
-                "test_id": session.test_id,
-                "session_id": session.session_id,
-                "student_id": session.student_id,
-                "student_name": session.student_name,
+                "test_id": session_data.test_id,
+                "session_id": session_data.session_id,
+                "student_id": session_data.student_id,
+                "student_name": session_data.student_name,
                 "conversation_log": [
                     {
                         "timestamp": ex.timestamp,
@@ -354,157 +247,116 @@ class EnhancedInterviewManager:
                         "ai_message": ex.ai_message,
                         "user_response": ex.user_response,
                         "transcript_quality": ex.transcript_quality,
+                        "concept": ex.concept,
                         "is_followup": ex.is_followup
                     }
-                    for ex in session.exchanges
+                    for ex in session_data.exchanges
                 ],
                 "evaluation": evaluation,
                 "scores": scores,
-                "duration_minutes": analytics["total_duration_minutes"],
-                "questions_per_round": analytics["questions_per_round"],
-                "followup_questions": analytics["followup_questions"],
-                "avg_response_time": session.avg_response_time,
-                "audio_metrics": {"avg_quality": analytics["audio_quality_avg"]},
-                "flow_analytics": analytics["stage_completion_times"],
+                "duration_minutes": round((time.time() - session_data.created_at) / 60, 1),
+                "questions_per_round": dict(session_data.questions_per_round),
+                "followup_questions": session_data.followup_questions,
+                "fragments_covered": len([c for c, count in session_data.concept_question_counts.items() if count > 0]),
+                "total_fragments": len(session_data.fragment_keys),
                 "websocket_used": True,
-                "tts_voice": session.tts_voice
+                "tts_voice": config.TTS_VOICE
             }
             
-            await self.db_manager.save_interview_result_fast(interview_data)
-            self.session_manager.cleanup_session(session_id)
+            # Save to database
+            save_success = await self.db_manager.save_interview_result_fast(interview_data)
             
-            logger.info(f"? Interview completed and saved: {session.test_id}")
+            if not save_success:
+                logger.error(f"❌ Failed to save session {session_data.session_id}")
             
-            return {
+            # Calculate overall score for display
+            overall_score = scores.get("weighted_overall", scores.get("overall_score", 8.0))
+            
+            completion_message = f"Excellent work! Your interview is complete. You scored {overall_score}/10 across all rounds. Thank you!"
+            
+            await self._send_quick_message(session_data, {
+                "type": "interview_complete",
+                "text": completion_message,
                 "evaluation": evaluation,
                 "scores": scores,
-                "analytics": analytics,
-                "pdf_url": f"/weekly_interview/download_results/{session.test_id}"
-            }
-        except Exception as e:
-            logger.error(f"? Interview completion failed: {e}")
-            logger.error(f"? Traceback: {traceback.format_exc()}")
-            raise Exception(f"Interview completion failed: {e}")
-    
-    def _calculate_stage_times(self, session) -> Dict[str, float]:
-        """Calculate stage completion times"""
-        stage_times = {}
-        
-        for stage_name, start_time in session.round_start_times.items():
-            if start_time:
-                stage_names = ["greeting", "technical", "communication", "hr"]
-                try:
-                    current_idx = stage_names.index(stage_name)
-                    if current_idx < len(stage_names) - 1:
-                        next_stage = stage_names[current_idx + 1]
-                        end_time = session.round_start_times.get(next_stage, time.time())
-                    else:
-                        end_time = time.time()
-                    
-                    stage_times[stage_name] = round((end_time - start_time) / 60, 1)
-                except ValueError:
-                    stage_times[stage_name] = 0.0
-        
-        return stage_times
-    
-    def _calculate_response_metrics(self, session) -> Dict[str, Any]:
-        """Calculate response quality metrics"""
-        responses = [ex.user_response for ex in session.exchanges if ex.user_response]
-        
-        if not responses:
-            return {"avg_length": 0, "total_responses": 0}
-        
-        avg_length = sum(len(response.split()) for response in responses) / len(responses)
-        
-        return {
-            "avg_length": round(avg_length, 1),
-            "total_responses": len(responses),
-            "short_responses": len([r for r in responses if len(r.split()) < 10]),
-            "detailed_responses": len([r for r in responses if len(r.split()) > 30])
-        }
-    
-    async def get_interview_result(self, test_id: str) -> Optional[Dict[str, Any]]:
-        """Get interview result with error handling"""
-        try:
-            if not self.is_initialized:
-                raise RuntimeError("Interview Manager not initialized")
+                "pdf_url": f"/weekly_interview/download_results/{session_data.test_id}",
+                "status": "complete"
+            })
             
-            return await self.db_manager.get_interview_result_fast(test_id)
+            # Generate and send final audio
+            async for audio_chunk in self.tts_processor.generate_ultra_fast_stream(completion_message):
+                if audio_chunk:
+                    await self._send_quick_message(session_data, {
+                        "type": "audio_chunk",
+                        "audio": audio_chunk.hex(),
+                        "status": "complete"
+                    })
+            
+            await self._send_quick_message(session_data, {"type": "audio_end", "status": "complete"})
+            
+            session_data.is_active = False
+            logger.info(f"✅ Session {session_data.session_id} finalized and saved")
+            
         except Exception as e:
-            logger.error(f"? Get interview result failed: {e}")
-            return None
+            logger.error(f"❌ Fast session finalization error: {e}")
+            session_data.is_active = False
     
-    def cleanup_expired_sessions(self):
-        """Cleanup expired sessions"""
-        if self.session_manager:
-            return self.session_manager.cleanup_expired_sessions()
-        return 0
-
-# =============================================================================
-# FASTAPI APPLICATION SETUP WITH ENHANCED ERROR HANDLING
-# =============================================================================
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Enhanced lifespan management with detailed error handling"""
-    logger.info("?? Enhanced Mock Interview System starting...")
-    
-    cleanup_task = None
-    
-    try:
-        # Initialize interview manager with detailed error reporting
-        logger.info("?? Initializing Interview Manager...")
-        await interview_manager.initialize()
-        
-        # Start cleanup task
-        cleanup_task = asyncio.create_task(periodic_cleanup())
-        
-        logger.info("? Enhanced Mock Interview System operational")
-        
-    except Exception as e:
-        logger.error(f"? Startup failed: {e}")
-        logger.error(f"? Detailed traceback: {traceback.format_exc()}")
-        
-        # Store initialization error for health check
-        interview_manager.initialization_error = str(e)
-        
-        # Don't raise - allow the app to start in degraded mode
-        logger.warning("?? Starting in degraded mode - interview functionality disabled")
-    
-    yield
-    
-    logger.info("?? Shutting down Enhanced Mock Interview System...")
-    try:
-        if cleanup_task:
-            cleanup_task.cancel()
-        await shared_clients.close_connections()
-        if interview_manager.db_manager:
-            await interview_manager.db_manager.close_connections()
-        logger.info("? Graceful shutdown completed")
-    except Exception as e:
-        logger.error(f"? Shutdown error: {e}")
-
-async def periodic_cleanup():
-    """Periodic cleanup with error handling"""
-    while True:
+    async def _send_response_with_ultra_fast_audio(self, session_data: InterviewSession, text: str):
+        """Send response with ultra-fast audio streaming (identical to daily_standup)"""
         try:
-            await asyncio.sleep(config.CLEANUP_INTERVAL)
-            if interview_manager.is_initialized:
-                cleaned = interview_manager.cleanup_expired_sessions()
-                if cleaned > 0:
-                    logger.info(f"?? Cleaned up {cleaned} expired sessions")
-        except asyncio.CancelledError:
-            break
+            await self._send_quick_message(session_data, {
+                "type": "ai_response",
+                "text": text,
+                "stage": session_data.current_stage.value,
+                "question_number": session_data.questions_per_round[session_data.current_stage.value]
+            })
+            
+            chunk_count = 0
+            async for audio_chunk in self.tts_processor.generate_ultra_fast_stream(text):
+                if audio_chunk and session_data.is_active:
+                    await self._send_quick_message(session_data, {
+                        "type": "audio_chunk",
+                        "audio": audio_chunk.hex(),
+                        "status": session_data.current_stage.value
+                    })
+                    chunk_count += 1
+            
+            await self._send_quick_message(session_data, {
+                "type": "audio_end",
+                "status": session_data.current_stage.value
+            })
+            
+            logger.info(f"🎵 Streamed {chunk_count} audio chunks")
+            
         except Exception as e:
-            logger.error(f"? Cleanup task error: {e}")
+            logger.error(f"❌ Ultra-fast audio streaming error: {e}")
+    
+    async def _send_quick_message(self, session_data: InterviewSession, message: dict):
+        """Ultra-fast WebSocket message sending (identical to daily_standup)"""
+        try:
+            if session_data.websocket:
+                await session_data.websocket.send_text(json.dumps(message))
+        except Exception as e:
+            logger.error(f"❌ WebSocket send error: {e}")
+    
+    async def get_session_result_fast(self, test_id: str) -> dict:
+        """Fast session result retrieval from real database"""
+        try:
+            result = await self.db_manager.get_interview_result_fast(test_id)
+            if not result:
+                raise Exception(f"Interview {test_id} not found in database")
+            return result
+        except Exception as e:
+            logger.error(f"❌ Error fetching interview result: {e}")
+            raise Exception(f"Interview result retrieval failed: {e}")
 
-app = FastAPI(
-    title=config.APP_TITLE,
-    description=config.APP_DESCRIPTION,
-    version=config.APP_VERSION,
-    lifespan=lifespan
-)
+# =============================================================================
+# FASTAPI APPLICATION - DAILY STANDUP STYLE
+# =============================================================================
 
+app = FastAPI(title=config.APP_TITLE, version=config.APP_VERSION)
+
+# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=config.CORS_ALLOW_ORIGINS,
@@ -513,390 +365,261 @@ app.add_middleware(
     allow_headers=config.CORS_ALLOW_HEADERS,
 )
 
-interview_manager = EnhancedInterviewManager()
+# Mount static files
+app.mount("/audio", StaticFiles(directory=str(config.AUDIO_DIR)), name="audio")
 
-# =============================================================================
-# ENHANCED API ENDPOINTS WITH COMPREHENSIVE ERROR HANDLING
-# =============================================================================
+# Initialize ultra-fast interview manager
+interview_manager = UltraFastInterviewManager()
 
-@app.get("/health", response_model=HealthResponse)
-async def health_check():
-    """Enhanced health check with detailed component status"""
+@app.on_event("startup")
+async def startup_event():
+    """Initialize application on startup - test real connections"""
+    logger.info("🚀 Ultra-Fast Interview application starting...")
+    
     try:
-        logger.info("?? Health check requested")
+        # Test database connections on startup
+        db_manager = DatabaseManager(shared_clients)
         
-        # Basic service info
-        health_status = {
-            "status": "healthy",
-            "service": config.APP_TITLE,
-            "version": config.APP_VERSION,
-            "timestamp": time.time(),
-            "components": {}
+        # Test MySQL connection
+        try:
+            conn = db_manager.get_mysql_connection()
+            conn.close()
+            logger.info("✅ MySQL connection test successful")
+        except Exception as e:
+            logger.error(f"❌ MySQL connection test failed: {e}")
+            raise Exception(f"MySQL connection failed: {e}")
+        
+        # Test MongoDB connection
+        try:
+            await db_manager.get_mongo_client()
+            logger.info("✅ MongoDB connection test successful")
+        except Exception as e:
+            logger.error(f"❌ MongoDB connection test failed: {e}")
+            raise Exception(f"MongoDB connection failed: {e}")
+        
+        logger.info("✅ All database connections verified")
+        
+    except Exception as e:
+        logger.error(f"❌ Startup failed: {e}")
+        raise Exception(f"Application startup failed: {e}")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup on shutdown"""
+    await shared_clients.close_connections()
+    await interview_manager.db_manager.close_connections()
+    logger.info("🔌 Interview application shutting down")
+
+# =============================================================================
+# API ENDPOINTS - REAL DATA ONLY
+# =============================================================================
+
+@app.get("/start_interview")
+async def start_interview_session_fast():
+    """Start a new interview session with 7-day summary processing"""
+    try:
+        logger.info("🚀 Starting real interview session with 7-day summaries...")
+        
+        session_data = await interview_manager.create_session_fast()
+        
+        greeting = f"Hello {session_data.student_name}! Welcome to your mock interview. I'm excited to learn about your technical skills and experience. How are you feeling today?"
+        
+        # Add initial greeting to session
+        session_data.add_exchange(greeting, "", 0.0, "greeting", False)
+        session_data.fragment_manager.add_question(greeting, "greeting", False)
+        
+        logger.info(f"✅ Real interview session created: {session_data.test_id}")
+        
+        return {
+            "status": "success",
+            "message": "Interview session started successfully",
+            "test_id": session_data.test_id,
+            "session_id": session_data.session_id,
+            "websocket_url": f"/weekly_interview/ws/{session_data.session_id}",
+            "greeting": greeting,
+            "student_name": session_data.student_name,
+            "fragments_count": len(session_data.fragment_keys),
+            "summaries_processed": len(session_data.fragment_keys),
+            "estimated_duration": config.INTERVIEW_DURATION_MINUTES
         }
         
-        # Check interview manager initialization
-        init_status = interview_manager.check_initialization()
-        health_status["components"]["interview_manager"] = init_status
-        
-        # Check database if initialized
-        if interview_manager.db_manager:
-            try:
-                db_health = await interview_manager.db_manager.health_check()
-                health_status["components"]["database"] = db_health
-            except Exception as e:
-                health_status["components"]["database"] = {
-                    "status": "error",
-                    "error": str(e)
-                }
-        else:
-            health_status["components"]["database"] = {
-                "status": "not_initialized",
-                "error": "Database manager not initialized"
-            }
-        
-        # Check session manager
-        if interview_manager.session_manager:
-            health_status["components"]["sessions"] = {
-                "status": "healthy",
-                "active_sessions": len(interview_manager.session_manager.active_sessions)
-            }
-        else:
-            health_status["components"]["sessions"] = {
-                "status": "not_initialized"
-            }
-        
-        # Determine overall health
-        overall_healthy = (
-            init_status.get("is_initialized", False) and
-            health_status["components"].get("database", {}).get("overall", False)
-        )
-        
-        if not overall_healthy:
-            health_status["status"] = "degraded"
-            health_status["error_details"] = init_status.get("initialization_error")
-        
-        # Return appropriate status code
-        status_code = 200 if overall_healthy else 503
-        
-        return JSONResponse(
-            status_code=status_code,
-            content=health_status
-        )
-        
     except Exception as e:
-        logger.error(f"? Health check failed: {e}")
-        return JSONResponse(
-            status_code=503,
-            content={
-                "status": "unhealthy",
-                "service": config.APP_TITLE,
-                "error": str(e),
-                "timestamp": time.time(),
-                "components": {}
-            }
-        )
-
-@app.get("/start_interview", response_model=StartInterviewResponse)
-async def start_interview():
-    """Start interview with enhanced error handling"""
-    try:
-        logger.info("?? Start interview endpoint called")
-        
-        # Check if system is initialized
-        if not interview_manager.is_initialized:
-            error_msg = f"System not ready: {interview_manager.initialization_error}"
-            logger.error(f"? {error_msg}")
-            raise HTTPException(
-                status_code=503,
-                detail={
-                    "error": "Service unavailable",
-                    "message": "Interview system is not ready. Please try again later.",
-                    "details": error_msg,
-                    "retry_after": 30
-                }
-            )
-        
-        # Start interview session
-        result = await interview_manager.start_interview_session()
-        
-        logger.info(f"? Interview started successfully: {result['test_id']}")
-        
-        return StartInterviewResponse(
-            test_id=result["test_id"],
-            session_id=result["session_id"],
-            websocket_url=result["websocket_url"],
-            student_name=result["student_name"],
-            estimated_duration_minutes=result["estimated_duration_minutes"],
-            message=result["message"]
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"? Start interview error: {e}")
-        logger.error(f"? Traceback: {traceback.format_exc()}")
-        
-        # Provide detailed error information
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "error": "Internal server error",
-                "message": "Failed to start interview session",
-                "details": str(e),
-                "timestamp": time.time()
-            }
-        )
+        logger.error(f"❌ Error starting interview session: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to start interview: {str(e)}")
 
 @app.websocket("/ws/{session_id}")
-async def websocket_endpoint(websocket: WebSocket, session_id: str):
-    """Enhanced WebSocket endpoint with comprehensive error handling"""
+async def websocket_endpoint_ultra_fast(websocket: WebSocket, session_id: str):
+    """Ultra-fast WebSocket endpoint with real-time streaming (daily_standup style)"""
     await websocket.accept()
     
     try:
-        logger.info(f"?? WebSocket connected for session: {session_id}")
+        logger.info(f"🔌 WebSocket connected for interview session: {session_id}")
         
-        # Check if system is ready
-        if not interview_manager.is_initialized:
+        session_data = interview_manager.active_sessions.get(session_id)
+        if not session_data:
+            logger.error(f"❌ Session {session_id} not found in active sessions")
             await websocket.send_text(json.dumps({
                 "type": "error",
-                "message": "Interview system is not ready. Please try again later.",
-                "status": "system_not_ready"
+                "text": f"Session {session_id} not found. Please start a new interview.",
+                "status": "error"
             }))
             return
         
-        session = interview_manager.session_manager.get_session(session_id)
-        if not session:
-            await websocket.send_text(json.dumps({
-                "type": "error",
-                "message": "Interview session not found. Please start a new interview.",
-                "status": "session_not_found"
-            }))
-            return
+        session_data.websocket = websocket
         
-        session.websocket = websocket
-        
-        # Send initial greeting with audio
-        if session.exchanges:
-            initial_greeting = session.exchanges[0].ai_message
-            
+        # Send initial greeting with ultra-fast audio
+        if session_data.exchanges:
+            greeting = session_data.exchanges[0].ai_message
             await websocket.send_text(json.dumps({
                 "type": "ai_response",
-                "message": initial_greeting,
-                "stage": session.current_stage.value,
+                "text": greeting,
+                "stage": "greeting",
                 "status": "greeting"
             }))
             
-            # Generate and stream audio
-            try:
-                audio_chunks = []
-                async for audio_chunk in interview_manager.generate_tts_stream(session_id, initial_greeting):
-                    if audio_chunk:
-                        audio_chunks.append(audio_chunk)
-                
-                if audio_chunks:
-                    combined_audio = b''.join(audio_chunks)
-                    audio_b64 = base64.b64encode(combined_audio).decode('utf-8')
-                    
+            # Generate and stream greeting audio with minimal delay
+            async for audio_chunk in interview_manager.tts_processor.generate_ultra_fast_stream(greeting):
+                if audio_chunk:
                     await websocket.send_text(json.dumps({
-                        "type": "audio_data",
-                        "audio": audio_b64,
+                        "type": "audio_chunk",
+                        "audio": audio_chunk.hex(),
                         "status": "greeting"
                     }))
-                
-                await websocket.send_text(json.dumps({
-                    "type": "audio_end",
-                    "status": "greeting"
-                }))
-                
-            except Exception as e:
-                logger.error(f"? Initial audio generation failed: {e}")
+            
+            await websocket.send_text(json.dumps({
+                "type": "audio_end",
+                "status": "greeting"
+            }))
         
-        # Main WebSocket communication loop
-        while session.is_active and session.current_stage != InterviewStage.COMPLETE:
+        # Main communication loop
+        while session_data.is_active and session_data.current_stage != InterviewStage.COMPLETE:
             try:
-                message = await asyncio.wait_for(
-                    websocket.receive_text(), 
-                    timeout=config.WEBSOCKET_TIMEOUT
-                )
+                data = await asyncio.wait_for(websocket.receive_text(), timeout=config.WEBSOCKET_TIMEOUT)
+                message = json.loads(data)
                 
-                data = json.loads(message)
+                if message.get("type") == "audio_data":
+                    audio_data = base64.b64decode(message.get("audio", ""))
+                    asyncio.create_task(
+                        interview_manager.process_audio_ultra_fast(session_id, audio_data)
+                    )
                 
-                if data.get("type") == "audio_data":
-                    audio_b64 = data.get("audio", "")
-                    if audio_b64:
-                        try:
-                            audio_data = base64.b64decode(audio_b64)
-                            
-                            response = await interview_manager.process_audio_message(session_id, audio_data)
-                            
-                            await websocket.send_text(json.dumps(response))
-                            
-                            if response.get("type") == "ai_response":
-                                message_text = response.get("message", "")
-                                
-                                try:
-                                    audio_chunks = []
-                                    async for audio_chunk in interview_manager.generate_tts_stream(session_id, message_text):
-                                        if audio_chunk:
-                                            audio_chunks.append(audio_chunk)
-                                    
-                                    if audio_chunks:
-                                        combined_audio = b''.join(audio_chunks)
-                                        audio_b64 = base64.b64encode(combined_audio).decode('utf-8')
-                                        
-                                        await websocket.send_text(json.dumps({
-                                            "type": "audio_data",
-                                            "audio": audio_b64,
-                                            "status": response.get("stage", "unknown")
-                                        }))
-                                    
-                                    await websocket.send_text(json.dumps({
-                                        "type": "audio_end",
-                                        "status": response.get("stage", "unknown")
-                                    }))
-                                    
-                                except Exception as e:
-                                    logger.error(f"? TTS generation failed: {e}")
-                                    await websocket.send_text(json.dumps({
-                                        "type": "error",
-                                        "message": "Audio generation failed",
-                                        "status": "error"
-                                    }))
-                            
-                        except Exception as e:
-                            logger.error(f"? Audio processing failed: {e}")
-                            await websocket.send_text(json.dumps({
-                                "type": "error",
-                                "message": "Audio processing failed",
-                                "status": "error"
-                            }))
-                
-                elif data.get("type") == "ping":
+                elif message.get("type") == "ping":
                     await websocket.send_text(json.dumps({"type": "pong"}))
                 
-                elif data.get("type") == "complete_interview":
-                    try:
-                        result = await interview_manager.complete_interview(session_id)
-                        await websocket.send_text(json.dumps({
-                            "type": "interview_complete",
-                            "result": result
-                        }))
-                        break
-                    except Exception as e:
-                        logger.error(f"? Interview completion failed: {e}")
-                        await websocket.send_text(json.dumps({
-                            "type": "error",
-                            "message": "Interview completion failed",
-                            "status": "error"
-                        }))
-                
             except asyncio.TimeoutError:
-                logger.info(f"?? WebSocket timeout for session: {session_id}")
-                await websocket.send_text(json.dumps({
-                    "type": "timeout",
-                    "message": "Session timeout due to inactivity",
-                    "status": "timeout"
-                }))
+                logger.info(f"⏰ WebSocket timeout: {session_id}")
                 break
-                
             except WebSocketDisconnect:
-                logger.info(f"?? WebSocket disconnected: {session_id}")
+                logger.info(f"🔌 WebSocket disconnected: {session_id}")
                 break
-                
             except Exception as e:
-                logger.error(f"? WebSocket error: {e}")
-                logger.error(f"? Traceback: {traceback.format_exc()}")
+                logger.error(f"❌ WebSocket error: {e}")
                 await websocket.send_text(json.dumps({
                     "type": "error",
-                    "message": f"Communication error: {str(e)}",
+                    "text": f"Error: {str(e)}",
                     "status": "error"
                 }))
                 break
-        
-        # Check for interview completion
-        if session.current_stage == InterviewStage.COMPLETE:
-            try:
-                result = await interview_manager.complete_interview(session_id)
-                await websocket.send_text(json.dumps({
-                    "type": "interview_complete",
-                    "result": result
-                }))
-            except Exception as e:
-                logger.error(f"? Final completion failed: {e}")
     
     except Exception as e:
-        logger.error(f"? WebSocket endpoint error: {e}")
-        logger.error(f"? Traceback: {traceback.format_exc()}")
-    
+        logger.error(f"❌ WebSocket endpoint error: {e}")
     finally:
-        if session_id in interview_manager.session_manager.active_sessions:
-            interview_manager.session_manager.cleanup_session(session_id)
+        await interview_manager.remove_session(session_id)
 
 @app.get("/evaluate")
-async def get_evaluation(test_id: str):
+async def get_evaluation_fast(test_id: str):
     """Get evaluation with enhanced error handling"""
     try:
-        if not interview_manager.is_initialized:
-            raise HTTPException(
-                status_code=503,
-                detail="Interview system not ready"
-            )
+        logger.info(f"📊 Getting evaluation for test_id: {test_id}")
         
-        result = await interview_manager.get_interview_result(test_id)
+        result = await interview_manager.get_session_result_fast(test_id)
         
-        if not result:
-            raise HTTPException(status_code=404, detail="Interview results not found")
+        return {
+            "test_id": test_id,
+            "evaluation": result.get("evaluation", "Evaluation not available"),
+            "scores": result.get("scores", {}),
+            "analytics": result.get("interview_analytics", {}),
+            "pdf_url": f"/weekly_interview/download_results/{test_id}",
+            "status": "success"
+        }
         
-        return EvaluationResponse(
-            evaluation=result.get("evaluation", "Evaluation not available"),
-            scores=result.get("scores", {}),
-            analytics=result.get("interview_analytics", {}),
-            pdf_url=f"/weekly_interview/download_results/{test_id}"
-        )
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"? Get evaluation error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"❌ Error getting evaluation: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get evaluation: {str(e)}")
 
 @app.get("/download_results/{test_id}")
-async def download_results(test_id: str):
-    """Download results with enhanced error handling"""
+async def download_results_fast(test_id: str):
+    """Fast PDF generation and download from real data"""
     try:
-        if not interview_manager.is_initialized:
-            raise HTTPException(
-                status_code=503,
-                detail="Interview system not ready"
-            )
-        
-        result = await interview_manager.get_interview_result(test_id)
+        result = await interview_manager.get_session_result_fast(test_id)
         
         if not result:
             raise HTTPException(status_code=404, detail="Interview results not found")
         
-        pdf_buffer = await generate_pdf_report(result, test_id)
+        loop = asyncio.get_event_loop()
+        pdf_buffer = await loop.run_in_executor(
+            shared_clients.executor,
+            generate_pdf_report,
+            result, test_id
+        )
         
         return StreamingResponse(
             io.BytesIO(pdf_buffer),
             media_type="application/pdf",
             headers={"Content-Disposition": f"attachment; filename=interview_report_{test_id}.pdf"}
         )
+        
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"? PDF generation error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"❌ PDF generation error: {e}")
+        raise HTTPException(status_code=500, detail=f"PDF generation failed: {str(e)}")
+
+@app.get("/health")
+async def health_check_fast():
+    """Ultra-fast health check with real database status"""
+    try:
+        db_status = {"mysql": False, "mongodb": False}
+        
+        # Quick database health check
+        try:
+            db_manager = DatabaseManager(shared_clients)
+            
+            # Test MySQL
+            conn = db_manager.get_mysql_connection()
+            conn.close()
+            db_status["mysql"] = True
+            
+            # Test MongoDB
+            await db_manager.get_mongo_client()
+            db_status["mongodb"] = True
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Database health check failed: {e}")
+        
+        return {
+            "status": "healthy" if all(db_status.values()) else "degraded",
+            "service": "ultra_fast_interview_system",
+            "timestamp": time.time(),
+            "active_sessions": len(interview_manager.active_sessions),
+            "version": config.APP_VERSION,
+            "database_status": db_status,
+            "features": {
+                "7_day_summaries": True,
+                "fragment_based_questions": True,
+                "real_time_streaming": True,
+                "ultra_fast_tts": True,
+                "round_based_interview": True
+            }
+        }
+    except Exception as e:
+        logger.error(f"❌ Health check failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Health check failed: {str(e)}")
 
 @app.get("/api/interview-students")
 async def get_interview_students():
-    """Get interview students with enhanced error handling"""
+    """Get interview students for frontend compatibility"""
     try:
-        if not interview_manager.is_initialized:
-            raise HTTPException(
-                status_code=503,
-                detail="Interview system not ready"
-            )
-        
         results = await interview_manager.db_manager.get_all_interview_results_fast(100)
         
         students = {}
@@ -908,209 +631,94 @@ async def get_interview_students():
                     "name": result.get("student_name", "Unknown")
                 }
         
-        return {
-            "count": len(students),
-            "data": list(students.values()),
-            "timestamp": time.time()
-        }
-    except HTTPException:
-        raise
+        return list(students.values())
+        
     except Exception as e:
-        logger.error(f"? Get students error: {e}")
+        logger.error(f"❌ Get students error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/interview-students/{student_id}/interviews")
 async def get_student_interviews(student_id: str):
-    """Get student interviews with enhanced error handling"""
+    """Get student interviews for frontend compatibility"""
     try:
-        if not interview_manager.is_initialized:
-            raise HTTPException(
-                status_code=503,
-                detail="Interview system not ready"
-            )
-        
         all_results = await interview_manager.db_manager.get_all_interview_results_fast(200)
         
         student_interviews = [
-            result for result in all_results 
+            {
+                "interview_id": result.get("test_id"),
+                "test_id": result.get("test_id"),
+                "session_id": result.get("session_id"),
+                "timestamp": result.get("timestamp"),
+                "scores": result.get("scores", {}),
+                "Student_ID": result.get("student_id"),
+                "name": result.get("student_name")
+            }
+            for result in all_results 
             if str(result.get("student_id", "")) == student_id
         ]
         
-        if not student_interviews:
-            raise HTTPException(status_code=404, detail="No interviews found for this student")
+        return student_interviews
         
-        return {
-            "count": len(student_interviews),
-            "data": student_interviews,
-            "student_id": int(student_id),
-            "timestamp": time.time()
-        }
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"? Get student interviews error: {e}")
+        logger.error(f"❌ Get student interviews error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # =============================================================================
 # PDF GENERATION UTILITY
 # =============================================================================
 
-async def generate_pdf_report(result: Dict[str, Any], test_id: str) -> bytes:
-    """Generate PDF report with error handling"""
-    def _generate_pdf_sync():
-        try:
-            buffer = io.BytesIO()
-            doc = SimpleDocTemplate(buffer, pagesize=LETTER)
-            styles = getSampleStyleSheet()
-            story = []
-            
-            title = f"Mock Interview Evaluation Report"
-            story.append(Paragraph(title, styles['Title']))
-            story.append(Spacer(1, 12))
-            
-            info_text = f"""
-            <b>Test ID:</b> {test_id}<br/>
-            <b>Student:</b> {result.get('student_name', 'Unknown')}<br/>
-            <b>Date:</b> {datetime.fromtimestamp(result.get('timestamp', time.time())).strftime('%Y-%m-%d %H:%M:%S')}<br/>
-            <b>Duration:</b> {result.get('interview_analytics', {}).get('total_duration_minutes', 0)} minutes<br/>
+def generate_pdf_report(result: Dict[str, Any], test_id: str) -> bytes:
+    """Generate PDF report from real interview data"""
+    try:
+        pdf_buffer = io.BytesIO()
+        doc = SimpleDocTemplate(pdf_buffer, pagesize=LETTER)
+        styles = getSampleStyleSheet()
+        story = []
+        
+        # Title
+        title = f"Mock Interview Report - {result.get('student_name', 'Student')}"
+        story.append(Paragraph(title, styles['Title']))
+        story.append(Spacer(1, 12))
+        
+        # Session info
+        info_text = f"""
+        Test ID: {test_id}
+        Student: {result.get('student_name', 'Unknown')}
+        Date: {datetime.fromtimestamp(result.get('timestamp', time.time())).strftime('%Y-%m-%d %H:%M:%S')}
+        Duration: {result.get('duration_minutes', 0)} minutes
+        Rounds Completed: {len(result.get('questions_per_round', {}))}
+        """
+        story.append(Paragraph(info_text, styles['Normal']))
+        story.append(Spacer(1, 12))
+        
+        # Scores section
+        scores = result.get('scores', {})
+        if scores:
+            story.append(Paragraph("Performance Scores", styles['Heading2']))
+            score_text = f"""
+            Technical Assessment: {scores.get('technical_score', 0)}/10
+            Communication Skills: {scores.get('communication_score', 0)}/10
+            Behavioral/Cultural Fit: {scores.get('behavioral_score', 0)}/10
+            Overall Presentation: {scores.get('overall_score', 0)}/10
+            Weighted Overall: {scores.get('weighted_overall', 0)}/10
             """
-            story.append(Paragraph(info_text, styles['Normal']))
-            story.append(Spacer(1, 20))
-            
-            scores = result.get('scores', {})
-            if scores:
-                story.append(Paragraph("<b>Performance Scores</b>", styles['Heading2']))
-                
-                score_mapping = {
-                    'technical_score': 'Technical Assessment',
-                    'communication_score': 'Communication Skills',
-                    'behavioral_score': 'Behavioral/Cultural Fit',
-                    'overall_score': 'Overall Presentation'
-                }
-                
-                for key, label in score_mapping.items():
-                    score = scores.get(key, 0)
-                    story.append(Paragraph(f"<b>{label}:</b> {score}/10", styles['Normal']))
-                
-                if 'weighted_overall' in scores:
-                    story.append(Paragraph(f"<b>Weighted Overall Score:</b> {scores['weighted_overall']}/10", styles['Normal']))
-                
-                story.append(Spacer(1, 15))
-            
-            evaluation = result.get('evaluation', '')
-            if evaluation:
-                story.append(Paragraph("<b>Detailed Evaluation</b>", styles['Heading2']))
-                
-                eval_paragraphs = evaluation.split('\n\n')
-                for para in eval_paragraphs:
-                    if para.strip():
-                        wrapped_lines = textwrap.wrap(para.strip(), width=80)
-                        para_text = '<br/>'.join(wrapped_lines)
-                        story.append(Paragraph(para_text, styles['Normal']))
-                        story.append(Spacer(1, 8))
-            
-            doc.build(story)
-            buffer.seek(0)
-            return buffer.read()
-            
-        except Exception as e:
-            logger.error(f"? PDF generation failed: {e}")
-            raise Exception(f"PDF generation failed: {e}")
-    
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(shared_clients.executor, _generate_pdf_sync)
-
-# =============================================================================
-# ENHANCED ERROR HANDLERS
-# =============================================================================
-
-@app.exception_handler(HTTPException)
-async def http_exception_handler(request: Request, exc: HTTPException):
-    """Enhanced HTTP exception handler"""
-    logger.warning(f"HTTP {exc.status_code} on {request.url.path}: {exc.detail}")
-    
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={
-            "error": exc.detail if isinstance(exc.detail, str) else exc.detail.get("error", "Unknown error"),
-            "message": exc.detail.get("message") if isinstance(exc.detail, dict) else str(exc.detail),
-            "details": exc.detail.get("details") if isinstance(exc.detail, dict) else None,
-            "status_code": exc.status_code,
-            "timestamp": time.time(),
-            "path": str(request.url.path)
-        }
-    )
-
-@app.exception_handler(Exception)
-async def general_exception_handler(request: Request, exc: Exception):
-    """Enhanced general exception handler"""
-    logger.error(f"Unhandled exception on {request.url.path}: {exc}")
-    logger.error(f"Traceback: {traceback.format_exc()}")
-    
-    return JSONResponse(
-        status_code=500,
-        content={
-            "error": "Internal server error",
-            "message": "An unexpected error occurred during interview processing",
-            "details": str(exc) if config.LOG_LEVEL == "DEBUG" else None,
-            "timestamp": time.time(),
-            "path": str(request.url.path)
-        }
-    )
-
-# =============================================================================
-# STARTUP VALIDATION
-# =============================================================================
-
-if __name__ == "__main__":
-    import uvicorn
-    import socket
-    
-    def get_local_ip():
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        try:
-            s.connect(("8.8.8.8", 80))
-            ip = s.getsockname()[0]
-        except Exception:
-            ip = "127.0.0.1"
-        finally:
-            s.close()
-        return ip
-
-    # Use your actual server configuration
-    server_ip = "192.168.48.201"  # Your Linux server IP
-    port = 8070  # Your existing port
-    
-    print(f"?? Starting Enhanced Mock Interview System")
-    print(f"?? Server: https://{server_ip}:{port}")
-    print(f"?? API Docs: https://{server_ip}:{port}/docs")
-    print(f"?? WebSocket: wss://{server_ip}:{port}/weekly_interview/ws/{{session_id}}")
-    print(f"?? Real-time Communication: Enabled")
-    print(f"?? AI-Powered Assessment: Enabled")
-    print(f"?? Strict Evaluation: Enabled")
-    print(f"?? CORS Origins: {config.CORS_ALLOW_ORIGINS}")
-    print(f"?? Remote Access: Windows laptop ? Linux server")
-    
-    # SSL configuration for production
-    ssl_config = {}
-    if config.USE_SSL and os.path.exists(config.SSL_CERT_PATH) and os.path.exists(config.SSL_KEY_PATH):
-        ssl_config = {
-            "ssl_certfile": config.SSL_CERT_PATH,
-            "ssl_keyfile": config.SSL_KEY_PATH
-        }
-        print(f"?? SSL/HTTPS: Enabled with certificates")
-    else:
-        print(f"?? SSL/HTTPS: Disabled (certificates not found)")
-        print(f"?? For production, consider enabling SSL certificates")
-    
-    uvicorn.run(
-        "weekly_interview.main:app",
-        host="0.0.0.0",  # Listen on all interfaces for remote access
-        port=port,
-        reload=True,
-        log_level=config.LOG_LEVEL.lower(),
-        ws_ping_interval=20,
-        ws_ping_timeout=20,
-        timeout_keep_alive=30,
-        **ssl_config
-    )
+            story.append(Paragraph(score_text, styles['Normal']))
+            story.append(Spacer(1, 12))
+        
+        # Evaluation
+        if result.get('evaluation'):
+            story.append(Paragraph("Detailed Evaluation", styles['Heading2']))
+            # Split evaluation into paragraphs for better formatting
+            eval_paragraphs = result['evaluation'].split('\n\n')
+            for para in eval_paragraphs:
+                if para.strip():
+                    story.append(Paragraph(para.strip(), styles['Normal']))
+                    story.append(Spacer(1, 6))
+        
+        doc.build(story)
+        pdf_buffer.seek(0)
+        return pdf_buffer.read()
+        
+    except Exception as e:
+        logger.error(f"❌ PDF generation error: {e}")
+        raise Exception(f"PDF generation failed: {e}")

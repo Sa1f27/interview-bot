@@ -1,7 +1,7 @@
 # weekly_interview/core/config.py
 """
-Configuration module for Enhanced Mock Interview System
-Environment-driven configuration with no hardcoded values
+Enhanced Configuration - Daily Standup Style with Interview-Specific Settings
+Optimized for 7-day summary processing and fragment-based questioning
 """
 
 import os
@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent.parent / '.env')
 
 class Config:
-    """Central configuration class for Mock Interview System"""
+    """Enhanced configuration class for Interview System"""
     
     # =============================================================================
     # PATHS AND DIRECTORIES
@@ -23,7 +23,7 @@ class Config:
     REPORTS_DIR = CURRENT_DIR / "reports"
     
     # =============================================================================
-    # DATABASE CONFIGURATION - MYSQL (Student Data)
+    # DATABASE CONFIGURATION - SAME AS DAILY STANDUP
     # =============================================================================
     MYSQL_HOST = os.getenv("MYSQL_HOST", "192.168.48.201")
     MYSQL_PORT = os.getenv("MYSQL_PORT", "3306")
@@ -31,9 +31,6 @@ class Config:
     MYSQL_USER = os.getenv("MYSQL_USER", "sa")
     MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "Welcome@123")
     
-    # =============================================================================
-    # DATABASE CONFIGURATION - MONGODB (Interview Content)
-    # =============================================================================
     MONGODB_HOST = os.getenv("MONGODB_HOST", "192.168.48.201")
     MONGODB_PORT = int(os.getenv("MONGODB_PORT", "27017"))
     MONGODB_DATABASE = os.getenv("MONGODB_DATABASE", "ml_notes")
@@ -48,97 +45,97 @@ class Config:
     INTERVIEW_RESULTS_COLLECTION = os.getenv("INTERVIEW_RESULTS_COLLECTION", "interview_results")
     
     # =============================================================================
-    # INTERVIEW CONFIGURATION
+    # ENHANCED 7-DAY CONTENT PROCESSING CONFIGURATION
     # =============================================================================
-    INTERVIEW_DURATION_MINUTES = int(os.getenv("INTERVIEW_DURATION_MINUTES", "60"))  # 45-60 minutes
-    QUESTIONS_PER_ROUND = int(os.getenv("QUESTIONS_PER_ROUND", "6"))
+    RECENT_SUMMARIES_DAYS = int(os.getenv("RECENT_SUMMARIES_DAYS", "7"))  # 7-day window
+    SUMMARIES_LIMIT = int(os.getenv("SUMMARIES_LIMIT", "10"))  # Max summaries to process
+    CONTENT_SLICE_FRACTION = float(os.getenv("CONTENT_SLICE_FRACTION", "0.4"))  # 40% slice per summary
+    MIN_CONTENT_LENGTH = int(os.getenv("MIN_CONTENT_LENGTH", "200"))  # Minimum content length
+    
+    # Enhanced fragment configuration for interviews
+    MIN_INTERVIEW_FRAGMENTS = int(os.getenv("MIN_INTERVIEW_FRAGMENTS", "6"))  # Minimum fragments
+    MAX_INTERVIEW_FRAGMENTS = int(os.getenv("MAX_INTERVIEW_FRAGMENTS", "12"))  # Maximum fragments
+    FRAGMENT_MIN_LENGTH = int(os.getenv("FRAGMENT_MIN_LENGTH", "100"))  # Min chars per fragment
+    
+    # =============================================================================
+    # INTERVIEW CONFIGURATION - ROUNDS BASED
+    # =============================================================================
+    INTERVIEW_DURATION_MINUTES = int(os.getenv("INTERVIEW_DURATION_MINUTES", "45"))  # Total duration
+    QUESTIONS_PER_ROUND = int(os.getenv("QUESTIONS_PER_ROUND", "6"))  # Questions per round
     MIN_QUESTIONS_PER_ROUND = int(os.getenv("MIN_QUESTIONS_PER_ROUND", "4"))
     MAX_QUESTIONS_PER_ROUND = int(os.getenv("MAX_QUESTIONS_PER_ROUND", "8"))
     
-    # Interview rounds configuration
-    TOTAL_ROUNDS = 4  # Greeting, Technical, Communication, HR
+    # Interview rounds (keep existing structure)
     ROUND_NAMES = ["greeting", "technical", "communication", "hr"]
+    TOTAL_ROUNDS = len(ROUND_NAMES)
+    
+    # Fragment-based questioning (adapted from daily_standup)
+    MIN_QUESTIONS_PER_CONCEPT = int(os.getenv("MIN_QUESTIONS_PER_CONCEPT", "1"))
+    MAX_QUESTIONS_PER_CONCEPT = int(os.getenv("MAX_QUESTIONS_PER_CONCEPT", "3"))
     
     # =============================================================================
-    # CONTENT PROCESSING CONFIGURATION
-    # =============================================================================
-    RECENT_SUMMARIES_DAYS = int(os.getenv("RECENT_SUMMARIES_DAYS", "7"))  # Last 7 days
-    SUMMARIES_LIMIT = int(os.getenv("SUMMARIES_LIMIT", "10"))  # Max summaries to fetch
-    CONTENT_SLICE_FRACTION = float(os.getenv("CONTENT_SLICE_FRACTION", "0.4"))  # 40% of content
-    MIN_CONTENT_LENGTH = int(os.getenv("MIN_CONTENT_LENGTH", "200"))  # Minimum content length
-    
-    # =============================================================================
-    # AUDIO CONFIGURATION
+    # AUDIO CONFIGURATION - IDENTICAL TO DAILY STANDUP
     # =============================================================================
     TTS_VOICE = os.getenv("TTS_VOICE", "en-IN-PrabhatNeural")
-    TTS_SPEED = float(os.getenv("TTS_SPEED", "1.0"))  # Normal speed
-    TTS_CHUNK_SIZE = int(os.getenv("TTS_CHUNK_SIZE", "100"))  # Characters per chunk
+    TTS_SPEED = os.getenv("TTS_SPEED", "+25%")  # Same as daily_standup
+    TTS_CHUNK_SIZE = int(os.getenv("TTS_CHUNK_SIZE", "30"))  # Same chunking
     
-    # Audio processing
-    MAX_RECORDING_DURATION = int(os.getenv("MAX_RECORDING_DURATION", "30"))  # 30 seconds
-    SILENCE_THRESHOLD = float(os.getenv("SILENCE_THRESHOLD", "0.01"))
-    SILENCE_DURATION = int(os.getenv("SILENCE_DURATION", "2"))  # 2 seconds
+    # Audio processing settings
+    MAX_RECORDING_DURATION = int(os.getenv("MAX_RECORDING_DURATION", "25"))  # Same as daily_standup
+    SILENCE_THRESHOLD = int(os.getenv("SILENCE_THRESHOLD", "400"))  # Same threshold
     
     # =============================================================================
-    # AI MODEL CONFIGURATION
+    # AI MODEL CONFIGURATION - SAME AS DAILY STANDUP
     # =============================================================================
-    OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
-    OPENAI_TEMPERATURE = float(os.getenv("OPENAI_TEMPERATURE", "0.7"))
-    OPENAI_MAX_TOKENS = int(os.getenv("OPENAI_MAX_TOKENS", "800"))
+    OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    OPENAI_TEMPERATURE = float(os.getenv("OPENAI_TEMPERATURE", "0.1"))  # Same as daily_standup
+    OPENAI_MAX_TOKENS = int(os.getenv("OPENAI_MAX_TOKENS", "300"))  # Same as daily_standup
     
-    GROQ_MODEL = os.getenv("GROQ_MODEL", "whisper-large-v3-turbo")
+    GROQ_MODEL = os.getenv("GROQ_MODEL", "distil-whisper-large-v3-en")  # Same as daily_standup
     GROQ_TIMEOUT = int(os.getenv("GROQ_TIMEOUT", "30"))
     
     # =============================================================================
-    # WEBSOCKET CONFIGURATION
+    # WEBSOCKET CONFIGURATION - SAME AS DAILY STANDUP
     # =============================================================================
-    WEBSOCKET_TIMEOUT = float(os.getenv("WEBSOCKET_TIMEOUT", "300.0"))  # 5 minutes
-    PING_INTERVAL = int(os.getenv("PING_INTERVAL", "30"))  # 30 seconds
+    WEBSOCKET_TIMEOUT = float(os.getenv("WEBSOCKET_TIMEOUT", "300.0"))  # Same timeout
     MAX_MESSAGE_SIZE = int(os.getenv("MAX_MESSAGE_SIZE", "16777216"))  # 16MB
     
     # =============================================================================
-    # SESSION MANAGEMENT
+    # SESSION MANAGEMENT - SIMPLIFIED LIKE DAILY STANDUP
     # =============================================================================
     SESSION_TIMEOUT = int(os.getenv("SESSION_TIMEOUT", "3600"))  # 1 hour
     MAX_ACTIVE_SESSIONS = int(os.getenv("MAX_ACTIVE_SESSIONS", "100"))
-    CLEANUP_INTERVAL = int(os.getenv("CLEANUP_INTERVAL", "300"))  # 5 minutes
     
     # =============================================================================
-    # PERFORMANCE SETTINGS
+    # PERFORMANCE SETTINGS - SAME AS DAILY STANDUP
     # =============================================================================
-    THREAD_POOL_MAX_WORKERS = int(os.getenv("THREAD_POOL_MAX_WORKERS", "8"))
-    MAX_RETRIES = int(os.getenv("MAX_RETRIES", "3"))
-    RETRY_DELAY = int(os.getenv("RETRY_DELAY", "2"))
-    
-    # Database connection pooling
-    MYSQL_POOL_SIZE = int(os.getenv("MYSQL_POOL_SIZE", "20"))
-    MONGODB_POOL_SIZE = int(os.getenv("MONGODB_POOL_SIZE", "50"))
+    THREAD_POOL_MAX_WORKERS = int(os.getenv("THREAD_POOL_MAX_WORKERS", "4"))  # Same as daily_standup
+    MONGO_MAX_POOL_SIZE = int(os.getenv("MONGO_MAX_POOL_SIZE", "50"))
+    MONGO_SERVER_SELECTION_TIMEOUT = int(os.getenv("MONGO_SERVER_SELECTION_TIMEOUT", "5000"))
     
     # =============================================================================
-    # CACHING CONFIGURATION
+    # CONVERSATION SETTINGS - DAILY STANDUP STYLE
     # =============================================================================
-    CACHE_DURATION_HOURS = int(os.getenv("CACHE_DURATION_HOURS", "6"))
-    ENABLE_CACHING = os.getenv("ENABLE_CACHING", "true").lower() == "true"
+    CONVERSATION_WINDOW_SIZE = int(os.getenv("CONVERSATION_WINDOW_SIZE", "3"))  # Same as daily_standup
     
     # =============================================================================
-    # CORS SETTINGS
+    # CORS SETTINGS - SAME AS DAILY STANDUP
     # =============================================================================
-    CORS_ALLOW_ORIGINS = os.getenv("CORS_ALLOW_ORIGINS", "*").split(",")
-    CORS_ALLOW_CREDENTIALS = os.getenv("CORS_ALLOW_CREDENTIALS", "true").lower() == "true"
+    CORS_ALLOW_ORIGINS = ["*"]
+    CORS_ALLOW_CREDENTIALS = True
     CORS_ALLOW_METHODS = ["*"]
     CORS_ALLOW_HEADERS = ["*"]
     
     # =============================================================================
-    # SSL/HTTPS CONFIGURATION
+    # APPLICATION SETTINGS
     # =============================================================================
-    USE_SSL = os.getenv("USE_SSL", "true").lower() == "true"
-    SSL_CERT_PATH = os.getenv("SSL_CERT_PATH", "./certs/cert.pem")
-    SSL_KEY_PATH = os.getenv("SSL_KEY_PATH", "./certs/key.pem")
+    APP_TITLE = "Enhanced Mock Interview System"
+    APP_VERSION = "3.0.0"
+    APP_DESCRIPTION = "AI-powered interview system with 7-day content processing and real-time streaming"
     
     # =============================================================================
     # EVALUATION CONFIGURATION
     # =============================================================================
-    STRICT_EVALUATION = os.getenv("STRICT_EVALUATION", "true").lower() == "true"
     EVALUATION_CRITERIA = {
         "technical_weight": 0.35,      # 35% Technical Assessment
         "communication_weight": 0.30,  # 30% Communication Skills  
@@ -146,37 +143,15 @@ class Config:
         "overall_presentation": 0.10   # 10% Overall Presentation
     }
     
-    # Scoring thresholds for strict evaluation
-    EXCELLENT_THRESHOLD = 8.5  # 85%+
-    GOOD_THRESHOLD = 7.0       # 70%+
-    ACCEPTABLE_THRESHOLD = 6.0  # 60%+
-    
     # =============================================================================
-    # APPLICATION SETTINGS
-    # =============================================================================
-    APP_TITLE = "Enhanced Mock Interview System"
-    APP_VERSION = "3.0.0"
-    APP_DESCRIPTION = "AI-powered mock interview system with real-time WebSocket communication"
-    
-    # API endpoints configuration
-    API_PREFIX = "/weekly_interview"
-    WEBSOCKET_ENDPOINT = "/ws"
-    
-    # =============================================================================
-    # LOGGING CONFIGURATION
-    # =============================================================================
-    LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
-    LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    
-    # =============================================================================
-    # ENVIRONMENT VALIDATION
+    # REQUIRED API KEYS VALIDATION - SAME AS DAILY STANDUP
     # =============================================================================
     @staticmethod
     def validate_required_env_vars():
         """Validate that all required environment variables are set"""
         required_vars = [
-            "OPENAI_API_KEY",
-            "GROQ_API_KEY"
+            "GROQ_API_KEY",
+            "OPENAI_API_KEY"
         ]
         
         missing_vars = []
@@ -215,23 +190,23 @@ class Config:
         """Get configuration for specific interview round"""
         round_configs = {
             "greeting": {
-                "duration_minutes": 2,
+                "duration_minutes": 3,
                 "max_questions": 2,
                 "focus": "introduction_and_rapport"
             },
             "technical": {
-                "duration_minutes": 25,
-                "max_questions": self.MAX_QUESTIONS_PER_ROUND,
+                "duration_minutes": 20,
+                "max_questions": self.QUESTIONS_PER_ROUND,
                 "focus": "technical_skills_assessment"
             },
             "communication": {
-                "duration_minutes": 20,
-                "max_questions": self.MAX_QUESTIONS_PER_ROUND,
+                "duration_minutes": 12,
+                "max_questions": self.QUESTIONS_PER_ROUND,
                 "focus": "communication_and_presentation"
             },
             "hr": {
-                "duration_minutes": 13,
-                "max_questions": self.MAX_QUESTIONS_PER_ROUND,
+                "duration_minutes": 10,
+                "max_questions": self.QUESTIONS_PER_ROUND,
                 "focus": "behavioral_and_cultural_fit"
             }
         }
