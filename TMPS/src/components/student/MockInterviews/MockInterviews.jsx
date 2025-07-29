@@ -612,14 +612,17 @@ const StudentMockInterviews = () => {
       setStartInterviewDialog(false);
       setRetryCount(0); // Reset retry count on success
       
-      // Navigate to the interview session page with the correct route from App.jsx
-      console.log('🎯 Navigating to interview session:', `/student/mock-interviews/start/${testId}`);
-      navigate(`/student/mock-interviews/start/${testId}`, {
+      // Navigate to the interview session page with the correct route
+      const sessionId = response.session_id;
+      if (!sessionId) {
+        throw new Error('No session ID received from server. Please try again.');
+      }
+      
+      navigate(`/student/mock-interviews/view/${sessionId}`, {
         state: { 
           sessionData: response,
           isNewSession: true,
-          sessionId: response.session_id // Pass the correct session_id
-         
+          sessionId: sessionId
         }
       });
       

@@ -77,7 +77,7 @@ import TaskSubmissionsPage from "./components/student/TaskSubmissions/TaskSubmis
 import StudentAddTaskSubmission from "./components/student/TaskSubmissions/AddTaskSubmission";
 import StudentViewTaskSubmission from "./components/student/TaskSubmissions/ViewTaskSubmission";
 import StudentMockInterviews from "./components/student/MockInterviews/MockInterviews";
-import StudentStartInterview from "./components/student/MockInterviews/StartInterview";
+import StartInterview from "./components/student/MockInterviews/StartInterview";
 import InterviewResults from "./components/student/MockInterviews/InterviewResultsComponent";
 import Standupcall from "./components/student/DailyStandups/StandupCall";
 import StandupCallSession from "./components/student/DailyStandups/StandupCallSession";
@@ -723,17 +723,17 @@ function App() {
                 element={
                   <PrivateRoute allowedRoles={["student"]}>
                     <Layout>
-                      <StudentStartInterview />
+                      <StartInterview />
                     </Layout>
                   </PrivateRoute>
                 }
               />
               <Route
-                path="/student/mock-interviews/:testId"
+                path="/student/mock-interviews/start/:id"
                 element={
                   <PrivateRoute allowedRoles={["student"]}>
                     <Layout>
-                      <StudentStartInterview />
+                      <StartInterview />
                     </Layout>
                   </PrivateRoute>
                 }

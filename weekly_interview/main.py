@@ -19,6 +19,7 @@ import traceback
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Form, File, UploadFile
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import LETTER
@@ -55,7 +56,7 @@ class UltraFastInterviewManager:
         test_id = f"interview_{int(time.time())}"
         
         try:
-            logger.info(f"🚀 Creating ultra-fast interview session: {session_id}")
+            logger.info(f"?? Creating ultra-fast interview session: {session_id}")
             
             # Get student info and 7-day summaries in parallel
             student_info_task = asyncio.create_task(self.db_manager.get_student_info_fast())
@@ -95,37 +96,37 @@ class UltraFastInterviewManager:
             session_data.fragment_manager = fragment_manager
             self.active_sessions[session_id] = session_data
             
-            logger.info(f"✅ Ultra-fast interview session created: {session_id} for {session_data.student_name} "
+            logger.info(f"? Ultra-fast interview session created: {session_id} for {session_data.student_name} "
                        f"with {len(session_data.fragment_keys)} fragments from {len(summaries)} summaries")
             
             return session_data
             
         except Exception as e:
-            logger.error(f"❌ Failed to create interview session: {e}")
+            logger.error(f"? Failed to create interview session: {e}")
             raise Exception(f"Session creation failed: {e}")
     
     async def remove_session(self, session_id: str):
         """Fast session removal"""
         if session_id in self.active_sessions:
             del self.active_sessions[session_id]
-            logger.info(f"🗑️ Removed session {session_id}")
+            logger.info(f"??? Removed session {session_id}")
     
     async def process_audio_ultra_fast(self, session_id: str, audio_data: bytes):
         """Ultra-fast audio processing pipeline (identical to daily_standup style)"""
         session_data = self.active_sessions.get(session_id)
         if not session_data or not session_data.is_active:
-            logger.warning(f"⚠️ Inactive session: {session_id}")
+            logger.warning(f"?? Inactive session: {session_id}")
             return
         
         start_time = time.time()
         
         try:
             audio_size = len(audio_data)
-            logger.info(f"🎤 Session {session_id}: Received {audio_size} bytes of audio data")
+            logger.info(f"?? Session {session_id}: Received {audio_size} bytes of audio data")
             
             # Lenient audio size check with better error handling
             if audio_size < 100:
-                logger.warning(f"⚠️ Very small audio chunk ({audio_size} bytes)")
+                logger.warning(f"?? Very small audio chunk ({audio_size} bytes)")
                 await self._send_quick_message(session_data, {
                     "type": "clarification",
                     "text": "I didn't hear anything clear. Could you please speak a bit louder?",
@@ -146,7 +147,7 @@ class UltraFastInterviewManager:
                 })
                 return
             
-            logger.info(f"✅ Session {session_id}: User said: '{transcript}' (quality: {quality:.2f})")
+            logger.info(f"? Session {session_id}: User said: '{transcript}' (quality: {quality:.2f})")
             
             # Update last exchange with user response
             if session_data.exchanges:
@@ -168,10 +169,10 @@ class UltraFastInterviewManager:
             await self._send_response_with_ultra_fast_audio(session_data, ai_response)
             
             processing_time = time.time() - start_time
-            logger.info(f"⚡ Total processing time: {processing_time:.2f}s")
+            logger.info(f"? Total processing time: {processing_time:.2f}s")
             
         except Exception as e:
-            logger.error(f"❌ Audio processing error: {e}")
+            logger.error(f"? Audio processing error: {e}")
             
             # Send helpful error message
             if "too small" in str(e).lower():
@@ -203,7 +204,7 @@ class UltraFastInterviewManager:
         if current_stage == InterviewStage.GREETING:
             if session_data.questions_per_round["greeting"] >= 2:
                 session_data.current_stage = InterviewStage.TECHNICAL
-                logger.info(f"🔄 Session {session_data.session_id} moved to TECHNICAL stage")
+                logger.info(f"?? Session {session_data.session_id} moved to TECHNICAL stage")
         
         elif current_stage in [InterviewStage.TECHNICAL, InterviewStage.COMMUNICATION, InterviewStage.HR]:
             # Check if current round should continue
@@ -211,11 +212,11 @@ class UltraFastInterviewManager:
                 # Move to next stage
                 next_stage = self._get_next_stage(current_stage)
                 session_data.current_stage = next_stage
-                logger.info(f"🔄 Session {session_data.session_id} moved to {next_stage.value} stage")
+                logger.info(f"?? Session {session_data.session_id} moved to {next_stage.value} stage")
                 
                 # Check if interview is complete
                 if next_stage == InterviewStage.COMPLETE:
-                    logger.info(f"🏁 Session {session_data.session_id} interview completed")
+                    logger.info(f"?? Session {session_data.session_id} interview completed")
                     # Generate evaluation and save session in background
                     asyncio.create_task(self._finalize_session_fast(session_data))
     
@@ -267,7 +268,7 @@ class UltraFastInterviewManager:
             save_success = await self.db_manager.save_interview_result_fast(interview_data)
             
             if not save_success:
-                logger.error(f"❌ Failed to save session {session_data.session_id}")
+                logger.error(f"? Failed to save session {session_data.session_id}")
             
             # Calculate overall score for display
             overall_score = scores.get("weighted_overall", scores.get("overall_score", 8.0))
@@ -295,10 +296,10 @@ class UltraFastInterviewManager:
             await self._send_quick_message(session_data, {"type": "audio_end", "status": "complete"})
             
             session_data.is_active = False
-            logger.info(f"✅ Session {session_data.session_id} finalized and saved")
+            logger.info(f"? Session {session_data.session_id} finalized and saved")
             
         except Exception as e:
-            logger.error(f"❌ Fast session finalization error: {e}")
+            logger.error(f"? Fast session finalization error: {e}")
             session_data.is_active = False
     
     async def _send_response_with_ultra_fast_audio(self, session_data: InterviewSession, text: str):
@@ -326,10 +327,10 @@ class UltraFastInterviewManager:
                 "status": session_data.current_stage.value
             })
             
-            logger.info(f"🎵 Streamed {chunk_count} audio chunks")
+            logger.info(f"?? Streamed {chunk_count} audio chunks")
             
         except Exception as e:
-            logger.error(f"❌ Ultra-fast audio streaming error: {e}")
+            logger.error(f"? Ultra-fast audio streaming error: {e}")
     
     async def _send_quick_message(self, session_data: InterviewSession, message: dict):
         """Ultra-fast WebSocket message sending (identical to daily_standup)"""
@@ -337,7 +338,7 @@ class UltraFastInterviewManager:
             if session_data.websocket:
                 await session_data.websocket.send_text(json.dumps(message))
         except Exception as e:
-            logger.error(f"❌ WebSocket send error: {e}")
+            logger.error(f"? WebSocket send error: {e}")
     
     async def get_session_result_fast(self, test_id: str) -> dict:
         """Fast session result retrieval from real database"""
@@ -347,7 +348,7 @@ class UltraFastInterviewManager:
                 raise Exception(f"Interview {test_id} not found in database")
             return result
         except Exception as e:
-            logger.error(f"❌ Error fetching interview result: {e}")
+            logger.error(f"? Error fetching interview result: {e}")
             raise Exception(f"Interview result retrieval failed: {e}")
 
 # =============================================================================
@@ -374,7 +375,7 @@ interview_manager = UltraFastInterviewManager()
 @app.on_event("startup")
 async def startup_event():
     """Initialize application on startup - test real connections"""
-    logger.info("🚀 Ultra-Fast Interview application starting...")
+    logger.info("?? Ultra-Fast Interview application starting...")
     
     try:
         # Test database connections on startup
@@ -384,23 +385,23 @@ async def startup_event():
         try:
             conn = db_manager.get_mysql_connection()
             conn.close()
-            logger.info("✅ MySQL connection test successful")
+            logger.info("? MySQL connection test successful")
         except Exception as e:
-            logger.error(f"❌ MySQL connection test failed: {e}")
+            logger.error(f"? MySQL connection test failed: {e}")
             raise Exception(f"MySQL connection failed: {e}")
         
         # Test MongoDB connection
         try:
             await db_manager.get_mongo_client()
-            logger.info("✅ MongoDB connection test successful")
+            logger.info("? MongoDB connection test successful")
         except Exception as e:
-            logger.error(f"❌ MongoDB connection test failed: {e}")
+            logger.error(f"? MongoDB connection test failed: {e}")
             raise Exception(f"MongoDB connection failed: {e}")
         
-        logger.info("✅ All database connections verified")
+        logger.info("? All database connections verified")
         
     except Exception as e:
-        logger.error(f"❌ Startup failed: {e}")
+        logger.error(f"? Startup failed: {e}")
         raise Exception(f"Application startup failed: {e}")
 
 @app.on_event("shutdown")
@@ -408,7 +409,7 @@ async def shutdown_event():
     """Cleanup on shutdown"""
     await shared_clients.close_connections()
     await interview_manager.db_manager.close_connections()
-    logger.info("🔌 Interview application shutting down")
+    logger.info("?? Interview application shutting down")
 
 # =============================================================================
 # API ENDPOINTS - REAL DATA ONLY
@@ -418,7 +419,7 @@ async def shutdown_event():
 async def start_interview_session_fast():
     """Start a new interview session with 7-day summary processing"""
     try:
-        logger.info("🚀 Starting real interview session with 7-day summaries...")
+        logger.info("?? Starting real interview session with 7-day summaries...")
         
         session_data = await interview_manager.create_session_fast()
         
@@ -428,7 +429,7 @@ async def start_interview_session_fast():
         session_data.add_exchange(greeting, "", 0.0, "greeting", False)
         session_data.fragment_manager.add_question(greeting, "greeting", False)
         
-        logger.info(f"✅ Real interview session created: {session_data.test_id}")
+        logger.info(f"? Real interview session created: {session_data.test_id}")
         
         return {
             "status": "success",
@@ -444,7 +445,7 @@ async def start_interview_session_fast():
         }
         
     except Exception as e:
-        logger.error(f"❌ Error starting interview session: {e}")
+        logger.error(f"? Error starting interview session: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to start interview: {str(e)}")
 
 @app.websocket("/ws/{session_id}")
@@ -453,11 +454,11 @@ async def websocket_endpoint_ultra_fast(websocket: WebSocket, session_id: str):
     await websocket.accept()
     
     try:
-        logger.info(f"🔌 WebSocket connected for interview session: {session_id}")
+        logger.info(f"?? WebSocket connected for interview session: {session_id}")
         
         session_data = interview_manager.active_sessions.get(session_id)
         if not session_data:
-            logger.error(f"❌ Session {session_id} not found in active sessions")
+            logger.error(f"? Session {session_id} not found in active sessions")
             await websocket.send_text(json.dumps({
                 "type": "error",
                 "text": f"Session {session_id} not found. Please start a new interview.",
@@ -507,13 +508,13 @@ async def websocket_endpoint_ultra_fast(websocket: WebSocket, session_id: str):
                     await websocket.send_text(json.dumps({"type": "pong"}))
                 
             except asyncio.TimeoutError:
-                logger.info(f"⏰ WebSocket timeout: {session_id}")
+                logger.info(f"? WebSocket timeout: {session_id}")
                 break
             except WebSocketDisconnect:
-                logger.info(f"🔌 WebSocket disconnected: {session_id}")
+                logger.info(f"?? WebSocket disconnected: {session_id}")
                 break
             except Exception as e:
-                logger.error(f"❌ WebSocket error: {e}")
+                logger.error(f"? WebSocket error: {e}")
                 await websocket.send_text(json.dumps({
                     "type": "error",
                     "text": f"Error: {str(e)}",
@@ -522,7 +523,7 @@ async def websocket_endpoint_ultra_fast(websocket: WebSocket, session_id: str):
                 break
     
     except Exception as e:
-        logger.error(f"❌ WebSocket endpoint error: {e}")
+        logger.error(f"? WebSocket endpoint error: {e}")
     finally:
         await interview_manager.remove_session(session_id)
 
@@ -530,7 +531,7 @@ async def websocket_endpoint_ultra_fast(websocket: WebSocket, session_id: str):
 async def get_evaluation_fast(test_id: str):
     """Get evaluation with enhanced error handling"""
     try:
-        logger.info(f"📊 Getting evaluation for test_id: {test_id}")
+        logger.info(f"?? Getting evaluation for test_id: {test_id}")
         
         result = await interview_manager.get_session_result_fast(test_id)
         
@@ -544,7 +545,7 @@ async def get_evaluation_fast(test_id: str):
         }
         
     except Exception as e:
-        logger.error(f"❌ Error getting evaluation: {e}")
+        logger.error(f"? Error getting evaluation: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get evaluation: {str(e)}")
 
 @app.get("/download_results/{test_id}")
@@ -572,7 +573,7 @@ async def download_results_fast(test_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ PDF generation error: {e}")
+        logger.error(f"? PDF generation error: {e}")
         raise HTTPException(status_code=500, detail=f"PDF generation failed: {str(e)}")
 
 @app.get("/health")
@@ -595,7 +596,7 @@ async def health_check_fast():
             db_status["mongodb"] = True
             
         except Exception as e:
-            logger.warning(f"⚠️ Database health check failed: {e}")
+            logger.warning(f"?? Database health check failed: {e}")
         
         return {
             "status": "healthy" if all(db_status.values()) else "degraded",
@@ -613,7 +614,7 @@ async def health_check_fast():
             }
         }
     except Exception as e:
-        logger.error(f"❌ Health check failed: {e}")
+        logger.error(f"? Health check failed: {e}")
         raise HTTPException(status_code=500, detail=f"Health check failed: {str(e)}")
 
 @app.get("/api/interview-students")
@@ -634,7 +635,7 @@ async def get_interview_students():
         return list(students.values())
         
     except Exception as e:
-        logger.error(f"❌ Get students error: {e}")
+        logger.error(f"? Get students error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/interview-students/{student_id}/interviews")
@@ -660,7 +661,7 @@ async def get_student_interviews(student_id: str):
         return student_interviews
         
     except Exception as e:
-        logger.error(f"❌ Get student interviews error: {e}")
+        logger.error(f"? Get student interviews error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # =============================================================================
@@ -720,5 +721,10 @@ def generate_pdf_report(result: Dict[str, Any], test_id: str) -> bytes:
         return pdf_buffer.read()
         
     except Exception as e:
-        logger.error(f"❌ PDF generation error: {e}")
+        logger.error(f"? PDF generation error: {e}")
         raise Exception(f"PDF generation failed: {e}")
+
+@app.websocket("/weekly_interview/ws/{session_id}")
+async def websocket_endpoint_weekly_interview(websocket: WebSocket, session_id: str):
+    # Reuse the same logic as the /ws/{session_id} endpoint
+    await websocket_endpoint_ultra_fast(websocket, session_id)

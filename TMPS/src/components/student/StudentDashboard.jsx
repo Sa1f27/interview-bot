@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
   Box,
-  Grid,
   Card,
   CardContent,
   Typography,
@@ -12,7 +11,6 @@ import {
   Chip,
   LinearProgress,
   Avatar,
-  Paper,
   Button,
   Divider,
   Alert,
@@ -37,6 +35,7 @@ import {
   Assignment as TaskIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
+import { Grid } from '@mui/material'; // Alternative import for MUI v5
 
 const StudentDashboard = () => {
   const navigate = useNavigate();
@@ -245,7 +244,7 @@ const StudentDashboard = () => {
           <Typography variant="h4" component="h1" gutterBottom>
             Welcome back, {student.name}!
           </Typography>
-          <Typography variant="subtitle1" color="text.secondary">
+          <Typography variant="subtitle1" color="text.secondary" component="div">
             {student.course} • {student.level} Level
           </Typography>
         </Box>
@@ -264,12 +263,11 @@ const StudentDashboard = () => {
       </Box>
 
       <Grid container spacing={3}>
-        {/* Left Column */}
-        <Grid item xs={12} lg={8}>
+        <Grid xs={12} lg={8}>
           {/* Progress Overview */}
           <Card sx={{ mb: 3 }}>
             <CardContent>
-              <Typography variant="h6" gutterBottom>
+              <Typography variant="h6" component="div" gutterBottom>
                 Course Progress
               </Typography>
               <Box display="flex" alignItems="center" gap={2} mb={2}>
@@ -278,47 +276,47 @@ const StudentDashboard = () => {
                   value={student.progress} 
                   sx={{ flexGrow: 1, height: 8, borderRadius: 4 }}
                 />
-                <Typography variant="h6" color="primary">
+                <Typography variant="h6" color="primary" component="div">
                   {student.progress}%
                 </Typography>
               </Box>
               <Grid container spacing={2}>
-                <Grid item xs={6} sm={3}>
+                <Grid xs={6} sm={3}>
                   <Box textAlign="center">
-                    <Typography variant="h5" color="success.main">
+                    <Typography variant="h5" color="success.main" component="div">
                       {stats.tasksCompleted}
                     </Typography>
-                    <Typography variant="caption" color="text.secondary">
+                    <Typography variant="caption" color="text.secondary" component="div">
                       Tasks Completed
                     </Typography>
                   </Box>
                 </Grid>
-                <Grid item xs={6} sm={3}>
+                <Grid xs={6} sm={3}>
                   <Box textAlign="center">
-                    <Typography variant="h5" color="info.main">
+                    <Typography variant="h5" color="info.main" component="div">
                       {stats.averageGrade}%
                     </Typography>
-                    <Typography variant="caption" color="text.secondary">
+                    <Typography variant="caption" color="text.secondary" component="div">
                       Average Grade
                     </Typography>
                   </Box>
                 </Grid>
-                <Grid item xs={6} sm={3}>
+                <Grid xs={6} sm={3}>
                   <Box textAlign="center">
-                    <Typography variant="h5" color="primary">
+                    <Typography variant="h5" color="primary" component="div">
                       {stats.recordingsWatched}
                     </Typography>
-                    <Typography variant="caption" color="text.secondary">
+                    <Typography variant="caption" color="text.secondary" component="div">
                       Videos Watched
                     </Typography>
                   </Box>
                 </Grid>
-                <Grid item xs={6} sm={3}>
+                <Grid xs={6} sm={3}>
                   <Box textAlign="center">
-                    <Typography variant="h5" color="warning.main">
+                    <Typography variant="h5" color="warning.main" component="div">
                       {student.totalHours}h
                     </Typography>
-                    <Typography variant="caption" color="text.secondary">
+                    <Typography variant="caption" color="text.secondary" component="div">
                       Study Hours
                     </Typography>
                   </Box>
@@ -331,7 +329,7 @@ const StudentDashboard = () => {
           <Card sx={{ mb: 3 }}>
             <CardContent>
               <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-                <Typography variant="h6">
+                <Typography variant="h6" component="div">
                   Recent Tasks ({stats.totalTasks - stats.tasksCompleted} Pending)
                 </Typography>
                 <Button size="small" onClick={() => navigate('/student/tasks')}>
@@ -351,21 +349,23 @@ const StudentDashboard = () => {
                       <ListItemText
                         primary={task.title}
                         secondary={
-                          <Box display="flex" alignItems="center" gap={1} mt={0.5}>
-                            <Chip
-                              label={task.status.toUpperCase()}
-                              color={getTaskStatusColor(task.status)}
-                              size="small"
-                            />
-                            <Chip
-                              label={task.priority.toUpperCase()}
-                              color={getPriorityColor(task.priority)}
-                              size="small"
-                              variant="outlined"
-                            />
-                            <Typography variant="caption">
-                              Due: {new Date(task.dueDate).toLocaleDateString()}
-                            </Typography>
+                          <Box component="span">
+                            <Box display="flex" alignItems="center" gap={1} mt={0.5}>
+                              <Chip
+                                label={task.status.toUpperCase()}
+                                color={getTaskStatusColor(task.status)}
+                                size="small"
+                              />
+                              <Chip
+                                label={task.priority.toUpperCase()}
+                                color={getPriorityColor(task.priority)}
+                                size="small"
+                                variant="outlined"
+                              />
+                              <Typography variant="caption" component="span">
+                                Due: {new Date(task.dueDate).toLocaleDateString()}
+                              </Typography>
+                            </Box>
                           </Box>
                         }
                       />
@@ -389,7 +389,7 @@ const StudentDashboard = () => {
           <Card>
             <CardContent>
               <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-                <Typography variant="h6">
+                <Typography variant="h6" component="div">
                   Recent Session Recordings
                 </Typography>
                 <Button size="small" onClick={() => navigate('/student/recordings')}>
@@ -399,48 +399,35 @@ const StudentDashboard = () => {
               <List>
                 {recentRecordings.map((recording, index) => (
                   <React.Fragment key={recording.id}>
-                    <ListItem 
-                      sx={{ px: 0, cursor: 'pointer' }}
-                      onClick={() => handleViewRecording(recording.id)}
-                    >
-                      <ListItemIcon>
-                        <VideoLibrary color="primary" />
-                      </ListItemIcon>
+                    <ListItem>
                       <ListItemText
                         primary={recording.title}
                         secondary={
-                          <Box display="flex" alignItems="center" gap={1} mt={0.5}>
-                            <AccessTime fontSize="small" />
-                            <Typography variant="caption">
-                              {recording.duration}
-                            </Typography>
-                            {recording.watched ? (
-                              <Chip
-                                label={`${recording.progress}% Watched`}
-                                color="success"
-                                size="small"
-                                icon={<CheckCircle />}
-                              />
-                            ) : (
-                              <Chip
-                                label="Not Watched"
-                                color="warning"
-                                size="small"
-                                variant="outlined"
-                              />
-                            )}
+                          <Box component="span">
+                            <Box display="flex" alignItems="center" gap={1} mt={0.5}>
+                              <AccessTime fontSize="small" />
+                              <Typography variant="caption" component="span">
+                                {recording.duration}
+                              </Typography>
+                              {recording.watched ? (
+                                <Chip
+                                  label={`${recording.progress}% Watched`}
+                                  color="success"
+                                  size="small"
+                                  icon={<CheckCircle />}
+                                />
+                              ) : (
+                                <Chip
+                                  label="Not Watched"
+                                  color="warning"
+                                  size="small"
+                                  variant="outlined"
+                                />
+                              )}
+                            </Box>
                           </Box>
                         }
                       />
-                      <IconButton 
-                        color="primary"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleViewRecording(recording.id);
-                        }}
-                      >
-                        <PlayArrow />
-                      </IconButton>
                     </ListItem>
                     {index < recentRecordings.length - 1 && <Divider />}
                   </React.Fragment>
@@ -450,12 +437,11 @@ const StudentDashboard = () => {
           </Card>
         </Grid>
 
-        {/* Right Column */}
-        <Grid item xs={12} lg={4}>
+        <Grid xs={12} lg={4}>
           {/* Announcements */}
           <Card sx={{ mb: 3 }}>
             <CardContent>
-              <Typography variant="h6" gutterBottom>
+              <Typography variant="h6" component="div" gutterBottom>
                 Announcements
               </Typography>
               {announcements.length === 0 ? (
@@ -469,6 +455,7 @@ const StudentDashboard = () => {
                           <Box display="flex" alignItems="center" gap={1}>
                             <Typography 
                               variant="subtitle2" 
+                              component="span"
                               sx={{ 
                                 fontWeight: announcement.read ? 'normal' : 'bold',
                                 flexGrow: 1
@@ -489,11 +476,11 @@ const StudentDashboard = () => {
                           </Box>
                         }
                         secondary={
-                          <Box>
-                            <Typography variant="body2" color="text.secondary">
+                          <Box component="span">
+                            <Typography variant="body2" color="text.secondary" component="span">
                               {announcement.message}
                             </Typography>
-                            <Typography variant="caption" color="text.secondary">
+                            <Typography variant="caption" color="text.secondary" component="div">
                               {new Date(announcement.date).toLocaleDateString()}
                             </Typography>
                           </Box>
@@ -509,7 +496,7 @@ const StudentDashboard = () => {
           {/* Upcoming Events */}
           <Card sx={{ mb: 3 }}>
             <CardContent>
-              <Typography variant="h6" gutterBottom>
+              <Typography variant="h6" component="div" gutterBottom>
                 Upcoming Events
               </Typography>
               {upcomingEvents.length === 0 ? (
@@ -524,11 +511,11 @@ const StudentDashboard = () => {
                       <ListItemText
                         primary={event.title}
                         secondary={
-                          <Box>
-                            <Typography variant="body2" color="text.secondary">
+                          <Box component="span">
+                            <Typography variant="body2" color="text.secondary" component="span">
                               {event.type} • {event.instructor}
                             </Typography>
-                            <Typography variant="caption" color="text.secondary">
+                            <Typography variant="caption" color="text.secondary" component="div">
                               {new Date(event.date).toLocaleDateString()} at {event.time}
                             </Typography>
                           </Box>
@@ -545,7 +532,7 @@ const StudentDashboard = () => {
           <Card>
             <CardContent>
               <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-                <Typography variant="h6">
+                <Typography variant="h6" component="div">
                   Recent Documents
                 </Typography>
                 <Button size="small" onClick={() => navigate('/student/documents')}>
