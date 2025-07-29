@@ -1,4 +1,4 @@
-// src/App.jsx
+// src/App.jsx - COMPLETE FILE WITH ROUTE FIXES
 import React from "react";
 import {
   BrowserRouter as Router,
@@ -72,7 +72,6 @@ import StudentSessionRecordingsList from "./components/student/SessionRecordings
 import StudentViewSessionRecording from "./components/student/SessionRecordings/ViewSessionRecording";
 import StudentTrainerTasksList from "./components/student/TrainerTasks/TrainerTasksList";
 import StudentViewTrainerTask from "./components/student/TrainerTasks/ViewTrainerTask";
-// import StudentTaskSubmissionsList from "./components/student/TaskSubmissions/TaskSubmissionsPage";
 import TaskSubmissionsPage from "./components/student/TaskSubmissions/TaskSubmissionsPage";
 import StudentAddTaskSubmission from "./components/student/TaskSubmissions/AddTaskSubmission";
 import StudentViewTaskSubmission from "./components/student/TaskSubmissions/ViewTaskSubmission";
@@ -95,23 +94,23 @@ import "./App.css";
 const SmartRedirect = () => {
   const { user, isAuthenticated } = useAuth();
 
-  console.log("🔍 SmartRedirect - user:", user);
-  console.log("🔍 SmartRedirect - isAuthenticated:", isAuthenticated);
+  console.log("?? SmartRedirect - user:", user);
+  console.log("?? SmartRedirect - isAuthenticated:", isAuthenticated);
 
   // If not authenticated, go to login
   if (!isAuthenticated) {
-    console.log("🔍 SmartRedirect - redirecting to login");
+    console.log("?? SmartRedirect - redirecting to login");
     return <Navigate to="/login" replace />;
   }
 
   // If authenticated, redirect to their dashboard based on role
   const dashboardPath = `/${user?.role}/dashboard`;
-  console.log("🔍 SmartRedirect - redirecting to:", dashboardPath);
+  console.log("?? SmartRedirect - redirecting to:", dashboardPath);
   return <Navigate to={dashboardPath} replace />;
 };
 
 function App() {
-  console.log("🔍 App component rendering");
+  console.log("?? App component rendering");
 
   return (
     <AuthProvider>
@@ -707,7 +706,7 @@ function App() {
                 }
               />
               
-              {/* Student Mock Interviews Routes */}
+              {/* ==================== STUDENT MOCK INTERVIEWS - FIXED ROUTES ==================== */}
               <Route
                 path="/student/mock-interviews"
                 element={
@@ -718,8 +717,10 @@ function App() {
                   </PrivateRoute>
                 }
               />
+              
+              {/* FIXED: Interview Session Route - Consistent parameter naming */}
               <Route
-                path="/student/mock-interviews/view/:id"
+                path="/student/mock-interviews/session/:sessionId"
                 element={
                   <PrivateRoute allowedRoles={["student"]}>
                     <Layout>
@@ -728,8 +729,10 @@ function App() {
                   </PrivateRoute>
                 }
               />
+              
+              {/* FIXED: Alternative start route for backward compatibility */}
               <Route
-                path="/student/mock-interviews/start/:id"
+                path="/student/mock-interviews/start/:sessionId"
                 element={
                   <PrivateRoute allowedRoles={["student"]}>
                     <Layout>
@@ -738,6 +741,8 @@ function App() {
                   </PrivateRoute>
                 }
               />
+              
+              {/* FIXED: Results Route - Consistent parameter naming */}
               <Route
                 path="/student/mock-interviews/results/:testId"
                 element={
@@ -771,15 +776,15 @@ function App() {
                 }
               />
               <Route
-  path="/student/daily-standups/summary/:testId"
-  element={
-    <PrivateRoute allowedRoles={["student"]}>
-      <Layout>
-        <StandupSummary />
-      </Layout>
-    </PrivateRoute>
-  }
-/>
+                path="/student/daily-standups/summary/:testId"
+                element={
+                  <PrivateRoute allowedRoles={["student"]}>
+                    <Layout>
+                      <StandupSummary />
+                    </Layout>
+                  </PrivateRoute>
+                }
+              />
               
               {/* ==================== STUDENT MOCK TESTS ROUTES ==================== */}
               <Route

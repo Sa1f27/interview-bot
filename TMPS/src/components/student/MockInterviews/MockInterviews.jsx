@@ -576,13 +576,14 @@ const StudentMockInterviews = () => {
     setStartInterviewDialog(true);
   };
 
+  // FIXED: Navigation to correct route with sessionId parameter
   const handleConfirmStartInterview = async () => {
     try {
       setStartingInterview(true);
       setError(null);
       setLastAttempt(new Date().toISOString());
       
-      console.log('🚀 Starting new interview...');
+      console.log('?? Starting new interview...');
       
       // Add timeout to the interview start request
       const timeoutPromise = new Promise((_, reject) =>
@@ -593,18 +594,18 @@ const StudentMockInterviews = () => {
       
       const response = await Promise.race([interviewPromise, timeoutPromise]);
       
-      console.log('✅ Interview started successfully:', response);
+      console.log('? Interview started successfully:', response);
       
-      // Extract test_id from response
-      const testId = response.test_id;
+      // Extract session_id from response
+      const sessionId = response.session_id;
       
-      if (!testId) {
-        throw new Error('No test ID received from server. Please try again.');
+      if (!sessionId) {
+        throw new Error('No session ID received from server. Please try again.');
       }
       
       setSnackbar({
         open: true,
-        message: `Interview started successfully! Test ID: ${testId}`,
+        message: `Interview started successfully! Session ID: ${sessionId}`,
         severity: 'success'
       });
 
@@ -612,22 +613,18 @@ const StudentMockInterviews = () => {
       setStartInterviewDialog(false);
       setRetryCount(0); // Reset retry count on success
       
-      // Navigate to the interview session page with the correct route
-      const sessionId = response.session_id;
-      if (!sessionId) {
-        throw new Error('No session ID received from server. Please try again.');
-      }
-      
-      navigate(`/student/mock-interviews/view/${sessionId}`, {
+      // FIXED: Navigate to the correct route with sessionId parameter
+      navigate(`/student/mock-interviews/session/${sessionId}`, {
         state: { 
           sessionData: response,
           isNewSession: true,
-          sessionId: sessionId
+          sessionId: sessionId,
+          testId: response.test_id
         }
       });
       
     } catch (error) {
-      console.error('❌ Failed to start interview:', error);
+      console.error('? Failed to start interview:', error);
       
       // Enhanced error processing
       let errorMessage = 'An unexpected error occurred';
@@ -723,7 +720,7 @@ const StudentMockInterviews = () => {
           <Typography variant="body2">
             Attempt #{retryCount + 1}
             {lastAttempt && (
-              <span> • Last attempt: {new Date(lastAttempt).toLocaleTimeString()}</span>
+              <span> � Last attempt: {new Date(lastAttempt).toLocaleTimeString()}</span>
             )}
           </Typography>
         </Alert>

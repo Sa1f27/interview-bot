@@ -2,6 +2,7 @@
 """
 Enhanced Mock Interview System - Daily Standup Style Ultra-Fast Streaming
 Real-time WebSocket interview with 7-day fragment processing and streaming TTS
+TTS now imported from separate tts_processor.py module
 """
 
 import os
@@ -32,8 +33,11 @@ from .core.database import DatabaseManager
 from .core.ai_services import (
     shared_clients, InterviewSession, InterviewStage,
     EnhancedInterviewFragmentManager, OptimizedAudioProcessor,
-    UltraFastTTSProcessor, OptimizedConversationManager
+    OptimizedConversationManager
 )
+
+# Import TTS processor from separate file
+from .core.tts_processor import UltraFastTTSProcessor
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -47,7 +51,7 @@ class UltraFastInterviewManager:
         self.active_sessions: Dict[str, InterviewSession] = {}
         self.db_manager = DatabaseManager(shared_clients)
         self.audio_processor = OptimizedAudioProcessor(shared_clients)
-        self.tts_processor = UltraFastTTSProcessor()
+        self.tts_processor = UltraFastTTSProcessor()  # Now imported from separate file
         self.conversation_manager = OptimizedConversationManager(shared_clients)
     
     async def create_session_fast(self, websocket: Optional[Any] = None) -> InterviewSession:
@@ -284,7 +288,7 @@ class UltraFastInterviewManager:
                 "status": "complete"
             })
             
-            # Generate and send final audio
+            # Generate and send final audio using separate TTS processor
             async for audio_chunk in self.tts_processor.generate_ultra_fast_stream(completion_message):
                 if audio_chunk:
                     await self._send_quick_message(session_data, {
@@ -303,7 +307,7 @@ class UltraFastInterviewManager:
             session_data.is_active = False
     
     async def _send_response_with_ultra_fast_audio(self, session_data: InterviewSession, text: str):
-        """Send response with ultra-fast audio streaming (identical to daily_standup)"""
+        """Send response with ultra-fast audio streaming using separate TTS processor"""
         try:
             await self._send_quick_message(session_data, {
                 "type": "ai_response",
@@ -313,6 +317,7 @@ class UltraFastInterviewManager:
             })
             
             chunk_count = 0
+            # Use separate TTS processor with enhanced error handling
             async for audio_chunk in self.tts_processor.generate_ultra_fast_stream(text):
                 if audio_chunk and session_data.is_active:
                     await self._send_quick_message(session_data, {
@@ -331,6 +336,12 @@ class UltraFastInterviewManager:
             
         except Exception as e:
             logger.error(f"? Ultra-fast audio streaming error: {e}")
+            # Send text-only response as fallback
+            await self._send_quick_message(session_data, {
+                "type": "audio_end",
+                "status": session_data.current_stage.value,
+                "fallback": "text_only"
+            })
     
     async def _send_quick_message(self, session_data: InterviewSession, message: dict):
         """Ultra-fast WebSocket message sending (identical to daily_standup)"""
@@ -398,7 +409,15 @@ async def startup_event():
             logger.error(f"? MongoDB connection test failed: {e}")
             raise Exception(f"MongoDB connection failed: {e}")
         
-        logger.info("? All database connections verified")
+        # Initialize TTS processor
+        try:
+            await interview_manager.tts_processor.initialize()
+            logger.info("? TTS processor initialized successfully")
+        except Exception as e:
+            logger.warning(f"?? TTS processor initialization warning: {e}")
+            # Continue startup even if TTS has issues - fallback will handle it
+        
+        logger.info("? All systems verified and ready")
         
     except Exception as e:
         logger.error(f"? Startup failed: {e}")
@@ -468,7 +487,7 @@ async def websocket_endpoint_ultra_fast(websocket: WebSocket, session_id: str):
         
         session_data.websocket = websocket
         
-        # Send initial greeting with ultra-fast audio
+        # Send initial greeting with ultra-fast audio using separate TTS processor
         if session_data.exchanges:
             greeting = session_data.exchanges[0].ai_message
             await websocket.send_text(json.dumps({
@@ -479,18 +498,27 @@ async def websocket_endpoint_ultra_fast(websocket: WebSocket, session_id: str):
             }))
             
             # Generate and stream greeting audio with minimal delay
-            async for audio_chunk in interview_manager.tts_processor.generate_ultra_fast_stream(greeting):
-                if audio_chunk:
-                    await websocket.send_text(json.dumps({
-                        "type": "audio_chunk",
-                        "audio": audio_chunk.hex(),
-                        "status": "greeting"
-                    }))
-            
-            await websocket.send_text(json.dumps({
-                "type": "audio_end",
-                "status": "greeting"
-            }))
+            try:
+                async for audio_chunk in interview_manager.tts_processor.generate_ultra_fast_stream(greeting):
+                    if audio_chunk:
+                        await websocket.send_text(json.dumps({
+                            "type": "audio_chunk",
+                            "audio": audio_chunk.hex(),
+                            "status": "greeting"
+                        }))
+                
+                await websocket.send_text(json.dumps({
+                    "type": "audio_end",
+                    "status": "greeting"
+                }))
+            except Exception as tts_error:
+                logger.warning(f"?? TTS error for greeting: {tts_error}")
+                # Continue without audio - text response already sent
+                await websocket.send_text(json.dumps({
+                    "type": "audio_end",
+                    "status": "greeting",
+                    "fallback": "text_only"
+                }))
         
         # Main communication loop
         while session_data.is_active and session_data.current_stage != InterviewStage.COMPLETE:
@@ -578,9 +606,10 @@ async def download_results_fast(test_id: str):
 
 @app.get("/health")
 async def health_check_fast():
-    """Ultra-fast health check with real database status"""
+    """Ultra-fast health check with real database status and TTS status"""
     try:
         db_status = {"mysql": False, "mongodb": False}
+        tts_status = {"status": "unknown"}
         
         # Quick database health check
         try:
@@ -598,19 +627,30 @@ async def health_check_fast():
         except Exception as e:
             logger.warning(f"?? Database health check failed: {e}")
         
+        # Quick TTS health check
+        try:
+            tts_status = await interview_manager.tts_processor.health_check()
+        except Exception as e:
+            logger.warning(f"?? TTS health check failed: {e}")
+            tts_status = {"status": "error", "error": str(e)}
+        
+        overall_status = "healthy" if (all(db_status.values()) and tts_status.get("status") != "error") else "degraded"
+        
         return {
-            "status": "healthy" if all(db_status.values()) else "degraded",
+            "status": overall_status,
             "service": "ultra_fast_interview_system",
             "timestamp": time.time(),
             "active_sessions": len(interview_manager.active_sessions),
             "version": config.APP_VERSION,
             "database_status": db_status,
+            "tts_status": tts_status,
             "features": {
                 "7_day_summaries": True,
                 "fragment_based_questions": True,
                 "real_time_streaming": True,
                 "ultra_fast_tts": True,
-                "round_based_interview": True
+                "round_based_interview": True,
+                "modular_tts": True
             }
         }
     except Exception as e:
@@ -688,6 +728,7 @@ def generate_pdf_report(result: Dict[str, Any], test_id: str) -> bytes:
         Date: {datetime.fromtimestamp(result.get('timestamp', time.time())).strftime('%Y-%m-%d %H:%M:%S')}
         Duration: {result.get('duration_minutes', 0)} minutes
         Rounds Completed: {len(result.get('questions_per_round', {}))}
+        TTS System: {result.get('system_info', {}).get('tts_voice', 'EdgeTTS')}
         """
         story.append(Paragraph(info_text, styles['Normal']))
         story.append(Spacer(1, 12))
@@ -724,7 +765,8 @@ def generate_pdf_report(result: Dict[str, Any], test_id: str) -> bytes:
         logger.error(f"? PDF generation error: {e}")
         raise Exception(f"PDF generation failed: {e}")
 
+# Additional WebSocket endpoint for compatibility with frontend routing
 @app.websocket("/weekly_interview/ws/{session_id}")
 async def websocket_endpoint_weekly_interview(websocket: WebSocket, session_id: str):
-    # Reuse the same logic as the /ws/{session_id} endpoint
+    """Reuse the same logic as the /ws/{session_id} endpoint for routing compatibility"""
     await websocket_endpoint_ultra_fast(websocket, session_id)

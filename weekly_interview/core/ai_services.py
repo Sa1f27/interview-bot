@@ -2,13 +2,14 @@
 """
 UPGRADED AI Services - Daily Standup Style with Enhanced 7-Day Content Processing
 Ultra-fast streaming with intelligent multi-summary fragment management
+TTS functionality moved to separate tts_processor.py
+UTF-8 CLEANED VERSION
 """
 
 import os
 import time
 import logging
 import asyncio
-import edge_tts
 import openai
 import re
 import uuid
@@ -25,8 +26,19 @@ from .config import config
 
 logger = logging.getLogger(__name__)
 
+# Import TTS processor from separate file
+try:
+    from .tts_processor import UltraFastTTSProcessor
+except ImportError:
+    logger.error("Could not import TTS processor. Make sure tts_processor.py exists.")
+    # Create fallback TTS processor
+    class UltraFastTTSProcessor:
+        async def generate_ultra_fast_stream(self, text: str):
+            logger.warning("Using fallback TTS (no audio)")
+            yield b'\x00' * 1024  # Silent audio
+
 # =============================================================================
-# ENHANCED FRAGMENT PARSING - 7-Day Summary Processing
+# ENHANCED FRAGMENT PARSING - 7-Day Summary Processing (UNCHANGED)
 # =============================================================================
 
 def parse_multi_summaries_into_fragments(summaries: List[Dict[str, Any]]) -> Dict[str, str]:
@@ -37,7 +49,7 @@ def parse_multi_summaries_into_fragments(summaries: List[Dict[str, Any]]) -> Dic
     if not summaries:
         return {"General": "No content available"}
     
-    logger.info(f"🔍 Processing {len(summaries)} summaries for fragment creation")
+    logger.info(f"Processing {len(summaries)} summaries for fragment creation")
     
     all_fragments = {}
     fragment_counter = 1
@@ -76,7 +88,7 @@ def parse_multi_summaries_into_fragments(summaries: List[Dict[str, Any]]) -> Dic
     if len(all_fragments) < config.MIN_INTERVIEW_FRAGMENTS:
         all_fragments = _ensure_minimum_fragments(summaries, all_fragments)
     
-    logger.info(f"✅ Created {len(all_fragments)} interview fragments from {len(summaries)} summaries")
+    logger.info(f"Created {len(all_fragments)} interview fragments from {len(summaries)} summaries")
     return all_fragments
 
 def _extract_structured_sections(text: str) -> Dict[str, str]:
@@ -84,8 +96,8 @@ def _extract_structured_sections(text: str) -> Dict[str, str]:
     patterns = [
         # Numbered sections: 1. 2. 3.
         r'^\s*(\d+)\.\s+(.+?)(?=^\s*\d+\.|$)',
-        # Bullet points: - * •
-        r'^\s*[-*•]\s+(.+?)(?=^\s*[-*•]|$)',
+        # Bullet points: - * �
+        r'^\s*[-*�]\s+(.+?)(?=^\s*[-*�]|$)',
         # Headers: ## ### Topic:
         r'^#+\s+(.+?)(?=^#+|\Z)',
         r'^([A-Z][^:]*):(.+?)(?=^[A-Z][^:]*:|\Z)'
@@ -212,7 +224,7 @@ def _ensure_minimum_fragments(summaries: List[Dict[str, Any]], current_fragments
     return current_fragments
 
 # =============================================================================
-# DATA MODELS - SIMPLIFIED (Daily Standup Style)
+# DATA MODELS - SIMPLIFIED (Daily Standup Style) (UNCHANGED)
 # =============================================================================
 
 class InterviewStage(Enum):
@@ -285,7 +297,7 @@ class InterviewSession:
             self.exchanges[-1].transcript_quality = quality
 
 # =============================================================================
-# SHARED CLIENT MANAGER (Same as Daily Standup)
+# SHARED CLIENT MANAGER (Same as Daily Standup) (UNCHANGED)
 # =============================================================================
 
 class SharedClientManager:
@@ -301,7 +313,7 @@ class SharedClientManager:
             if not api_key:
                 raise Exception("GROQ_API_KEY not found in environment variables")
             self._groq_client = Groq(api_key=api_key)
-            logger.info("🎯 Groq client initialized")
+            logger.info("Groq client initialized")
         return self._groq_client
     
     @property 
@@ -311,7 +323,7 @@ class SharedClientManager:
             if not api_key:
                 raise Exception("OPENAI_API_KEY not found in environment variables")
             self._openai_client = openai.OpenAI(api_key=api_key)
-            logger.info("🎯 OpenAI client initialized")
+            logger.info("OpenAI client initialized")
         return self._openai_client
     
     @property
@@ -321,13 +333,13 @@ class SharedClientManager:
     async def close_connections(self):
         if self._executor:
             self._executor.shutdown(wait=True)
-        logger.info("🔌 AI client connections closed")
+        logger.info("AI client connections closed")
 
 # Global shared client manager
 shared_clients = SharedClientManager()
 
 # =============================================================================
-# ENHANCED FRAGMENT MANAGER (Daily Standup Style + Interview Rounds)
+# ENHANCED FRAGMENT MANAGER (Daily Standup Style + Interview Rounds) (UNCHANGED)
 # =============================================================================
 
 class EnhancedInterviewFragmentManager:
@@ -362,12 +374,12 @@ class EnhancedInterviewFragmentManager:
                     if self.session_data.fragment_keys else 1)
             )
             
-            logger.info(f"✅ Initialized {len(self.session_data.fragment_keys)} fragments from 7-day summaries, "
+            logger.info(f"Initialized {len(self.session_data.fragment_keys)} fragments from 7-day summaries, "
                        f"target {self.session_data.questions_per_concept} questions per concept")
             return True
             
         except Exception as e:
-            logger.error(f"❌ Fragment initialization failed: {e}")
+            logger.error(f"Fragment initialization failed: {e}")
             raise Exception(f"Fragment initialization failed: {e}")
     
     def get_active_fragment_for_round(self, round_stage: InterviewStage) -> Tuple[str, str]:
@@ -504,7 +516,7 @@ class EnhancedInterviewFragmentManager:
         logger.info(f"Added question to {stage_name} round (concept: '{concept}', followup: {is_followup})")
 
 # =============================================================================
-# ULTRA-FAST AUDIO PROCESSING (Identical to Daily Standup)
+# ULTRA-FAST AUDIO PROCESSING (Identical to Daily Standup) (UNCHANGED)
 # =============================================================================
 
 class OptimizedAudioProcessor:
@@ -519,7 +531,7 @@ class OptimizedAudioProcessor:
         """Ultra-fast transcription (identical to daily_standup)"""
         try:
             audio_size = len(audio_data)
-            logger.info(f"🎤 Transcribing {audio_size} bytes of audio")
+            logger.info(f"Transcribing {audio_size} bytes of audio")
             
             if audio_size < 50:
                 raise Exception(f"Audio data too small for transcription ({audio_size} bytes)")
@@ -534,7 +546,7 @@ class OptimizedAudioProcessor:
             return result
             
         except Exception as e:
-            logger.error(f"❌ Fast transcription error: {e}")
+            logger.error(f"Fast transcription error: {e}")
             raise Exception(f"Transcription failed: {e}")
     
     def _sync_transcribe(self, audio_data: bytes) -> Tuple[str, float]:
@@ -546,7 +558,7 @@ class OptimizedAudioProcessor:
             with open(temp_file, "wb") as f:
                 f.write(audio_data)
             
-            logger.info(f"🎤 Sending {audio_size} bytes to Groq for transcription")
+            logger.info(f"Sending {audio_size} bytes to Groq for transcription")
             
             with open(temp_file, "rb") as file:
                 result = self.groq_client.audio.transcriptions.create(
@@ -564,7 +576,7 @@ class OptimizedAudioProcessor:
             transcript = result.text.strip() if result.text else ""
             
             if not transcript:
-                logger.warning(f"⚠️ Groq returned empty transcript for {audio_size} bytes")
+                logger.warning(f"Groq returned empty transcript for {audio_size} bytes")
                 return "", 0.0
             
             # Quality assessment
@@ -575,94 +587,15 @@ class OptimizedAudioProcessor:
                     avg_confidence = sum(confidences) / len(confidences)
                     quality = (quality + avg_confidence) / 2
             
-            logger.info(f"✅ Transcription: '{transcript}' (quality: {quality:.2f})")
+            logger.info(f"Transcription: '{transcript}' (quality: {quality:.2f})")
             return transcript, quality
             
         except Exception as e:
-            logger.error(f"❌ Sync transcription error: {e}")
+            logger.error(f"Sync transcription error: {e}")
             raise Exception(f"Groq transcription failed: {e}")
 
 # =============================================================================
-# ULTRA-FAST TTS PROCESSOR (Identical to Daily Standup Streaming)
-# =============================================================================
-
-class UltraFastTTSProcessor:
-    def __init__(self):
-        self.voice = config.TTS_VOICE
-        self.rate = config.TTS_SPEED
-    
-    def split_text_optimized(self, text: str) -> List[str]:
-        """Optimized text splitting for minimal latency (same as daily_standup)"""
-        sentences = re.split(r'[.!?]+', text)
-        chunks = []
-        
-        current_chunk = ""
-        for sentence in sentences:
-            sentence = sentence.strip()
-            if not sentence:
-                continue
-                
-            if len(current_chunk) + len(sentence) > config.TTS_CHUNK_SIZE * 5:
-                if current_chunk:
-                    chunks.append(current_chunk.strip())
-                current_chunk = sentence
-            else:
-                current_chunk += " " + sentence if current_chunk else sentence
-        
-        if current_chunk.strip():
-            chunks.append(current_chunk.strip())
-        
-        return chunks if chunks else [text]
-    
-    async def generate_ultra_fast_stream(self, text: str) -> AsyncGenerator[bytes, None]:
-        """Ultra-fast audio generation with parallel processing (identical to daily_standup)"""
-        try:
-            chunks = self.split_text_optimized(text)
-            
-            tasks = []
-            for i, chunk in enumerate(chunks):
-                if not chunk.strip():
-                    continue
-                
-                if i == 0:
-                    # Process first chunk immediately
-                    async for audio_chunk in self._generate_chunk_audio(chunk):
-                        if audio_chunk:
-                            yield audio_chunk
-                else:
-                    tasks.append(self._generate_chunk_audio(chunk))
-            
-            # Process remaining chunks
-            for task in tasks:
-                async for audio_chunk in task:
-                    if audio_chunk:
-                        yield audio_chunk
-                        
-        except Exception as e:
-            logger.error(f"❌ Ultra-fast TTS error: {e}")
-            raise Exception(f"TTS generation failed: {e}")
-    
-    async def _generate_chunk_audio(self, chunk: str) -> AsyncGenerator[bytes, None]:
-        """Generate audio for a single chunk (identical to daily_standup)"""
-        try:
-            tts = edge_tts.Communicate(chunk, self.voice, rate=self.rate)
-            audio_data = b""
-            
-            async for tts_chunk in tts.stream():
-                if tts_chunk["type"] == "audio":
-                    audio_data += tts_chunk["data"]
-            
-            if audio_data:
-                yield audio_data
-            else:
-                raise Exception("EdgeTTS returned empty audio data")
-                
-        except Exception as e:
-            logger.error(f"❌ Chunk TTS error: {e}")
-            raise Exception(f"TTS chunk generation failed: {e}")
-
-# =============================================================================
-# ENHANCED CONVERSATION MANAGER (Daily Standup Style + Interview Rounds)
+# ENHANCED CONVERSATION MANAGER (Daily Standup Style + Interview Rounds) (UNCHANGED)
 # =============================================================================
 
 class OptimizedConversationManager:
@@ -684,7 +617,7 @@ class OptimizedConversationManager:
                 return await self._generate_conclusion_response(session_data, user_input)
                 
         except Exception as e:
-            logger.error(f"❌ Fast response generation error: {e}")
+            logger.error(f"Fast response generation error: {e}")
             raise Exception(f"AI response generation failed: {e}")
     
     async def _generate_greeting_response(self, session_data: InterviewSession, user_input: str) -> str:
@@ -856,7 +789,7 @@ QUESTION: [Your next question]"""
                 raise Exception("OpenAI returned empty response")
             return result
         except Exception as e:
-            logger.error(f"❌ OpenAI API call failed: {e}")
+            logger.error(f"OpenAI API call failed: {e}")
             raise Exception(f"OpenAI API failed: {e}")
     
     async def generate_fast_evaluation(self, session_data: InterviewSession) -> Tuple[str, Dict[str, float]]:
@@ -892,11 +825,11 @@ QUESTION: [Your next question]"""
             # Extract scores
             scores = self._extract_scores_from_evaluation(evaluation)
             
-            logger.info(f"✅ Evaluation generated for {session_data.test_id}")
+            logger.info(f"Evaluation generated for {session_data.test_id}")
             return evaluation, scores
             
         except Exception as e:
-            logger.error(f"❌ Evaluation generation failed: {e}")
+            logger.error(f"Evaluation generation failed: {e}")
             raise Exception(f"Evaluation generation failed: {e}")
     
     def _create_comprehensive_evaluation_prompt(self, round_exchanges: Dict, 
@@ -982,7 +915,7 @@ Be thorough, honest, and constructive."""
                     score = float(match.group(1))
                     scores[key] = min(max(score, 0.0), 10.0)
                 except ValueError:
-                    logger.warning(f"⚠️ Could not parse {key} from evaluation")
+                    logger.warning(f"Could not parse {key} from evaluation")
         
         # Calculate weighted overall score
         if any(scores.values()):

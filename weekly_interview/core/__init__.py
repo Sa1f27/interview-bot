@@ -2,6 +2,7 @@
 """
 Core module for Enhanced Mock Interview System
 Exports all essential components for clean imports
+FIXED: Updated imports after TTS modularization
 """
 
 from .config import config
@@ -14,9 +15,10 @@ from .ai_services import (
     InterviewStage,
     ConversationExchange,
     OptimizedAudioProcessor,
-    UltraFastTTSProcessor,
     OptimizedConversationManager
 )
+# FIXED: Import TTS processor from separate module
+from .tts_processor import UltraFastTTSProcessor
 
 __all__ = [
     'config',
@@ -28,6 +30,6 @@ __all__ = [
     'InterviewStage',
     'ConversationExchange',
     'OptimizedAudioProcessor',
-    'UltraFastTTSProcessor',
+    'UltraFastTTSProcessor',  # Now imported from tts_processor
     'OptimizedConversationManager'
 ]

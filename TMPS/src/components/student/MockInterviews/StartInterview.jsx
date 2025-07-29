@@ -128,12 +128,13 @@ const QuestionCounter = ({ current, total, round, roundName }) => {
 };
 
 const StartInterview = () => {
-  const { id } = useParams();
+  // FIXED: Handle both route parameter patterns for compatibility
+  const routeParams = useParams();
+  const sessionId = routeParams.sessionId || routeParams.id;
   const navigate = useNavigate();
   const theme = useTheme();
   
   // Interview state
-  const [sessionId, setSessionId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [interviewStarted, setInterviewStarted] = useState(false);
@@ -170,19 +171,26 @@ const StartInterview = () => {
   };
 
   useEffect(() => {
-    setSessionId(id);
+    // FIXED: Handle both parameter names for compatibility
+    const currentSessionId = sessionId;
+    console.log('?? StartInterview - sessionId from route:', currentSessionId);
+    
+    if (!currentSessionId) {
+      setError('No session ID provided. Please start a new interview.');
+      setLoading(false);
+      return;
+    }
+    
     setInterviewStartTime(new Date().toISOString());
     setRoundName(rounds[1].name);
     setTotalQuestions(rounds[1].questions);
     
     testMicrophone();
     
-    if (id) {
-      initializeWebSocket(id);
-    }
+    initializeWebSocket(currentSessionId);
     
     setLoading(false);
-  }, [id]);
+  }, [sessionId]);
 
   useEffect(() => {
     return () => {
@@ -194,9 +202,9 @@ const StartInterview = () => {
 
   const testMicrophone = async () => {
     try {
-      console.log('🔍 Testing microphone...');
+      console.log('?? Testing microphone...');
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      console.log('✅ Microphone test successful');
+      console.log('? Microphone test successful');
       
       const audioTracks = stream.getAudioTracks();
       if (audioTracks.length > 0) {
@@ -207,19 +215,19 @@ const StartInterview = () => {
       setCanRecord(true);
       return true;
     } catch (error) {
-      console.error('❌ Microphone test failed:', error);
+      console.error('? Microphone test failed:', error);
       setError('Microphone access is required for this interview. Please allow microphone permissions and refresh the page.');
       setCanRecord(false);
       return false;
     }
   };
 
-  const initializeWebSocket = (sessionId) => {
-    console.log('🔌 Initializing WebSocket for session:', sessionId);
+  const initializeWebSocket = (currentSessionId) => {
+    console.log('?? Initializing WebSocket for session:', currentSessionId);
     setConnectionStatus('connecting');
     
     const ws = wsManager.connect(
-      sessionId,
+      currentSessionId,
       handleWebSocketMessage,
       handleWebSocketError,
       handleWebSocketClose
@@ -228,16 +236,16 @@ const StartInterview = () => {
     ws.addEventListener('open', () => {
       setWsConnected(true);
       setConnectionStatus('connected');
-      console.log('✅ WebSocket connected successfully');
+      console.log('? WebSocket connected successfully');
     });
   };
 
   const handleWebSocketMessage = (data) => {
-    console.log('📨 WebSocket message received:', data);
+    console.log('?? WebSocket message received:', data);
     
     switch (data.type) {
       case 'ai_response':
-        setCurrentQuestion(data.message);
+        setCurrentQuestion(data.message || data.text);
         setInterviewerSpeaking(true);
         setIsSubmitting(false);
         
@@ -257,6 +265,12 @@ const StartInterview = () => {
           playAudioData(data.audio);
         }
         break;
+
+      case 'audio_chunk':
+        if (data.audio) {
+          playAudioChunk(data.audio);
+        }
+        break;
         
       case 'audio_end':
         setInterviewerSpeaking(false);
@@ -264,7 +278,7 @@ const StartInterview = () => {
         
         // AUTOMATIC RECORDING START - No button needed!
         if (autoRecordingEnabled) {
-          console.log('🤖 AI finished speaking, auto-starting user recording...');
+          console.log('?? AI finished speaking, auto-starting user recording...');
           setTimeout(() => {
             startAutomaticRecording();
           }, 1000); // 1 second delay for natural flow
@@ -274,11 +288,11 @@ const StartInterview = () => {
       case 'interview_complete':
         setInterviewStarted(false);
         setAutoRecordingEnabled(false);
-        handleInterviewComplete(data.result);
+        handleInterviewComplete(data);
         break;
         
       case 'error':
-        setError(data.message);
+        setError(data.message || data.text);
         setIsSubmitting(false);
         setIsRecording(false);
         break;
@@ -293,14 +307,14 @@ const StartInterview = () => {
   };
 
   const handleWebSocketError = (error) => {
-    console.error('❌ WebSocket error:', error);
+    console.error('? WebSocket error:', error);
     setWsConnected(false);
     setConnectionStatus('error');
     setError('Connection error. Please check your internet connection and try again.');
   };
 
   const handleWebSocketClose = (event) => {
-    console.log('🔌 WebSocket closed:', event.code, event.reason);
+    console.log('?? WebSocket closed:', event.code, event.reason);
     setWsConnected(false);
     setConnectionStatus('disconnected');
     
@@ -328,7 +342,7 @@ const StartInterview = () => {
         URL.revokeObjectURL(audioUrl);
       };
       audio.onerror = (error) => {
-        console.error('❌ Audio playback error:', error);
+        console.error('? Audio playback error:', error);
         setIsPlayingAudio(false);
         URL.revokeObjectURL(audioUrl);
       };
@@ -336,8 +350,33 @@ const StartInterview = () => {
       await audio.play();
       
     } catch (error) {
-      console.error('❌ Failed to play audio:', error);
+      console.error('? Failed to play audio:', error);
       setIsPlayingAudio(false);
+    }
+  };
+
+  const playAudioChunk = async (audioHex) => {
+    try {
+      setIsPlayingAudio(true);
+      
+      // Convert hex to binary
+      const audioArray = new Uint8Array(audioHex.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+      const audioBlob = new Blob([audioArray], { type: 'audio/wav' });
+      const audioUrl = URL.createObjectURL(audioBlob);
+      
+      const audio = new Audio(audioUrl);
+      audio.onended = () => {
+        URL.revokeObjectURL(audioUrl);
+      };
+      audio.onerror = (error) => {
+        console.error('? Audio chunk playback error:', error);
+        URL.revokeObjectURL(audioUrl);
+      };
+      
+      await audio.play();
+      
+    } catch (error) {
+      console.error('? Failed to play audio chunk:', error);
     }
   };
 
@@ -350,7 +389,7 @@ const StartInterview = () => {
       setIsRecording(true);
       setError(null);
       
-      console.log('🎤 Starting automatic audio recording...');
+      console.log('?? Starting automatic audio recording...');
       
       // Use the enhanced natural recording with silence detection
       const audioBlob = await recordAudio(30000);
@@ -369,7 +408,7 @@ const StartInterview = () => {
         };
         
         if (wsManager.send(sessionId, message)) {
-          console.log('📤 Audio sent via WebSocket');
+          console.log('?? Audio sent via WebSocket');
         } else {
           setError('Failed to send audio. Please check your connection.');
           setIsSubmitting(false);
@@ -384,7 +423,7 @@ const StartInterview = () => {
       reader.readAsDataURL(audioBlob);
       
     } catch (error) {
-      console.error('❌ Recording failed:', error);
+      console.error('? Recording failed:', error);
       setError('Failed to record audio: ' + error.message);
       setIsRecording(false);
       setIsSubmitting(false);
@@ -402,20 +441,20 @@ const StartInterview = () => {
       setInterviewStarted(true);
       setAutoRecordingEnabled(true); // Enable automatic recording after this point
       
-      console.log('🚀 Starting fully automatic interview session...');
+      console.log('?? Starting fully automatic interview session...');
       
       const message = {
         type: 'start_interview'
       };
       
       if (wsManager.send(sessionId, message)) {
-        console.log('📤 Start interview message sent');
+        console.log('?? Start interview message sent');
       } else {
         throw new Error('Failed to start interview via WebSocket');
       }
       
     } catch (error) {
-      console.error('❌ Failed to start interview:', error);
+      console.error('? Failed to start interview:', error);
       setError('Failed to start interview: ' + error.message);
       setInterviewStarted(false);
       setAutoRecordingEnabled(false);
@@ -432,23 +471,33 @@ const StartInterview = () => {
     setAutoRecordingEnabled(false); // Disable automatic recording
     
     if (wsManager.send(sessionId, message)) {
-      console.log('📤 Complete interview message sent');
+      console.log('?? Complete interview message sent');
     } else {
       setError('Failed to complete interview. Please try again.');
     }
   };
 
+  // FIXED: Use testId from interview result, not route parameter
   const handleInterviewComplete = (result) => {
     try {
-      console.log('✅ Interview completed:', result);
+      console.log('? Interview completed:', result);
       setAutoRecordingEnabled(false);
       
-      navigate(`/student/mock-interviews/results/${id}`, {
-        state: { evaluation: result }
+      // Extract testId from result or derive from current session
+      const testId = result.test_id || result.testId || `interview_${Date.now()}`;
+      
+      console.log('?? Navigating to results with testId:', testId);
+      
+      navigate(`/student/mock-interviews/results/${testId}`, {
+        state: { 
+          evaluation: result.evaluation || result,
+          scores: result.scores,
+          analytics: result.analytics
+        }
       });
       
     } catch (error) {
-      console.error('❌ Failed to handle interview completion:', error);
+      console.error('? Failed to handle interview completion:', error);
       setError('Failed to complete interview: ' + error.message);
     }
   };
@@ -543,7 +592,7 @@ const StartInterview = () => {
       {autoRecordingEnabled && (
         <Alert severity="info" sx={{ mb: 3 }}>
           <Typography variant="body2">
-            🤖 <strong>Automatic Mode Active:</strong> The interview will flow naturally. 
+            ?? <strong>Automatic Mode Active:</strong> The interview will flow naturally. 
             Speak after the AI finishes, and recording will stop automatically when you pause for 2 seconds.
           </Typography>
         </Alert>
@@ -576,13 +625,13 @@ const StartInterview = () => {
             {/* Enhanced Audio Setup Notice */}
             <Box sx={{ mb: 4, p: 2, bgcolor: 'info.light', borderRadius: 2 }}>
               <Typography variant="body2" color="info.dark" gutterBottom>
-                <strong>🎤 Automatic Audio Setup:</strong>
+                <strong>?? Automatic Audio Setup:</strong>
               </Typography>
               <Typography variant="body2" color="info.dark" sx={{ mb: 2 }}>
-                • Your speakers/headphones should be on and volume up<br/>
-                • Microphone permissions will be requested<br/>
-                • Recording starts and stops automatically<br/>
-                • Speak naturally - pauses of 2+ seconds will trigger AI response
+                � Your speakers/headphones should be on and volume up<br/>
+                � Microphone permissions will be requested<br/>
+                � Recording starts and stops automatically<br/>
+                � Speak naturally - pauses of 2+ seconds will trigger AI response
               </Typography>
               
               <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', justifyContent: 'center' }}>
@@ -764,7 +813,7 @@ const StartInterview = () => {
                       </Typography>
                       <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
                         <Typography variant="body2" color="text.secondary">
-                          💡 Just speak naturally - no buttons needed!
+                          ?? Just speak naturally - no buttons needed!
                         </Typography>
                       </Box>
                     </Box>
@@ -837,12 +886,12 @@ const StartInterview = () => {
           </Grid>
           <Grid item xs={2}>
             <Typography variant="body2" color="text.secondary">
-              <strong>Connection:</strong> {wsConnected ? '🟢 Connected' : '🔴 Disconnected'}
+              <strong>Connection:</strong> {wsConnected ? '?? Connected' : '?? Disconnected'}
             </Typography>
           </Grid>
           <Grid item xs={2}>
             <Typography variant="body2" color="text.secondary">
-              <strong>Auto Mode:</strong> {autoRecordingEnabled ? '🤖 Active' : '⏸️ Inactive'}
+              <strong>Auto Mode:</strong> {autoRecordingEnabled ? '?? Active' : '?? Inactive'}
             </Typography>
           </Grid>
         </Grid>
