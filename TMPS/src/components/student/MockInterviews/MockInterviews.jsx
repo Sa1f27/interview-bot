@@ -613,11 +613,13 @@ const StudentMockInterviews = () => {
       setRetryCount(0); // Reset retry count on success
       
       // Navigate to the interview session page with the correct route from App.jsx
-      console.log('🎯 Navigating to interview session:', `/student/mock-interviews/session/${testId}`);
-      navigate(`/student/mock-interviews/session/${testId}`, {
+      console.log('🎯 Navigating to interview session:', `/student/mock-interviews/start/${testId}`);
+      navigate(`/student/mock-interviews/start/${testId}`, {
         state: { 
           sessionData: response,
-          isNewSession: true 
+          isNewSession: true,
+          sessionId: response.session_id // Pass the correct session_id
+         
         }
       });
       

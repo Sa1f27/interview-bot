@@ -127,7 +127,7 @@ const QuestionCounter = ({ current, total, round, roundName }) => {
   );
 };
 
-const StudentStartInterview = () => {
+const StartInterview = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const theme = useTheme();
@@ -851,4 +851,4 @@ const StudentStartInterview = () => {
   );
 };
 
-export default StudentStartInterview;
+export default StartInterview;
