@@ -706,7 +706,7 @@ function App() {
                 }
               />
               
-              {/* ==================== STUDENT MOCK INTERVIEWS - FIXED ROUTES ==================== */}
+              {/* Student Mock Interviews Routes - FIXED */}
               <Route
                 path="/student/mock-interviews"
                 element={
@@ -718,7 +718,7 @@ function App() {
                 }
               />
               
-              {/* FIXED: Interview Session Route - Consistent parameter naming */}
+              {/* Interview Session Route - Consistent parameter naming */}
               <Route
                 path="/student/mock-interviews/session/:sessionId"
                 element={
@@ -730,19 +730,7 @@ function App() {
                 }
               />
               
-              {/* FIXED: Alternative start route for backward compatibility */}
-              <Route
-                path="/student/mock-interviews/start/:sessionId"
-                element={
-                  <PrivateRoute allowedRoles={["student"]}>
-                    <Layout>
-                      <StartInterview />
-                    </Layout>
-                  </PrivateRoute>
-                }
-              />
-              
-              {/* FIXED: Results Route - Consistent parameter naming */}
+              {/* Results Route - Consistent parameter naming */}
               <Route
                 path="/student/mock-interviews/results/:testId"
                 element={
@@ -786,7 +774,7 @@ function App() {
                 }
               />
               
-              {/* ==================== STUDENT MOCK TESTS ROUTES ==================== */}
+              {/* Student Mock Tests Routes */}
               <Route
                 path="/student/mock-tests"
                 element={
@@ -838,8 +826,7 @@ function App() {
                 }
               />
               
-              {/* ==================== REDIRECT ROUTES ==================== */}
-              {/* Student convenience redirects */}
+              {/* Convenience redirects */}
               <Route
                 path="/student/interviews"
                 element={<Navigate to="/student/mock-interviews" replace />}

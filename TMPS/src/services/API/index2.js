@@ -4,7 +4,7 @@
 // Assessment API configuration - Environment driven with WebSocket support
 const ASSESSMENT_API_BASE_URL = import.meta.env.VITE_ASSESSMENT_API_URL || 
                                 import.meta.env.VITE_API_BASE_URL ||
-                                'https://192.168.48.201:8070';
+                                'http://192.168.48.201:8070';
 
 // WebSocket URL configuration
 const getWebSocketURL = () => {
@@ -66,32 +66,32 @@ class WebSocketManager {
 
   connect(sessionId, onMessage, onError, onClose) {
     const wsURL = `${getWebSocketURL()}/weekly_interview/ws/${sessionId}`;
-    console.log('🔌 Connecting to WebSocket:', wsURL);
+    console.log('?? Connecting to WebSocket:', wsURL);
 
     const ws = new WebSocket(wsURL);
     
     ws.onopen = () => {
-      console.log('✅ WebSocket connected for session:', sessionId);
+      console.log('? WebSocket connected for session:', sessionId);
     };
 
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        console.log('📨 WebSocket message received:', data);
+        console.log('?? WebSocket message received:', data);
         if (onMessage) onMessage(data);
       } catch (error) {
-        console.error('❌ WebSocket message parse error:', error);
+        console.error('? WebSocket message parse error:', error);
         if (onError) onError(error);
       }
     };
 
     ws.onerror = (error) => {
-      console.error('❌ WebSocket error:', error);
+      console.error('? WebSocket error:', error);
       if (onError) onError(error);
     };
 
     ws.onclose = (event) => {
-      console.log('🔌 WebSocket closed:', event.code, event.reason);
+      console.log('?? WebSocket closed:', event.code, event.reason);
       this.connections.delete(sessionId);
       if (onClose) onClose(event);
     };
@@ -104,10 +104,10 @@ class WebSocketManager {
     const ws = this.connections.get(sessionId);
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify(data));
-      console.log('📤 WebSocket message sent:', data);
+      console.log('?? WebSocket message sent:', data);
       return true;
     } else {
-      console.error('❌ WebSocket not connected for session:', sessionId);
+      console.error('? WebSocket not connected for session:', sessionId);
       return false;
     }
   }
@@ -117,7 +117,7 @@ class WebSocketManager {
     if (ws) {
       ws.close();
       this.connections.delete(sessionId);
-      console.log('🔌 WebSocket disconnected for session:', sessionId);
+      console.log('?? WebSocket disconnected for session:', sessionId);
     }
   }
 
@@ -126,7 +126,7 @@ class WebSocketManager {
       ws.close();
     }
     this.connections.clear();
-    console.log('🔌 All WebSocket connections closed');
+    console.log('?? All WebSocket connections closed');
   }
 }
 
@@ -136,7 +136,7 @@ const wsManager = new WebSocketManager();
 // Enhanced audio recording with natural conversation flow
 export const recordAudio = async (duration = NATURAL_AUDIO_CONFIG.MAX_RECORDING_TIME) => {
   try {
-    console.log('🎤 Starting natural interview audio recording...');
+    console.log('?? Starting natural interview audio recording...');
     
     const stream = await navigator.mediaDevices.getUserMedia({ 
       audio: {
@@ -185,7 +185,7 @@ export const recordAudio = async (duration = NATURAL_AUDIO_CONFIG.MAX_RECORDING_
           if (!hasSpoken) {
             hasSpoken = true;
             speechStartTime = Date.now();
-            console.log('🎤 User started speaking...');
+            console.log('?? User started speaking...');
           }
           silenceStart = null;
         } else if (hasSpoken && normalizedLevel <= NATURAL_AUDIO_CONFIG.SILENCE_THRESHOLD) {
@@ -196,11 +196,11 @@ export const recordAudio = async (duration = NATURAL_AUDIO_CONFIG.MAX_RECORDING_
           if (speechDuration >= NATURAL_AUDIO_CONFIG.MIN_SPEECH_DURATION) {
             if (silenceStart === null) {
               silenceStart = Date.now();
-              console.log('🤫 Silence detected after speech, starting timer...');
+              console.log('?? Silence detected after speech, starting timer...');
             } else {
               const silenceElapsed = Date.now() - silenceStart;
               if (silenceElapsed >= NATURAL_AUDIO_CONFIG.SILENCE_DURATION) {
-                console.log(`✅ ${NATURAL_AUDIO_CONFIG.SILENCE_DURATION}ms of silence - natural pause detected`);
+                console.log(`? ${NATURAL_AUDIO_CONFIG.SILENCE_DURATION}ms of silence - natural pause detected`);
                 stopRecording('natural_pause');
                 return;
               }
@@ -216,7 +216,7 @@ export const recordAudio = async (duration = NATURAL_AUDIO_CONFIG.MAX_RECORDING_
         if (!isRecording) return;
         
         isRecording = false;
-        console.log(`⏹️ Stopping recording: ${reason}`);
+        console.log(`?? Stopping recording: ${reason}`);
         
         if (mediaRecorder.state === 'recording') {
           mediaRecorder.stop();
@@ -237,19 +237,19 @@ export const recordAudio = async (duration = NATURAL_AUDIO_CONFIG.MAX_RECORDING_
       
       mediaRecorder.onstop = () => {
         const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-        console.log(`✅ Recording completed, size: ${audioBlob.size} bytes`);
+        console.log(`? Recording completed, size: ${audioBlob.size} bytes`);
         resolve(audioBlob);
       };
       
       mediaRecorder.onerror = (error) => {
-        console.error('❌ MediaRecorder error:', error);
+        console.error('? MediaRecorder error:', error);
         stopRecording('error');
         reject(error);
       };
       
       // Start recording
       mediaRecorder.start();
-      console.log('🎙️ Recording started, waiting for user to speak...');
+      console.log('??? Recording started, waiting for user to speak...');
       
       // Start audio level monitoring
       checkAudioLevel();
@@ -257,14 +257,14 @@ export const recordAudio = async (duration = NATURAL_AUDIO_CONFIG.MAX_RECORDING_
       // Maximum duration fallback
       setTimeout(() => {
         if (isRecording) {
-          console.log('⏰ Maximum duration reached');
+          console.log('? Maximum duration reached');
           stopRecording('max_duration');
         }
       }, duration);
     });
     
   } catch (error) {
-    console.error('❌ Failed to start natural audio recording:', error);
+    console.error('? Failed to start natural audio recording:', error);
     throw new Error(`Natural audio recording failed: ${error.message}`);
   }
 };
@@ -289,7 +289,7 @@ export const assessmentApiRequest = async (endpoint, options = {}) => {
   
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
-      console.log(`🌐 Assessment API Request (attempt ${attempt}):`, {
+      console.log(`?? Assessment API Request (attempt ${attempt}):`, {
         url,
         method: config.method || 'GET',
         headers: config.headers,
@@ -299,7 +299,7 @@ export const assessmentApiRequest = async (endpoint, options = {}) => {
 
       const response = await fetch(url, config);
       
-      console.log('📡 Assessment API Response:', {
+      console.log('?? Assessment API Response:', {
         status: response.status,
         statusText: response.statusText,
         url: response.url,
@@ -322,7 +322,7 @@ export const assessmentApiRequest = async (endpoint, options = {}) => {
           errorData = response.statusText;
         }
         
-        console.error('❌ Assessment API Error Response:', {
+        console.error('? Assessment API Error Response:', {
           status: response.status,
           data: errorData,
           attempt: attempt
@@ -358,22 +358,22 @@ export const assessmentApiRequest = async (endpoint, options = {}) => {
       const contentType = response.headers.get('content-type');
       if (contentType && contentType.includes('application/json')) {
         const jsonData = await response.json();
-        console.log('✅ Assessment API JSON Response:', jsonData);
+        console.log('? Assessment API JSON Response:', jsonData);
         return jsonData;
       } else if (contentType && contentType.includes('application/pdf')) {
         const blob = await response.blob();
-        console.log('✅ Assessment API PDF Response:', blob.size, 'bytes');
+        console.log('? Assessment API PDF Response:', blob.size, 'bytes');
         return blob;
       } else {
         const textData = await response.text();
-        console.log('✅ Assessment API Text Response:', textData);
+        console.log('? Assessment API Text Response:', textData);
         return textData;
       }
       
     } catch (error) {
       clearTimeout(timeoutId);
       
-      console.error(`❌ Assessment API request failed (attempt ${attempt}):`, {
+      console.error(`? Assessment API request failed (attempt ${attempt}):`, {
         url,
         error: error.message,
         name: error.name,
@@ -424,25 +424,44 @@ export const assessmentApiRequest = async (endpoint, options = {}) => {
   throw new Error('Unknown error occurred during API request');
 };
 
-// Connection test function
+// Connection test function - FIXED FOR HEALTH CHECK
 export const testAPIConnection = async () => {
   try {
-    console.log('🔧 Testing API connection...');
+    console.log('?? Testing API connection to:', ASSESSMENT_API_BASE_URL);
     
-    const response = await assessmentApiRequest('/weekly_interview/health', {
-      method: 'GET',
-      timeout: 10000
-    });
+    // Try multiple health endpoints
+    const healthEndpoints = [
+      '/weekly_interview/health',
+      '/health',
+      '/'
+    ];
     
-    console.log('✅ API connection test successful:', response);
-    return {
-      status: 'success',
-      message: 'API connection successful',
-      response: response,
-      baseUrl: ASSESSMENT_API_BASE_URL
-    };
+    for (const endpoint of healthEndpoints) {
+      try {
+        console.log(`?? Trying endpoint: ${endpoint}`);
+        const response = await assessmentApiRequest(endpoint, {
+          method: 'GET',
+          timeout: 5000
+        });
+        
+        console.log('? API connection test successful:', response);
+        return {
+          status: 'success',
+          message: 'API connection successful',
+          response: response,
+          baseUrl: ASSESSMENT_API_BASE_URL,
+          endpoint: endpoint
+        };
+      } catch (endpointError) {
+        console.log(`? Endpoint ${endpoint} failed:`, endpointError.message);
+        continue;
+      }
+    }
+    
+    throw new Error('All health endpoints failed');
+    
   } catch (error) {
-    console.error('❌ API connection test failed:', error);
+    console.error('? API connection test failed:', error);
     return {
       status: 'failed',
       message: error.message,
@@ -465,7 +484,7 @@ export const validateAPIConfig = () => {
        'sessionStorage(authToken)') : 'none'
   };
   
-  console.log('⚙️ API Configuration:', config);
+  console.log('?? API Configuration:', config);
   
   const issues = [];
   

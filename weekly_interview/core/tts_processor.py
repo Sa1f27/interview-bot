@@ -2,6 +2,7 @@
 """
 Simple TTS Processor - Fixed EdgeTTS with fallback
 Separated from ai_services.py for modularity
+UNICODE CLEANED VERSION
 """
 
 import asyncio
@@ -145,7 +146,7 @@ class UltraFastTTSProcessor:
                     raise Exception(f"No audio data received (got {len(audio_data)} bytes)")
                     
             except asyncio.TimeoutError:
-                logger.warning(f"?? TTS timeout on attempt {attempt + 1}")
+                logger.warning(f"? TTS timeout on attempt {attempt + 1}")
                 if attempt < max_retries - 1:
                     await asyncio.sleep(0.5 * (attempt + 1))  # Progressive delay
             except Exception as e:

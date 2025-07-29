@@ -2,7 +2,7 @@
 """
 Enhanced Mock Interview System - Daily Standup Style Ultra-Fast Streaming
 Real-time WebSocket interview with 7-day fragment processing and streaming TTS
-TTS now imported from separate tts_processor.py module
+COMPLETE FILE - NO FALLBACKS, FAIL LOUDLY FOR DEBUGGING
 """
 
 import os
@@ -35,15 +35,14 @@ from .core.ai_services import (
     EnhancedInterviewFragmentManager, OptimizedAudioProcessor,
     OptimizedConversationManager
 )
-
-# Import TTS processor from separate file
 from .core.tts_processor import UltraFastTTSProcessor
+from .core.prompts import validate_prompts
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # =============================================================================
-# ULTRA-FAST INTERVIEW SESSION MANAGER (Daily Standup Style)
+# ULTRA-FAST INTERVIEW SESSION MANAGER
 # =============================================================================
 
 class UltraFastInterviewManager:
@@ -51,7 +50,7 @@ class UltraFastInterviewManager:
         self.active_sessions: Dict[str, InterviewSession] = {}
         self.db_manager = DatabaseManager(shared_clients)
         self.audio_processor = OptimizedAudioProcessor(shared_clients)
-        self.tts_processor = UltraFastTTSProcessor()  # Now imported from separate file
+        self.tts_processor = UltraFastTTSProcessor()
         self.conversation_manager = OptimizedConversationManager(shared_clients)
     
     async def create_session_fast(self, websocket: Optional[Any] = None) -> InterviewSession:
@@ -116,11 +115,11 @@ class UltraFastInterviewManager:
             logger.info(f"??? Removed session {session_id}")
     
     async def process_audio_ultra_fast(self, session_id: str, audio_data: bytes):
-        """Ultra-fast audio processing pipeline (identical to daily_standup style)"""
+        """Ultra-fast audio processing pipeline - FAIL LOUDLY ON ERRORS"""
         session_data = self.active_sessions.get(session_id)
         if not session_data or not session_data.is_active:
-            logger.warning(f"?? Inactive session: {session_id}")
-            return
+            logger.error(f"? CRITICAL: Session {session_id} not found or inactive")
+            raise Exception(f"Session {session_id} not found or inactive")
         
         start_time = time.time()
         
@@ -128,28 +127,15 @@ class UltraFastInterviewManager:
             audio_size = len(audio_data)
             logger.info(f"?? Session {session_id}: Received {audio_size} bytes of audio data")
             
-            # Lenient audio size check with better error handling
+            # Strict audio size validation
             if audio_size < 100:
-                logger.warning(f"?? Very small audio chunk ({audio_size} bytes)")
-                await self._send_quick_message(session_data, {
-                    "type": "clarification",
-                    "text": "I didn't hear anything clear. Could you please speak a bit louder?",
-                    "status": session_data.current_stage.value
-                })
-                return
+                raise Exception(f"Audio too small: {audio_size} bytes (minimum 100 bytes required)")
             
-            # Ultra-fast transcription
+            # Ultra-fast transcription - FAIL LOUDLY IF IT FAILS
             transcript, quality = await self.audio_processor.transcribe_audio_fast(audio_data)
             
             if not transcript or len(transcript.strip()) < 2:
-                # Dynamic clarification request
-                clarification_message = "The audio wasn't very clear. Could you please repeat that?"
-                await self._send_quick_message(session_data, {
-                    "type": "clarification",
-                    "text": clarification_message,
-                    "status": session_data.current_stage.value
-                })
-                return
+                raise Exception(f"Transcription failed or too short: '{transcript}' (quality: {quality})")
             
             logger.info(f"? Session {session_id}: User said: '{transcript}' (quality: {quality:.2f})")
             
@@ -157,8 +143,12 @@ class UltraFastInterviewManager:
             if session_data.exchanges:
                 session_data.update_last_response(transcript, quality)
             
-            # Generate AI response immediately
+            # Generate AI response - FAIL LOUDLY IF IT FAILS
+            logger.info(f"?? Generating AI response for session {session_id}")
             ai_response = await self.conversation_manager.generate_fast_response(session_data, transcript)
+            
+            if not ai_response:
+                raise Exception("AI response generation returned empty response")
             
             # Add exchange to session
             concept = session_data.current_concept if session_data.current_concept else "unknown"
@@ -169,28 +159,33 @@ class UltraFastInterviewManager:
             # Update session state (check stage transitions)
             await self._update_session_state_fast(session_data)
             
-            # Send response with ultra-fast audio streaming
+            # Send response with ultra-fast audio streaming - FAIL LOUDLY IF IT FAILS
             await self._send_response_with_ultra_fast_audio(session_data, ai_response)
             
             processing_time = time.time() - start_time
             logger.info(f"? Total processing time: {processing_time:.2f}s")
             
         except Exception as e:
-            logger.error(f"? Audio processing error: {e}")
+            logger.error(f"? CRITICAL: Audio processing failed for session {session_id}: {e}")
+            logger.error(f"? Audio size: {len(audio_data)}, Session active: {session_data.is_active}")
             
-            # Send helpful error message
-            if "too small" in str(e).lower():
-                error_message = "The audio recording was too short. Please try speaking for a few seconds."
-            elif "transcription" in str(e).lower():
-                error_message = "I had trouble understanding the audio. Please try speaking clearly into your microphone."
-            else:
-                error_message = "Sorry, there was a technical issue. Please try again."
+            # Send error message to client and re-raise
+            try:
+                await self._send_quick_message(session_data, {
+                    "type": "error",
+                    "text": f"Interview processing failed: {str(e)}",
+                    "status": "error",
+                    "debug_info": {
+                        "audio_size": len(audio_data),
+                        "session_id": session_id,
+                        "error": str(e)
+                    }
+                })
+            except:
+                pass  # Don't fail on sending error message
             
-            await self._send_quick_message(session_data, {
-                "type": "error",
-                "text": error_message,
-                "status": "error"
-            })
+            # Re-raise the original error for debugging
+            raise Exception(f"Audio processing failed: {e}")
     
     def _determine_if_followup(self, ai_response: str) -> bool:
         """Determine if response is a follow-up question"""
@@ -234,10 +229,18 @@ class UltraFastInterviewManager:
         return stage_progression.get(current_stage, InterviewStage.COMPLETE)
     
     async def _finalize_session_fast(self, session_data: InterviewSession):
-        """Fast session finalization with real database save"""
+        """Fast session finalization - FAIL LOUDLY ON ERRORS"""
         try:
-            # Generate evaluation
+            logger.info(f"?? Finalizing session {session_data.session_id}")
+            
+            # Generate evaluation - FAIL LOUDLY IF IT FAILS
             evaluation, scores = await self.conversation_manager.generate_fast_evaluation(session_data)
+            
+            if not evaluation:
+                raise Exception("Evaluation generation returned empty result")
+            
+            if not scores or not isinstance(scores, dict):
+                raise Exception(f"Scores generation failed: {scores}")
             
             # Prepare interview data for database
             interview_data = {
@@ -268,11 +271,12 @@ class UltraFastInterviewManager:
                 "tts_voice": config.TTS_VOICE
             }
             
-            # Save to database
+            # Save to database - FAIL LOUDLY IF IT FAILS
+            logger.info(f"?? Saving interview data to database")
             save_success = await self.db_manager.save_interview_result_fast(interview_data)
             
             if not save_success:
-                logger.error(f"? Failed to save session {session_data.session_id}")
+                raise Exception(f"Database save failed for session {session_data.session_id}")
             
             # Calculate overall score for display
             overall_score = scores.get("weighted_overall", scores.get("overall_score", 8.0))
@@ -288,23 +292,58 @@ class UltraFastInterviewManager:
                 "status": "complete"
             })
             
-            # Generate and send final audio using separate TTS processor
-            async for audio_chunk in self.tts_processor.generate_ultra_fast_stream(completion_message):
-                if audio_chunk:
-                    await self._send_quick_message(session_data, {
-                        "type": "audio_chunk",
-                        "audio": audio_chunk.hex(),
-                        "status": "complete"
-                    })
-            
-            await self._send_quick_message(session_data, {"type": "audio_end", "status": "complete"})
+            # Generate and send final audio - TTS ERRORS ARE OK HERE (non-critical)
+            try:
+                async for audio_chunk in self.tts_processor.generate_ultra_fast_stream(completion_message):
+                    if audio_chunk:
+                        await self._send_quick_message(session_data, {
+                            "type": "audio_chunk",
+                            "audio": audio_chunk.hex(),
+                            "status": "complete"
+                        })
+                
+                await self._send_quick_message(session_data, {"type": "audio_end", "status": "complete"})
+            except Exception as tts_error:
+                logger.warning(f"?? TTS error during finalization (non-critical): {tts_error}")
+                # Continue - TTS errors during finalization are not critical
             
             session_data.is_active = False
-            logger.info(f"? Session {session_data.session_id} finalized and saved")
+            logger.info(f"? Session {session_data.session_id} finalized and saved successfully")
             
         except Exception as e:
-            logger.error(f"? Fast session finalization error: {e}")
+            logger.error(f"? CRITICAL: Session finalization failed: {e}")
+            logger.error(f"? Session: {session_data.session_id}, exchanges: {len(session_data.exchanges)}")
+            
+            # Try to save error state to database
+            try:
+                error_data = {
+                    "test_id": session_data.test_id,
+                    "session_id": session_data.session_id,
+                    "student_id": session_data.student_id,
+                    "student_name": session_data.student_name,
+                    "evaluation": f"Interview finalization failed: {str(e)}",
+                    "scores": {"error": True, "overall_score": 0},
+                    "error_details": str(e)
+                }
+                await self.db_manager.save_interview_result_fast(error_data)
+                logger.info("?? Saved error state to database")
+            except Exception as save_error:
+                logger.error(f"? Failed to save error state: {save_error}")
+            
             session_data.is_active = False
+            
+            # Send error to client
+            try:
+                await self._send_quick_message(session_data, {
+                    "type": "error",
+                    "text": f"Interview finalization failed: {str(e)}",
+                    "status": "error"
+                })
+            except:
+                pass
+            
+            # Re-raise for debugging
+            raise Exception(f"Session finalization failed: {e}")
     
     async def _send_response_with_ultra_fast_audio(self, session_data: InterviewSession, text: str):
         """Send response with ultra-fast audio streaming using separate TTS processor"""
@@ -318,21 +357,31 @@ class UltraFastInterviewManager:
             
             chunk_count = 0
             # Use separate TTS processor with enhanced error handling
-            async for audio_chunk in self.tts_processor.generate_ultra_fast_stream(text):
-                if audio_chunk and session_data.is_active:
-                    await self._send_quick_message(session_data, {
-                        "type": "audio_chunk",
-                        "audio": audio_chunk.hex(),
-                        "status": session_data.current_stage.value
-                    })
-                    chunk_count += 1
-            
-            await self._send_quick_message(session_data, {
-                "type": "audio_end",
-                "status": session_data.current_stage.value
-            })
-            
-            logger.info(f"?? Streamed {chunk_count} audio chunks")
+            try:
+                async for audio_chunk in self.tts_processor.generate_ultra_fast_stream(text):
+                    if audio_chunk and session_data.is_active:
+                        await self._send_quick_message(session_data, {
+                            "type": "audio_chunk",
+                            "audio": audio_chunk.hex(),
+                            "status": session_data.current_stage.value
+                        })
+                        chunk_count += 1
+                
+                await self._send_quick_message(session_data, {
+                    "type": "audio_end",
+                    "status": session_data.current_stage.value
+                })
+                
+                logger.info(f"?? Streamed {chunk_count} audio chunks")
+                
+            except Exception as tts_error:
+                logger.warning(f"?? TTS streaming failed (non-critical): {tts_error}")
+                # Send audio_end even if TTS fails
+                await self._send_quick_message(session_data, {
+                    "type": "audio_end",
+                    "status": session_data.current_stage.value,
+                    "fallback": "text_only"
+                })
             
         except Exception as e:
             logger.error(f"? Ultra-fast audio streaming error: {e}")
@@ -344,12 +393,13 @@ class UltraFastInterviewManager:
             })
     
     async def _send_quick_message(self, session_data: InterviewSession, message: dict):
-        """Ultra-fast WebSocket message sending (identical to daily_standup)"""
+        """Ultra-fast WebSocket message sending"""
         try:
-            if session_data.websocket:
+            if session_data.websocket and session_data.is_active:
                 await session_data.websocket.send_text(json.dumps(message))
         except Exception as e:
             logger.error(f"? WebSocket send error: {e}")
+            # Don't raise - WebSocket errors shouldn't kill the session
     
     async def get_session_result_fast(self, test_id: str) -> dict:
         """Fast session result retrieval from real database"""
@@ -363,7 +413,7 @@ class UltraFastInterviewManager:
             raise Exception(f"Interview result retrieval failed: {e}")
 
 # =============================================================================
-# FASTAPI APPLICATION - DAILY STANDUP STYLE
+# FASTAPI APPLICATION
 # =============================================================================
 
 app = FastAPI(title=config.APP_TITLE, version=config.APP_VERSION)
@@ -389,6 +439,10 @@ async def startup_event():
     logger.info("?? Ultra-Fast Interview application starting...")
     
     try:
+        # Validate prompts first
+        validate_prompts()
+        logger.info("? Prompts validation successful")
+        
         # Test database connections on startup
         db_manager = DatabaseManager(shared_clients)
         
@@ -409,14 +463,6 @@ async def startup_event():
             logger.error(f"? MongoDB connection test failed: {e}")
             raise Exception(f"MongoDB connection failed: {e}")
         
-        # Initialize TTS processor
-        try:
-            await interview_manager.tts_processor.initialize()
-            logger.info("? TTS processor initialized successfully")
-        except Exception as e:
-            logger.warning(f"?? TTS processor initialization warning: {e}")
-            # Continue startup even if TTS has issues - fallback will handle it
-        
         logger.info("? All systems verified and ready")
         
     except Exception as e:
@@ -431,7 +477,7 @@ async def shutdown_event():
     logger.info("?? Interview application shutting down")
 
 # =============================================================================
-# API ENDPOINTS - REAL DATA ONLY
+# API ENDPOINTS
 # =============================================================================
 
 @app.get("/start_interview")
@@ -469,7 +515,7 @@ async def start_interview_session_fast():
 
 @app.websocket("/ws/{session_id}")
 async def websocket_endpoint_ultra_fast(websocket: WebSocket, session_id: str):
-    """Ultra-fast WebSocket endpoint with real-time streaming (daily_standup style)"""
+    """Ultra-fast WebSocket endpoint with real-time streaming"""
     await websocket.accept()
     
     try:
@@ -487,7 +533,7 @@ async def websocket_endpoint_ultra_fast(websocket: WebSocket, session_id: str):
         
         session_data.websocket = websocket
         
-        # Send initial greeting with ultra-fast audio using separate TTS processor
+        # Send initial greeting with audio
         if session_data.exchanges:
             greeting = session_data.exchanges[0].ai_message
             await websocket.send_text(json.dumps({
@@ -497,7 +543,7 @@ async def websocket_endpoint_ultra_fast(websocket: WebSocket, session_id: str):
                 "status": "greeting"
             }))
             
-            # Generate and stream greeting audio with minimal delay
+            # Generate and stream greeting audio
             try:
                 async for audio_chunk in interview_manager.tts_processor.generate_ultra_fast_stream(greeting):
                     if audio_chunk:
@@ -513,7 +559,6 @@ async def websocket_endpoint_ultra_fast(websocket: WebSocket, session_id: str):
                 }))
             except Exception as tts_error:
                 logger.warning(f"?? TTS error for greeting: {tts_error}")
-                # Continue without audio - text response already sent
                 await websocket.send_text(json.dumps({
                     "type": "audio_end",
                     "status": "greeting",
@@ -650,7 +695,8 @@ async def health_check_fast():
                 "real_time_streaming": True,
                 "ultra_fast_tts": True,
                 "round_based_interview": True,
-                "modular_tts": True
+                "modular_tts": True,
+                "fail_loud_debugging": True
             }
         }
     except Exception as e:
@@ -704,6 +750,12 @@ async def get_student_interviews(student_id: str):
         logger.error(f"? Get student interviews error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# Additional WebSocket endpoint for compatibility
+@app.websocket("/weekly_interview/ws/{session_id}")
+async def websocket_endpoint_weekly_interview(websocket: WebSocket, session_id: str):
+    """Compatibility endpoint"""
+    await websocket_endpoint_ultra_fast(websocket, session_id)
+
 # =============================================================================
 # PDF GENERATION UTILITY
 # =============================================================================
@@ -728,7 +780,6 @@ def generate_pdf_report(result: Dict[str, Any], test_id: str) -> bytes:
         Date: {datetime.fromtimestamp(result.get('timestamp', time.time())).strftime('%Y-%m-%d %H:%M:%S')}
         Duration: {result.get('duration_minutes', 0)} minutes
         Rounds Completed: {len(result.get('questions_per_round', {}))}
-        TTS System: {result.get('system_info', {}).get('tts_voice', 'EdgeTTS')}
         """
         story.append(Paragraph(info_text, styles['Normal']))
         story.append(Spacer(1, 12))
@@ -750,7 +801,6 @@ def generate_pdf_report(result: Dict[str, Any], test_id: str) -> bytes:
         # Evaluation
         if result.get('evaluation'):
             story.append(Paragraph("Detailed Evaluation", styles['Heading2']))
-            # Split evaluation into paragraphs for better formatting
             eval_paragraphs = result['evaluation'].split('\n\n')
             for para in eval_paragraphs:
                 if para.strip():
@@ -764,9 +814,3 @@ def generate_pdf_report(result: Dict[str, Any], test_id: str) -> bytes:
     except Exception as e:
         logger.error(f"? PDF generation error: {e}")
         raise Exception(f"PDF generation failed: {e}")
-
-# Additional WebSocket endpoint for compatibility with frontend routing
-@app.websocket("/weekly_interview/ws/{session_id}")
-async def websocket_endpoint_weekly_interview(websocket: WebSocket, session_id: str):
-    """Reuse the same logic as the /ws/{session_id} endpoint for routing compatibility"""
-    await websocket_endpoint_ultra_fast(websocket, session_id)
