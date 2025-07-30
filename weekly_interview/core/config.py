@@ -1,6 +1,6 @@
 # weekly_interview/core/config.py
 """
-Enhanced Configuration - Daily Standup Style with Interview-Specific Settings
+Enhanced Configuration - NO HARDCODED TTS VOICE, DYNAMIC SELECTION
 Optimized for 7-day summary processing and fragment-based questioning
 """
 
@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent.parent / '.env')
 
 class Config:
-    """Enhanced configuration class for Interview System"""
+    """Enhanced configuration class for Interview System - DYNAMIC TTS VOICE"""
     
     # =============================================================================
     # PATHS AND DIRECTORIES
@@ -74,11 +74,21 @@ class Config:
     MAX_QUESTIONS_PER_CONCEPT = int(os.getenv("MAX_QUESTIONS_PER_CONCEPT", "3"))
     
     # =============================================================================
-    # AUDIO CONFIGURATION - IDENTICAL TO DAILY STANDUP
+    # DYNAMIC TTS CONFIGURATION - NO HARDCODED VOICE
     # =============================================================================
-    TTS_VOICE = os.getenv("TTS_VOICE", "en-IN-PrabhatNeural")
+    # TTS Voice preference (will be dynamically selected if not available)
+    TTS_VOICE_PREFERENCE = os.getenv("TTS_VOICE", "en-US-JennyNeural")  # Preferred voice
     TTS_SPEED = os.getenv("TTS_SPEED", "+25%")  # Same as daily_standup
     TTS_CHUNK_SIZE = int(os.getenv("TTS_CHUNK_SIZE", "30"))  # Same chunking
+    
+    # Dynamic TTS voice selection strategy
+    TTS_VOICE_SELECTION_STRATEGY = "dynamic_preference"  # Options: dynamic_preference, first_available, random
+    TTS_FALLBACK_ENABLED = True  # Enable voice fallback if preferred not available
+    
+    @property
+    def TTS_VOICE(self):
+        """Dynamic TTS voice property - will be determined at runtime"""
+        return self.TTS_VOICE_PREFERENCE
     
     # Audio processing settings
     MAX_RECORDING_DURATION = int(os.getenv("MAX_RECORDING_DURATION", "25"))  # Same as daily_standup
@@ -87,7 +97,7 @@ class Config:
     # =============================================================================
     # AI MODEL CONFIGURATION - SAME AS DAILY STANDUP
     # =============================================================================
-    OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+    OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     OPENAI_TEMPERATURE = float(os.getenv("OPENAI_TEMPERATURE", "0.1"))  # Same as daily_standup
     OPENAI_MAX_TOKENS = int(os.getenv("OPENAI_MAX_TOKENS", "300"))  # Same as daily_standup
     
@@ -142,6 +152,29 @@ class Config:
         "behavioral_weight": 0.25,     # 25% Behavioral/HR
         "overall_presentation": 0.10   # 10% Overall Presentation
     }
+    
+    # =============================================================================
+    # DYNAMIC TTS VOICE PREFERENCES (NO HARDCODED FALLBACKS)
+    # =============================================================================
+    TTS_VOICE_PREFERENCES = [
+        # User preference first
+        "TTS_VOICE_PREFERENCE",  # Will be replaced with actual preference
+        # High-quality English voices in preference order
+        "en-US-JennyNeural",
+        "en-US-AriaNeural", 
+        "en-US-GuyNeural",
+        "en-US-SaraNeural",
+        "en-GB-SoniaNeural",
+        "en-AU-NatashaNeural",
+        "en-IN-NeerjaNeural",
+        "en-IN-PrabhatNeural",
+    ]
+    
+    def get_dynamic_tts_preferences(self):
+        """Get dynamic TTS voice preferences with user preference first"""
+        preferences = [self.TTS_VOICE_PREFERENCE]
+        preferences.extend([voice for voice in self.TTS_VOICE_PREFERENCES[1:] if voice != self.TTS_VOICE_PREFERENCE])
+        return preferences
     
     # =============================================================================
     # REQUIRED API KEYS VALIDATION - SAME AS DAILY STANDUP

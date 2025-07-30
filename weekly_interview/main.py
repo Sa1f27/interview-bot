@@ -515,7 +515,7 @@ async def start_interview_session_fast():
 
 @app.websocket("/ws/{session_id}")
 async def websocket_endpoint_ultra_fast(websocket: WebSocket, session_id: str):
-    """Ultra-fast WebSocket endpoint with real-time streaming"""
+    """Ultra-fast WebSocket endpoint with real-time streaming - FAIL LOUDLY ON ERRORS"""
     await websocket.accept()
     
     try:
@@ -523,82 +523,180 @@ async def websocket_endpoint_ultra_fast(websocket: WebSocket, session_id: str):
         
         session_data = interview_manager.active_sessions.get(session_id)
         if not session_data:
-            logger.error(f"? Session {session_id} not found in active sessions")
+            error_msg = f"Session {session_id} not found in active sessions"
+            logger.error(f"? {error_msg}")
             await websocket.send_text(json.dumps({
                 "type": "error",
-                "text": f"Session {session_id} not found. Please start a new interview.",
+                "text": error_msg,
                 "status": "error"
             }))
-            return
+            # FAIL LOUDLY - NO MASKED ERRORS
+            raise Exception(error_msg)
         
         session_data.websocket = websocket
         
-        # Send initial greeting with audio
+        # Send initial greeting with audio - FAIL LOUDLY ON ERRORS
         if session_data.exchanges:
             greeting = session_data.exchanges[0].ai_message
-            await websocket.send_text(json.dumps({
-                "type": "ai_response",
-                "text": greeting,
-                "stage": "greeting",
-                "status": "greeting"
-            }))
             
-            # Generate and stream greeting audio
             try:
+                await websocket.send_text(json.dumps({
+                    "type": "ai_response",
+                    "text": greeting,
+                    "stage": "greeting",
+                    "status": "greeting"
+                }))
+                
+                # Generate and stream greeting audio - FAIL LOUDLY IF TTS FAILS
+                logger.info("?? Generating greeting audio with dynamic voice selection...")
+                chunk_count = 0
+                
                 async for audio_chunk in interview_manager.tts_processor.generate_ultra_fast_stream(greeting):
-                    if audio_chunk:
-                        await websocket.send_text(json.dumps({
-                            "type": "audio_chunk",
-                            "audio": audio_chunk.hex(),
-                            "status": "greeting"
-                        }))
+                    if not audio_chunk:
+                        raise Exception("Empty audio chunk received from TTS processor")
+                    
+                    if len(audio_chunk) < 50:
+                        raise Exception(f"Audio chunk too small: {len(audio_chunk)} bytes")
+                    
+                    await websocket.send_text(json.dumps({
+                        "type": "audio_chunk",
+                        "audio": audio_chunk.hex(),
+                        "status": "greeting"
+                    }))
+                    chunk_count += 1
+                    logger.info(f"?? Sent greeting audio chunk {chunk_count}: {len(audio_chunk)} bytes")
                 
                 await websocket.send_text(json.dumps({
                     "type": "audio_end",
                     "status": "greeting"
                 }))
-            except Exception as tts_error:
-                logger.warning(f"?? TTS error for greeting: {tts_error}")
+                
+                logger.info(f"? Greeting complete: {chunk_count} audio chunks sent")
+                
+            except Exception as greeting_error:
+                logger.error(f"? CRITICAL: Greeting audio failed: {greeting_error}")
                 await websocket.send_text(json.dumps({
-                    "type": "audio_end",
-                    "status": "greeting",
-                    "fallback": "text_only"
+                    "type": "error",
+                    "text": f"Greeting audio generation failed: {str(greeting_error)}",
+                    "status": "error"
                 }))
+                # FAIL LOUDLY - NO FALLBACK AUDIO
+                raise Exception(f"Greeting audio failed: {greeting_error}")
         
-        # Main communication loop
-        while session_data.is_active and session_data.current_stage != InterviewStage.COMPLETE:
+        # Main communication loop - FAIL LOUDLY ON ERRORS
+        while session_data.is_active and session_data.current_stage.value != 'complete':
             try:
-                data = await asyncio.wait_for(websocket.receive_text(), timeout=config.WEBSOCKET_TIMEOUT)
-                message = json.loads(data)
+                # Wait for WebSocket message with timeout
+                data = await asyncio.wait_for(
+                    websocket.receive_text(), 
+                    timeout=config.WEBSOCKET_TIMEOUT
+                )
+                
+                try:
+                    message = json.loads(data)
+                except json.JSONDecodeError as json_error:
+                    error_msg = f"Invalid JSON received: {json_error}"
+                    logger.error(f"? {error_msg}")
+                    await websocket.send_text(json.dumps({
+                        "type": "error",
+                        "text": error_msg,
+                        "status": "error"
+                    }))
+                    # FAIL LOUDLY
+                    raise Exception(error_msg)
+                
+                logger.info(f"?? WebSocket message received: {message.get('type', 'unknown')}")
                 
                 if message.get("type") == "audio_data":
-                    audio_data = base64.b64decode(message.get("audio", ""))
-                    asyncio.create_task(
-                        interview_manager.process_audio_ultra_fast(session_id, audio_data)
-                    )
+                    audio_b64 = message.get("audio", "")
+                    if not audio_b64:
+                        raise Exception("Empty audio data received from client")
+                    
+                    try:
+                        audio_data = base64.b64decode(audio_b64)
+                        if len(audio_data) < 100:
+                            raise Exception(f"Audio data too small: {len(audio_data)} bytes")
+                        
+                        logger.info(f"?? Processing {len(audio_data)} bytes of audio data")
+                        
+                        # Process audio - FAIL LOUDLY ON PROCESSING ERRORS
+                        asyncio.create_task(
+                            interview_manager.process_audio_ultra_fast(session_id, audio_data)
+                        )
+                        
+                    except Exception as audio_error:
+                        error_msg = f"Audio processing setup failed: {audio_error}"
+                        logger.error(f"? {error_msg}")
+                        await websocket.send_text(json.dumps({
+                            "type": "error",
+                            "text": error_msg,
+                            "status": "error"
+                        }))
+                        # FAIL LOUDLY
+                        raise Exception(error_msg)
                 
                 elif message.get("type") == "ping":
                     await websocket.send_text(json.dumps({"type": "pong"}))
+                    logger.info("?? Ping-pong successful")
+                
+                elif message.get("type") == "manual_stop":
+                    logger.info("?? Manual interview stop requested")
+                    session_data.is_active = False
+                    await websocket.send_text(json.dumps({
+                        "type": "interview_stopped",
+                        "status": "stopped"
+                    }))
+                    break
+                
+                else:
+                    logger.warning(f"?? Unknown message type: {message.get('type')}")
                 
             except asyncio.TimeoutError:
-                logger.info(f"? WebSocket timeout: {session_id}")
+                logger.info(f"? WebSocket timeout after {config.WEBSOCKET_TIMEOUT}s: {session_id}")
+                await websocket.send_text(json.dumps({
+                    "type": "timeout",
+                    "text": "Connection timeout - interview session ending",
+                    "status": "timeout"
+                }))
                 break
+                
             except WebSocketDisconnect:
                 logger.info(f"?? WebSocket disconnected: {session_id}")
                 break
-            except Exception as e:
-                logger.error(f"? WebSocket error: {e}")
+                
+            except Exception as loop_error:
+                logger.error(f"? CRITICAL: WebSocket loop error: {loop_error}")
                 await websocket.send_text(json.dumps({
                     "type": "error",
-                    "text": f"Error: {str(e)}",
+                    "text": f"Communication error: {str(loop_error)}",
                     "status": "error"
                 }))
-                break
+                # FAIL LOUDLY
+                raise Exception(f"WebSocket communication failed: {loop_error}")
     
-    except Exception as e:
-        logger.error(f"? WebSocket endpoint error: {e}")
+    except Exception as endpoint_error:
+        logger.error(f"? CRITICAL: WebSocket endpoint error: {endpoint_error}")
+        try:
+            await websocket.send_text(json.dumps({
+                "type": "fatal_error",
+                "text": f"Interview system error: {str(endpoint_error)}",
+                "status": "fatal_error"
+            }))
+        except:
+            pass  # WebSocket might be closed
+        # FAIL LOUDLY - NO MASKED ERRORS IN DEVELOPMENT
+        raise endpoint_error
     finally:
+        # Cleanup session
         await interview_manager.remove_session(session_id)
+        logger.info(f"?? Session {session_id} cleaned up")
+        
+# Compatibility endpoint for alternative routing
+@app.websocket("/weekly_interview/ws/{session_id}")
+async def websocket_endpoint_weekly_interview(websocket: WebSocket, session_id: str):
+    """Compatibility endpoint - routes to main endpoint"""
+    logger.info(f"?? Routing weekly_interview WebSocket to main endpoint: {session_id}")
+    await websocket_endpoint_ultra_fast(websocket, session_id)
 
 @app.get("/evaluate")
 async def get_evaluation_fast(test_id: str):
@@ -751,10 +849,10 @@ async def get_student_interviews(student_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 # Additional WebSocket endpoint for compatibility
-@app.websocket("/weekly_interview/ws/{session_id}")
-async def websocket_endpoint_weekly_interview(websocket: WebSocket, session_id: str):
-    """Compatibility endpoint"""
-    await websocket_endpoint_ultra_fast(websocket, session_id)
+# @app.websocket("/weekly_interview/ws/{session_id}")
+# async def websocket_endpoint_weekly_interview(websocket: WebSocket, session_id: str):
+#     """Compatibility endpoint"""
+#     await websocket_endpoint_ultra_fast(websocket, session_id)
 
 # =============================================================================
 # PDF GENERATION UTILITY
