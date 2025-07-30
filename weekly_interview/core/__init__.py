@@ -2,7 +2,6 @@
 """
 Core module for Enhanced Mock Interview System
 Exports all essential components for clean imports
-FIXED: Updated imports after modularization and Unicode fixes
 """
 
 from .config import config
@@ -15,15 +14,7 @@ from .ai_services import (
     InterviewStage,
     ConversationExchange,
     OptimizedAudioProcessor,
-    OptimizedConversationManager,
-    EnhancedInterviewFragmentManager
-)
-from .tts_processor import UltraFastTTSProcessor
-from .prompts import (
-    build_stage_prompt,
-    build_conversation_prompt,
-    build_evaluation_prompt,
-    validate_prompts
+    OptimizedConversationManager
 )
 
 __all__ = [
@@ -36,11 +27,5 @@ __all__ = [
     'InterviewStage',
     'ConversationExchange',
     'OptimizedAudioProcessor',
-    'UltraFastTTSProcessor',
-    'OptimizedConversationManager',
-    'EnhancedInterviewFragmentManager',
-    'build_stage_prompt',
-    'build_conversation_prompt',
-    'build_evaluation_prompt',
-    'validate_prompts'
+    'OptimizedConversationManager'
 ]

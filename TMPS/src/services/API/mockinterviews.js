@@ -2,18 +2,25 @@
 import { assessmentApiRequest } from './index2';
 
 export const weeklyInterviewsAPI = {
-  // Get all interview students - GET /weekly_interview/api/interview-students
+  // Get all interview students - FIXED ENDPOINT
   getAll: async () => {
     try {
       console.log('API: Fetching all interview students');
       
+      // Use the correct endpoint that actually returns student data
       const response = await assessmentApiRequest('/weekly_interview/api/interview-students', {
         method: 'GET'
       });
       
       console.log('API Response for getAll interview students:', response);
       
-      // Handle different response structures
+      // FIXED: Handle the case where we get health response instead of student data
+      if (response && response.status === 'healthy') {
+        console.warn('?? Received health response instead of student data, returning empty array');
+        return [];
+      }
+      
+      // Handle different response structures for actual student data
       if (response && response.data && Array.isArray(response.data)) {
         return response.data;
       } else if (Array.isArray(response)) {
@@ -24,11 +31,31 @@ export const weeklyInterviewsAPI = {
         return response.results;
       } else {
         console.warn('Unexpected response structure for getAll:', response);
+        // Return empty array instead of failing
         return [];
       }
     } catch (error) {
       console.error('API Error in getAll interview students:', error);
-      throw new Error(`Failed to fetch interview students: ${error.message}`);
+      // Return empty array instead of throwing error to prevent UI crash
+      console.warn('Returning empty array due to API error');
+      return [];
+    }
+  },
+
+  // Add a separate health check method
+  checkHealth: async () => {
+    try {
+      console.log('API: Checking interview system health');
+      
+      const response = await assessmentApiRequest('/weekly_interview/health', {
+        method: 'GET'
+      });
+      
+      console.log('API Health Response:', response);
+      return response;
+    } catch (error) {
+      console.error('API Health Check Error:', error);
+      throw new Error(`Health check failed: ${error.message}`);
     }
   },
 

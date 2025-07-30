@@ -87,11 +87,11 @@ class Config:
     # =============================================================================
     # AI MODEL CONFIGURATION - SAME AS DAILY STANDUP
     # =============================================================================
-    OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
     OPENAI_TEMPERATURE = float(os.getenv("OPENAI_TEMPERATURE", "0.1"))  # Same as daily_standup
     OPENAI_MAX_TOKENS = int(os.getenv("OPENAI_MAX_TOKENS", "300"))  # Same as daily_standup
     
-    GROQ_MODEL = os.getenv("GROQ_MODEL", "distil-whisper-large-v3-en")  # Same as daily_standup
+    GROQ_MODEL = "distil-whisper-large-v3-en" # Same as daily_standup
     GROQ_TIMEOUT = int(os.getenv("GROQ_TIMEOUT", "30"))
     
     # =============================================================================

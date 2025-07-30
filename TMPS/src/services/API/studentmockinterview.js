@@ -5,16 +5,22 @@ export const interviewOperationsAPI = {
   // Start a new interview session - GET /weekly_interview/start_interview
   startInterview: async () => {
     try {
-      console.log('API: Starting new interview session');
+      console.log('?? API: Starting new interview session');
       
       const response = await assessmentApiRequest('/weekly_interview/start_interview', {
         method: 'GET'
       });
       
-      console.log('API Response for start interview:', response);
+      console.log('? API Response for start interview:', response);
+      
+      // Validate response has required fields
+      if (!response || !response.test_id) {
+        throw new Error('Invalid response from server - missing test_id');
+      }
+      
       return response;
     } catch (error) {
-      console.error('API Error in startInterview:', error);
+      console.error('? API Error in startInterview:', error);
       throw new Error(`Failed to start interview: ${error.message}`);
     }
   },

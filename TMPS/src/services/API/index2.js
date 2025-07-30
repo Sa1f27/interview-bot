@@ -1,12 +1,32 @@
 // src/services/API/index2.js
-// Complete update with natural audio recording and silence detection
+// Complete update with SSL error handling for development
 
-// Assessment API configuration - Environment driven with WebSocket support
+// Assessment API configuration with SSL bypass for development
 const ASSESSMENT_API_BASE_URL = import.meta.env.VITE_ASSESSMENT_API_URL || 
                                 import.meta.env.VITE_API_BASE_URL ||
-                                'http://192.168.48.201:8070';
+                                'https://192.168.48.201:8070';
 
-// WebSocket URL configuration
+// Development SSL bypass configuration
+const isDevelopment = import.meta.env.MODE === 'development' || import.meta.env.DEV;
+
+// Enhanced error handling for SSL issues
+const handleSSLErrors = (error) => {
+  if (error.message.includes('SSL') || 
+      error.message.includes('certificate') || 
+      error.message.includes('ERR_SSL') ||
+      error.message.includes('net::ERR_CERT')) {
+    console.warn('?? SSL Certificate Error detected:', error.message);
+    console.warn('?? To fix this:');
+    console.warn('   1. Accept the certificate at: ' + ASSESSMENT_API_BASE_URL + '/weekly_interview/health');
+    console.warn('   2. Or start browser with: --ignore-certificate-errors');
+    console.warn('   3. Or recreate SSL certificate as instructed');
+    
+    return new Error(`SSL Certificate Error: Please accept the self-signed certificate by visiting ${ASSESSMENT_API_BASE_URL}/weekly_interview/health in your browser first.`);
+  }
+  return error;
+};
+
+// WebSocket URL configuration with SSL handling
 const getWebSocketURL = () => {
   const baseURL = ASSESSMENT_API_BASE_URL;
   const protocol = baseURL.startsWith('https://') ? 'wss://' : 'ws://';
@@ -22,7 +42,7 @@ const getAuthToken = () => {
          sessionStorage.getItem('authToken');
 };
 
-// Common headers
+// Common headers with development SSL handling
 const getAssessmentHeaders = (isFormData = false) => {
   const headers = {};
   
@@ -36,6 +56,13 @@ const getAssessmentHeaders = (isFormData = false) => {
   }
   
   headers['Accept'] = 'application/json';
+  
+  // Add headers to help with SSL issues in development
+  if (isDevelopment) {
+    headers['Cache-Control'] = 'no-cache';
+    headers['Pragma'] = 'no-cache';
+  }
+  
   return headers;
 };
 
@@ -46,19 +73,19 @@ const WEBSOCKET_TIMEOUT = 300000;
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000;
 
-// Natural Interview Audio Configuration
+// Natural Interview Audio Configuration (unchanged)
 const NATURAL_AUDIO_CONFIG = {
-  SILENCE_THRESHOLD: 0.015,      // Volume threshold for silence detection
-  SILENCE_DURATION: 2000,        // 2 seconds of silence = stop recording
-  MAX_RECORDING_TIME: 30000,     // 30 seconds maximum per response
+  SILENCE_THRESHOLD: 0.015,
+  SILENCE_DURATION: 2000,
+  MAX_RECORDING_TIME: 30000,
   SAMPLE_RATE: 44100,
   ECHO_CANCELLATION: true,
   NOISE_SUPPRESSION: true,
   AUTO_GAIN_CONTROL: true,
-  MIN_SPEECH_DURATION: 1000      // Minimum 1 second of speech before silence detection
+  MIN_SPEECH_DURATION: 1000
 };
 
-// WebSocket connection manager
+// Enhanced WebSocket connection manager with SSL error handling
 class WebSocketManager {
   constructor() {
     this.connections = new Map();
@@ -87,7 +114,14 @@ class WebSocketManager {
 
     ws.onerror = (error) => {
       console.error('? WebSocket error:', error);
-      if (onError) onError(error);
+      
+      // Handle SSL-related WebSocket errors
+      if (error.type === 'error') {
+        const sslError = new Error('WebSocket SSL connection failed. Please accept the SSL certificate first.');
+        if (onError) onError(handleSSLErrors(sslError));
+      } else {
+        if (onError) onError(error);
+      }
     };
 
     ws.onclose = (event) => {
@@ -133,7 +167,7 @@ class WebSocketManager {
 // Global WebSocket manager instance
 const wsManager = new WebSocketManager();
 
-// Enhanced audio recording with natural conversation flow
+// Enhanced audio recording (unchanged from your version)
 export const recordAudio = async (duration = NATURAL_AUDIO_CONFIG.MAX_RECORDING_TIME) => {
   try {
     console.log('?? Starting natural interview audio recording...');
@@ -158,7 +192,6 @@ export const recordAudio = async (duration = NATURAL_AUDIO_CONFIG.MAX_RECORDING_
     let hasSpoken = false;
     let speechStartTime = null;
     
-    // Audio analysis setup for real-time silence detection
     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
     const analyser = audioContext.createAnalyser();
     const microphone = audioContext.createMediaStreamSource(stream);
@@ -170,29 +203,23 @@ export const recordAudio = async (duration = NATURAL_AUDIO_CONFIG.MAX_RECORDING_
     microphone.connect(analyser);
     
     return new Promise((resolve, reject) => {
-      // Real-time audio level monitoring with natural conversation logic
       const checkAudioLevel = () => {
         if (!isRecording) return;
         
         analyser.getByteFrequencyData(dataArray);
-        
-        // Calculate average volume level
         const averageLevel = dataArray.reduce((sum, value) => sum + value, 0) / dataArray.length;
         const normalizedLevel = averageLevel / 255;
         
         if (normalizedLevel > NATURAL_AUDIO_CONFIG.SILENCE_THRESHOLD) {
-          // User is speaking
           if (!hasSpoken) {
             hasSpoken = true;
             speechStartTime = Date.now();
-            console.log('?? User started speaking...');
+            console.log('??? User started speaking...');
           }
           silenceStart = null;
         } else if (hasSpoken && normalizedLevel <= NATURAL_AUDIO_CONFIG.SILENCE_THRESHOLD) {
-          // Silence detected after user has spoken
           const speechDuration = Date.now() - speechStartTime;
           
-          // Only start silence timer if user has spoken for minimum duration
           if (speechDuration >= NATURAL_AUDIO_CONFIG.MIN_SPEECH_DURATION) {
             if (silenceStart === null) {
               silenceStart = Date.now();
@@ -200,7 +227,7 @@ export const recordAudio = async (duration = NATURAL_AUDIO_CONFIG.MAX_RECORDING_
             } else {
               const silenceElapsed = Date.now() - silenceStart;
               if (silenceElapsed >= NATURAL_AUDIO_CONFIG.SILENCE_DURATION) {
-                console.log(`? ${NATURAL_AUDIO_CONFIG.SILENCE_DURATION}ms of silence - natural pause detected`);
+                console.log(`?? ${NATURAL_AUDIO_CONFIG.SILENCE_DURATION}ms of silence - natural pause detected`);
                 stopRecording('natural_pause');
                 return;
               }
@@ -208,7 +235,6 @@ export const recordAudio = async (duration = NATURAL_AUDIO_CONFIG.MAX_RECORDING_
           }
         }
         
-        // Continue monitoring
         requestAnimationFrame(checkAudioLevel);
       };
       
@@ -222,7 +248,6 @@ export const recordAudio = async (duration = NATURAL_AUDIO_CONFIG.MAX_RECORDING_
           mediaRecorder.stop();
         }
         
-        // Cleanup
         stream.getTracks().forEach(track => track.stop());
         if (audioContext.state !== 'closed') {
           audioContext.close();
@@ -247,14 +272,11 @@ export const recordAudio = async (duration = NATURAL_AUDIO_CONFIG.MAX_RECORDING_
         reject(error);
       };
       
-      // Start recording
       mediaRecorder.start();
-      console.log('??? Recording started, waiting for user to speak...');
+      console.log('?? Recording started, waiting for user to speak...');
       
-      // Start audio level monitoring
       checkAudioLevel();
       
-      // Maximum duration fallback
       setTimeout(() => {
         if (isRecording) {
           console.log('? Maximum duration reached');
@@ -269,7 +291,7 @@ export const recordAudio = async (duration = NATURAL_AUDIO_CONFIG.MAX_RECORDING_
   }
 };
 
-// Generic assessment API request function
+// Enhanced assessment API request function with SSL error handling
 export const assessmentApiRequest = async (endpoint, options = {}) => {
   const url = `${ASSESSMENT_API_BASE_URL}${endpoint}`;
   
@@ -362,11 +384,11 @@ export const assessmentApiRequest = async (endpoint, options = {}) => {
         return jsonData;
       } else if (contentType && contentType.includes('application/pdf')) {
         const blob = await response.blob();
-        console.log('? Assessment API PDF Response:', blob.size, 'bytes');
+        console.log('?? Assessment API PDF Response:', blob.size, 'bytes');
         return blob;
       } else {
         const textData = await response.text();
-        console.log('? Assessment API Text Response:', textData);
+        console.log('?? Assessment API Text Response:', textData);
         return textData;
       }
       
@@ -380,7 +402,9 @@ export const assessmentApiRequest = async (endpoint, options = {}) => {
         attempt: attempt
       });
       
-      lastError = error;
+      // Handle SSL-specific errors
+      const processedError = handleSSLErrors(error);
+      lastError = processedError;
       
       if (error.name === 'AbortError') {
         const timeoutError = new Error(`Request timeout after ${timeout}ms`);
@@ -389,6 +413,11 @@ export const assessmentApiRequest = async (endpoint, options = {}) => {
       }
       
       if (attempt === MAX_RETRIES) {
+        break;
+      }
+      
+      // Don't retry SSL certificate errors
+      if (error.message.includes('SSL') || error.message.includes('certificate')) {
         break;
       }
       
@@ -404,7 +433,9 @@ export const assessmentApiRequest = async (endpoint, options = {}) => {
   }
   
   if (lastError) {
-    if (lastError.message.includes('Failed to fetch') || lastError.name === 'TypeError') {
+    if (lastError.message.includes('SSL Certificate Error')) {
+      throw lastError; // Throw the enhanced SSL error message
+    } else if (lastError.message.includes('Failed to fetch') || lastError.name === 'TypeError') {
       const networkError = new Error(`Network error: Cannot connect to ${ASSESSMENT_API_BASE_URL}. Please check your internet connection and verify the server is running.`);
       networkError.originalError = lastError;
       throw networkError;
@@ -424,12 +455,11 @@ export const assessmentApiRequest = async (endpoint, options = {}) => {
   throw new Error('Unknown error occurred during API request');
 };
 
-// Connection test function - FIXED FOR HEALTH CHECK
+// Enhanced connection test function with SSL guidance
 export const testAPIConnection = async () => {
   try {
     console.log('?? Testing API connection to:', ASSESSMENT_API_BASE_URL);
     
-    // Try multiple health endpoints
     const healthEndpoints = [
       '/weekly_interview/health',
       '/health',
@@ -462,21 +492,29 @@ export const testAPIConnection = async () => {
     
   } catch (error) {
     console.error('? API connection test failed:', error);
+    
+    // Provide specific guidance for SSL errors
+    let message = error.message;
+    if (error.message.includes('SSL Certificate Error')) {
+      message += '\n\n?? SSL Fix Instructions:\n1. Visit ' + ASSESSMENT_API_BASE_URL + '/weekly_interview/health\n2. Accept the security warning\n3. Refresh this page';
+    }
+    
     return {
       status: 'failed',
-      message: error.message,
+      message: message,
       error: error,
       baseUrl: ASSESSMENT_API_BASE_URL
     };
   }
 };
 
-// Configuration validation
+// Configuration validation with SSL check
 export const validateAPIConfig = () => {
   const config = {
     baseUrl: ASSESSMENT_API_BASE_URL,
     wsUrl: getWebSocketURL(),
     hasToken: !!getAuthToken(),
+    isDevelopment: isDevelopment,
     tokenSource: getAuthToken() ? 
       (localStorage.getItem('token') ? 'localStorage' : 
        sessionStorage.getItem('token') ? 'sessionStorage' : 
@@ -496,6 +534,10 @@ export const validateAPIConfig = () => {
     issues.push('API base URL should start with http:// or https://');
   }
   
+  if (config.baseUrl.startsWith('https://') && isDevelopment) {
+    issues.push('HTTPS in development - ensure SSL certificate is accepted');
+  }
+  
   return {
     isValid: issues.length === 0,
     issues: issues,
@@ -503,7 +545,7 @@ export const validateAPIConfig = () => {
   };
 };
 
-// Environment detection
+// Environment detection (unchanged)
 export const getEnvironmentInfo = () => {
   return {
     mode: import.meta.env.MODE || 'production',
