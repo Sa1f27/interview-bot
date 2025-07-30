@@ -1,4 +1,5 @@
-// EMERGENCY FIX - Replace your entire MockInterviews.jsx with this
+// FIXED: MockInterviews.jsx with proper session handling and parameter consistency
+// src/components/student/MockInterviews/MockInterviews.jsx
 
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -51,13 +52,13 @@ const StudentMockInterviews = () => {
       setIsStarting(true);
       setError(null);
       
-      console.log('?? EMERGENCY FIX: Starting FRESH AI interview...');
+      console.log('?? FIXED: Starting FRESH AI interview with proper session handling...');
       
-      // FORCE clear any old session data
+      // FIXED: Clear any old session data properly
       localStorage.removeItem('currentSessionId');
       sessionStorage.clear();
       
-      // Get fresh session data
+      // Get fresh session data from corrected endpoint
       const response = await fetch('https://192.168.48.201:8070/weekly_interview/start_interview', {
         method: 'GET',
         headers: {
@@ -77,20 +78,32 @@ const StudentMockInterviews = () => {
       console.log('NEW session_id:', sessionData.session_id);
       console.log('NEW test_id:', sessionData.test_id);
       
+      // FIXED: Validate required session data
       const freshSessionId = sessionData.session_id;
       const freshTestId = sessionData.test_id;
+      const studentName = sessionData.student_name || 'Student';
       
       if (!freshSessionId) {
         throw new Error('Backend did not return session_id');
       }
       
-      console.log('?? FORCING NAVIGATION TO FRESH SESSION:', freshSessionId);
+      if (!freshTestId) {
+        throw new Error('Backend did not return test_id');
+      }
       
-      // FORCE navigate to the NEW session
-      window.location.href = `/student/mock-interviews/session/${freshSessionId}?testId=${freshTestId}&studentName=${encodeURIComponent(sessionData.student_name || 'Student')}`;
+      console.log('?? FIXED NAVIGATION with proper parameters');
+      
+      // FIXED: Navigate with consistent parameter naming and proper state
+      navigate(`/student/mock-interviews/session/${freshSessionId}`, {
+        state: {
+          testId: freshTestId,
+          studentName: studentName,
+          sessionData: sessionData
+        }
+      });
       
     } catch (error) {
-      console.error('? EMERGENCY: Failed to start interview:', error);
+      console.error('? FIXED: Failed to start interview:', error);
       setError(`Failed to start interview: ${error.message}`);
     } finally {
       setIsStarting(false);
@@ -113,7 +126,7 @@ const StudentMockInterviews = () => {
       <Box mb={4}>
         {systemReady ? (
           <Alert severity="success" sx={{ borderRadius: 2 }}>
-            <strong>System Ready!</strong> Interview AI is online and ready to chat.
+            <strong>System Ready!</strong> Interview AI is online and ready for fully automated speech-to-speech conversation.
           </Alert>
         ) : error ? (
           <Alert severity="error" sx={{ borderRadius: 2 }}>
@@ -140,19 +153,19 @@ const StudentMockInterviews = () => {
           <Assessment sx={{ fontSize: 50, color: 'primary.main', mb: 2 }} />
           
           <Typography variant="h4" gutterBottom>
-            Ready for Your Interview?
+            Ready for Your Automated Interview?
           </Typography>
           
           <Typography variant="body1" color="text.secondary" paragraph>
-            This AI interviewer will conduct a realistic mock interview with you. 
-            It includes technical questions, communication assessment, and behavioral evaluation.
+            This fully automated AI interviewer will conduct a realistic mock interview with continuous 
+            speech-to-speech interaction. No recording buttons needed - just speak naturally!
           </Typography>
 
           <Box sx={{ my: 3 }}>
             <Grid container spacing={2} justifyContent="center">
               <Grid item>
                 <Chip 
-                  label="?? Voice Interaction" 
+                  label="??? Continuous Speech Detection" 
                   variant="outlined" 
                   color="primary" 
                 />
@@ -169,6 +182,13 @@ const StudentMockInterviews = () => {
                   label="?? Instant Feedback" 
                   variant="outlined" 
                   color="primary" 
+                />
+              </Grid>
+              <Grid item>
+                <Chip 
+                  label="?? Automated Turn-Taking" 
+                  variant="outlined" 
+                  color="success" 
                 />
               </Grid>
             </Grid>
@@ -188,14 +208,65 @@ const StudentMockInterviews = () => {
               fontWeight: 'bold'
             }}
           >
-            {isStarting ? 'Starting Interview...' : 'Start AI Interview'}
+            {isStarting ? 'Starting Interview...' : 'Start Automated AI Interview'}
           </Button>
 
           {systemReady && (
             <Typography variant="caption" display="block" sx={{ mt: 2, color: 'text.secondary' }}>
-              The interview will take approximately 30-45 minutes
+              The interview will take approximately 30-45 minutes with automatic speech detection
             </Typography>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Enhanced Instructions */}
+      <Card sx={{ mt: 3, bgcolor: 'grey.50', borderRadius: 2 }}>
+        <CardContent>
+          <Typography variant="h6" gutterBottom color="primary">
+            ?? Fully Automated Interview Features:
+          </Typography>
+          <Grid container spacing={2}>
+            <Grid item xs={12} md={6}>
+              <Typography variant="subtitle2" gutterBottom>
+                <strong>?? Continuous Operation:</strong>
+              </Typography>
+              <Typography variant="body2" gutterBottom>
+                • No manual recording buttons<br/>
+                • Automatic turn-taking detection<br/>
+                • Seamless speech-to-speech flow
+              </Typography>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <Typography variant="subtitle2" gutterBottom>
+                <strong>??? Smart Audio Processing:</strong>
+              </Typography>
+              <Typography variant="body2" gutterBottom>
+                • 2.5 second silence detection<br/>
+                • Real-time audio streaming<br/>
+                • Natural conversation pacing
+              </Typography>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <Typography variant="subtitle2" gutterBottom>
+                <strong>?? Personalized Content:</strong>
+              </Typography>
+              <Typography variant="body2" gutterBottom>
+                • Questions based on your recent work<br/>
+                • 7-day activity summaries<br/>
+                • Relevant technical discussions
+              </Typography>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <Typography variant="subtitle2" gutterBottom>
+                <strong>?? Comprehensive Assessment:</strong>
+              </Typography>
+              <Typography variant="body2" gutterBottom>
+                • Technical skills evaluation<br/>
+                • Communication assessment<br/>
+                • Behavioral analysis
+              </Typography>
+            </Grid>
+          </Grid>
         </CardContent>
       </Card>
     </Container>

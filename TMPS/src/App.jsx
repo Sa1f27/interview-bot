@@ -1,4 +1,6 @@
-// src/App.jsx - COMPLETE FILE WITH ROUTE FIXES
+// FIXED: App.jsx with consistent route parameters and proper navigation flow
+// src/App.jsx
+
 import React from "react";
 import {
   BrowserRouter as Router,
@@ -22,7 +24,7 @@ import TrainerDashboardPage from "./pages/trainer/TrainerDashboardPage";
 import MentorDashboardPage from "./pages/mentor/MentorDashboardPage";
 import StudentDashboardPage from "./pages/student/StudentDashboardPage";
 
-// Trainer Components
+// Trainer Components (keeping existing imports)
 import CourseDocumentsList from "./components/trainer/CourseDocuments/CourseDocumentsList";
 import AddCourseDocument from "./components/trainer/CourseDocuments/AddCourseDocument";
 import ViewCourseDocument from "./components/trainer/CourseDocuments/ViewCourseDocument";
@@ -46,7 +48,7 @@ import AddSession from "./components/trainer/Sessions/AddSession";
 import TestCompilationList from "./components/trainer/TestCompilation/TestCompilationList";
 import ViewTestCompilation from "./components/trainer/TestCompilation/ViewTestCompilation";
 
-// Mentor Components
+// Mentor Components (keeping existing imports)
 import MentorCourseDocumentsList from "./components/mentor/CourseDocuments/CourseDocumentsList";
 import MentorAddCourseDocument from "./components/mentor/CourseDocuments/AddCourseDocument";
 import MentorViewCourseDocument from "./components/mentor/CourseDocuments/ViewCourseDocument";
@@ -65,7 +67,7 @@ import MentorViewMockTest from "./components/mentor/MockTests/ViewMockTest";
 import MentorStudentResultsList from "./components/mentor/StudentResults/StudentResultsList";
 import MentorViewStudentResults from "./components/mentor/StudentResults/ViewStudentResults";
 
-// Student Components
+// FIXED: Student Mock Interview Components with consistent imports
 import StudentCourseDocumentsList from "./components/student/CourseDocuments/CourseDocumentsList";
 import StudentViewCourseDocument from "./components/student/CourseDocuments/ViewCourseDocument";
 import StudentSessionRecordingsList from "./components/student/SessionRecordings/SessionRecordingsList";
@@ -75,12 +77,17 @@ import StudentViewTrainerTask from "./components/student/TrainerTasks/ViewTraine
 import TaskSubmissionsPage from "./components/student/TaskSubmissions/TaskSubmissionsPage";
 import StudentAddTaskSubmission from "./components/student/TaskSubmissions/AddTaskSubmission";
 import StudentViewTaskSubmission from "./components/student/TaskSubmissions/ViewTaskSubmission";
+
+// FIXED: Mock Interview Components - consistent naming and imports
 import StudentMockInterviews from "./components/student/MockInterviews/MockInterviews";
 import StartInterview from "./components/student/MockInterviews/StartInterview";
 import InterviewResults from "./components/student/MockInterviews/InterviewResultsComponent";
+
+// Daily Standup Components
 import Standupcall from "./components/student/DailyStandups/StandupCall";
 import StandupCallSession from "./components/student/DailyStandups/StandupCallSession";
 import StandupSummary from "./components/student/DailyStandups/StandupSummary";
+
 // Student Mock Test Components
 import StudentMockTestsList from "./components/student/MockTest/MockTest";
 import MockTestStart from "./components/student/MockTest/MockTestStart";
@@ -706,7 +713,7 @@ function App() {
                 }
               />
               
-              {/* Student Mock Interviews Routes - FIXED */}
+              {/* FIXED: Student Mock Interviews Routes - Consistent Parameter Naming */}
               <Route
                 path="/student/mock-interviews"
                 element={
@@ -718,7 +725,7 @@ function App() {
                 }
               />
               
-              {/* Interview Session Route - Consistent parameter naming */}
+              {/* FIXED: Interview Session Route - Using sessionId consistently */}
               <Route
                 path="/student/mock-interviews/session/:sessionId"
                 element={
@@ -730,7 +737,7 @@ function App() {
                 }
               />
               
-              {/* Results Route - Consistent parameter naming */}
+              {/* FIXED: Results Route - Using testId consistently */}
               <Route
                 path="/student/mock-interviews/results/:testId"
                 element={
@@ -826,7 +833,7 @@ function App() {
                 }
               />
               
-              {/* Convenience redirects */}
+              {/* FIXED: Convenience redirects for better UX */}
               <Route
                 path="/student/interviews"
                 element={<Navigate to="/student/mock-interviews" replace />}
@@ -850,6 +857,16 @@ function App() {
               <Route
                 path="/student/submissions"
                 element={<Navigate to="/student/task-submissions" replace />}
+              />
+              
+              {/* FIXED: Fallback routes for interview system */}
+              <Route
+                path="/student/interview/*"
+                element={<Navigate to="/student/mock-interviews" replace />}
+              />
+              <Route
+                path="/weekly_interview/*"
+                element={<Navigate to="/student/mock-interviews" replace />}
               />
               
               {/* Catch all route */}

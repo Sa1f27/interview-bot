@@ -1,5 +1,5 @@
+// FIXED: Enhanced API services with proper WebSocket management and SSL handling
 // src/services/API/index2.js
-// Complete update with SSL error handling for development
 
 // Assessment API configuration with SSL bypass for development
 const ASSESSMENT_API_BASE_URL = import.meta.env.VITE_ASSESSMENT_API_URL || 
@@ -26,7 +26,7 @@ const handleSSLErrors = (error) => {
   return error;
 };
 
-// WebSocket URL configuration with SSL handling
+// FIXED: WebSocket URL configuration with proper SSL handling
 const getWebSocketURL = () => {
   const baseURL = ASSESSMENT_API_BASE_URL;
   const protocol = baseURL.startsWith('https://') ? 'wss://' : 'ws://';
@@ -73,38 +73,56 @@ const WEBSOCKET_TIMEOUT = 300000;
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000;
 
-// Natural Interview Audio Configuration (unchanged)
+// FIXED: Enhanced audio configuration for better performance
 const NATURAL_AUDIO_CONFIG = {
   SILENCE_THRESHOLD: 0.015,
-  SILENCE_DURATION: 2000,
+  SILENCE_DURATION: 2500,  // 2.5 seconds for better responsiveness
   MAX_RECORDING_TIME: 30000,
   SAMPLE_RATE: 44100,
   ECHO_CANCELLATION: true,
   NOISE_SUPPRESSION: true,
   AUTO_GAIN_CONTROL: true,
-  MIN_SPEECH_DURATION: 1000
+  MIN_SPEECH_DURATION: 800  // Reduced for more responsive detection
 };
 
-// Enhanced WebSocket connection manager with SSL error handling
+// FIXED: Enhanced WebSocket connection manager with better lifecycle management
 class WebSocketManager {
   constructor() {
     this.connections = new Map();
+    this.messageQueues = new Map();
+    this.reconnectAttempts = new Map();
+    this.maxReconnectAttempts = 3;
   }
 
-  connect(sessionId, onMessage, onError, onClose) {
+  connect(sessionId, onMessage, onError, onClose, onOpen) {
     const wsURL = `${getWebSocketURL()}/weekly_interview/ws/${sessionId}`;
     console.log('?? Connecting to WebSocket:', wsURL);
+
+    // Close existing connection if any
+    if (this.connections.has(sessionId)) {
+      this.disconnect(sessionId);
+    }
 
     const ws = new WebSocket(wsURL);
     
     ws.onopen = () => {
       console.log('? WebSocket connected for session:', sessionId);
+      this.reconnectAttempts.set(sessionId, 0);
+      
+      // Send queued messages
+      const queue = this.messageQueues.get(sessionId) || [];
+      while (queue.length > 0) {
+        const message = queue.shift();
+        this.send(sessionId, message);
+      }
+      
+      if (onOpen) onOpen();
     };
 
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        console.log('?? WebSocket message received:', data);
+        console.log('?? WebSocket message received:', data.type);
         if (onMessage) onMessage(data);
       } catch (error) {
         console.error('? WebSocket message parse error:', error);
@@ -127,6 +145,22 @@ class WebSocketManager {
     ws.onclose = (event) => {
       console.log('?? WebSocket closed:', event.code, event.reason);
       this.connections.delete(sessionId);
+      
+      // Attempt reconnection for abnormal closures
+      if (event.code !== 1000 && event.code !== 1001) {
+        const attempts = this.reconnectAttempts.get(sessionId) || 0;
+        if (attempts < this.maxReconnectAttempts) {
+          console.log(`?? Attempting reconnection ${attempts + 1}/${this.maxReconnectAttempts}`);
+          this.reconnectAttempts.set(sessionId, attempts + 1);
+          
+          setTimeout(() => {
+            this.connect(sessionId, onMessage, onError, onClose, onOpen);
+          }, 2000 * (attempts + 1)); // Exponential backoff
+          
+          return; // Don't call onClose for reconnection attempts
+        }
+      }
+      
       if (onClose) onClose(event);
     };
 
@@ -137,11 +171,17 @@ class WebSocketManager {
   send(sessionId, data) {
     const ws = this.connections.get(sessionId);
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify(data));
-      console.log('?? WebSocket message sent:', data);
+      const message = typeof data === 'string' ? data : JSON.stringify(data);
+      ws.send(message);
+      console.log('?? WebSocket message sent:', typeof data === 'object' ? data.type : 'string');
       return true;
     } else {
-      console.error('? WebSocket not connected for session:', sessionId);
+      // Queue message for when connection is ready
+      if (!this.messageQueues.has(sessionId)) {
+        this.messageQueues.set(sessionId, []);
+      }
+      this.messageQueues.get(sessionId).push(data);
+      console.warn('?? WebSocket not ready, message queued for session:', sessionId);
       return false;
     }
   }
@@ -149,28 +189,46 @@ class WebSocketManager {
   disconnect(sessionId) {
     const ws = this.connections.get(sessionId);
     if (ws) {
-      ws.close();
+      ws.close(1000, 'Normal closure');
       this.connections.delete(sessionId);
+      this.messageQueues.delete(sessionId);
+      this.reconnectAttempts.delete(sessionId);
       console.log('?? WebSocket disconnected for session:', sessionId);
     }
   }
 
   disconnectAll() {
     for (const [sessionId, ws] of this.connections) {
-      ws.close();
+      ws.close(1000, 'Normal closure');
     }
     this.connections.clear();
+    this.messageQueues.clear();
+    this.reconnectAttempts.clear();
     console.log('?? All WebSocket connections closed');
+  }
+
+  getConnectionState(sessionId) {
+    const ws = this.connections.get(sessionId);
+    if (!ws) return 'not_connected';
+    
+    const states = {
+      [WebSocket.CONNECTING]: 'connecting',
+      [WebSocket.OPEN]: 'open',
+      [WebSocket.CLOSING]: 'closing',
+      [WebSocket.CLOSED]: 'closed'
+    };
+    
+    return states[ws.readyState] || 'unknown';
   }
 }
 
 // Global WebSocket manager instance
 const wsManager = new WebSocketManager();
 
-// Enhanced audio recording (unchanged from your version)
+// FIXED: Enhanced audio recording with better error handling and performance
 export const recordAudio = async (duration = NATURAL_AUDIO_CONFIG.MAX_RECORDING_TIME) => {
   try {
-    console.log('?? Starting natural interview audio recording...');
+    console.log('??? Starting enhanced interview audio recording...');
     
     const stream = await navigator.mediaDevices.getUserMedia({ 
       audio: {
@@ -192,7 +250,12 @@ export const recordAudio = async (duration = NATURAL_AUDIO_CONFIG.MAX_RECORDING_
     let hasSpoken = false;
     let speechStartTime = null;
     
+    // FIXED: Enhanced audio context setup
     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioContext.state === 'suspended') {
+      await audioContext.resume();
+    }
+    
     const analyser = audioContext.createAnalyser();
     const microphone = audioContext.createMediaStreamSource(stream);
     
@@ -203,18 +266,24 @@ export const recordAudio = async (duration = NATURAL_AUDIO_CONFIG.MAX_RECORDING_
     microphone.connect(analyser);
     
     return new Promise((resolve, reject) => {
+      let animationFrameId;
+      
       const checkAudioLevel = () => {
         if (!isRecording) return;
         
         analyser.getByteFrequencyData(dataArray);
-        const averageLevel = dataArray.reduce((sum, value) => sum + value, 0) / dataArray.length;
-        const normalizedLevel = averageLevel / 255;
+        
+        // FIXED: Better volume calculation using RMS
+        const rms = Math.sqrt(
+          dataArray.reduce((sum, value) => sum + value * value, 0) / dataArray.length
+        );
+        const normalizedLevel = rms / 255;
         
         if (normalizedLevel > NATURAL_AUDIO_CONFIG.SILENCE_THRESHOLD) {
           if (!hasSpoken) {
             hasSpoken = true;
             speechStartTime = Date.now();
-            console.log('??? User started speaking...');
+            console.log('?? User started speaking...');
           }
           silenceStart = null;
         } else if (hasSpoken && normalizedLevel <= NATURAL_AUDIO_CONFIG.SILENCE_THRESHOLD) {
@@ -235,7 +304,7 @@ export const recordAudio = async (duration = NATURAL_AUDIO_CONFIG.MAX_RECORDING_
           }
         }
         
-        requestAnimationFrame(checkAudioLevel);
+        animationFrameId = requestAnimationFrame(checkAudioLevel);
       };
       
       const stopRecording = (reason) => {
@@ -243,6 +312,10 @@ export const recordAudio = async (duration = NATURAL_AUDIO_CONFIG.MAX_RECORDING_
         
         isRecording = false;
         console.log(`?? Stopping recording: ${reason}`);
+        
+        if (animationFrameId) {
+          cancelAnimationFrame(animationFrameId);
+        }
         
         if (mediaRecorder.state === 'recording') {
           mediaRecorder.stop();
@@ -272,11 +345,12 @@ export const recordAudio = async (duration = NATURAL_AUDIO_CONFIG.MAX_RECORDING_
         reject(error);
       };
       
-      mediaRecorder.start();
-      console.log('?? Recording started, waiting for user to speak...');
+      mediaRecorder.start(100); // Collect data every 100ms
+      console.log('??? Recording started, waiting for user to speak...');
       
       checkAudioLevel();
       
+      // Safety timeout
       setTimeout(() => {
         if (isRecording) {
           console.log('? Maximum duration reached');
@@ -286,12 +360,12 @@ export const recordAudio = async (duration = NATURAL_AUDIO_CONFIG.MAX_RECORDING_
     });
     
   } catch (error) {
-    console.error('? Failed to start natural audio recording:', error);
-    throw new Error(`Natural audio recording failed: ${error.message}`);
+    console.error('? Failed to start enhanced audio recording:', error);
+    throw new Error(`Enhanced audio recording failed: ${error.message}`);
   }
 };
 
-// Enhanced assessment API request function with SSL error handling
+// FIXED: Enhanced assessment API request function with better retry logic
 export const assessmentApiRequest = async (endpoint, options = {}) => {
   const url = `${ASSESSMENT_API_BASE_URL}${endpoint}`;
   
@@ -434,7 +508,7 @@ export const assessmentApiRequest = async (endpoint, options = {}) => {
   
   if (lastError) {
     if (lastError.message.includes('SSL Certificate Error')) {
-      throw lastError; // Throw the enhanced SSL error message
+      throw lastError;
     } else if (lastError.message.includes('Failed to fetch') || lastError.name === 'TypeError') {
       const networkError = new Error(`Network error: Cannot connect to ${ASSESSMENT_API_BASE_URL}. Please check your internet connection and verify the server is running.`);
       networkError.originalError = lastError;
@@ -455,7 +529,7 @@ export const assessmentApiRequest = async (endpoint, options = {}) => {
   throw new Error('Unknown error occurred during API request');
 };
 
-// Enhanced connection test function with SSL guidance
+// FIXED: Enhanced connection test function with better error reporting
 export const testAPIConnection = async () => {
   try {
     console.log('?? Testing API connection to:', ASSESSMENT_API_BASE_URL);
@@ -508,7 +582,7 @@ export const testAPIConnection = async () => {
   }
 };
 
-// Configuration validation with SSL check
+// FIXED: Configuration validation with SSL check
 export const validateAPIConfig = () => {
   const config = {
     baseUrl: ASSESSMENT_API_BASE_URL,
@@ -545,7 +619,7 @@ export const validateAPIConfig = () => {
   };
 };
 
-// Environment detection (unchanged)
+// Environment detection
 export const getEnvironmentInfo = () => {
   return {
     mode: import.meta.env.MODE || 'production',
@@ -562,8 +636,141 @@ export const getEnvironmentInfo = () => {
   };
 };
 
+// FIXED: Enhanced WebSocket utilities for the StartInterview component
+export const createInterviewWebSocket = (sessionId, callbacks = {}) => {
+  const {
+    onOpen = () => {},
+    onMessage = () => {},
+    onError = () => {},
+    onClose = () => {}
+  } = callbacks;
+
+  return wsManager.connect(
+    sessionId,
+    onMessage,
+    onError,
+    onClose,
+    onOpen
+  );
+};
+
+export const sendWebSocketMessage = (sessionId, message) => {
+  return wsManager.send(sessionId, message);
+};
+
+export const closeWebSocket = (sessionId) => {
+  wsManager.disconnect(sessionId);
+};
+
+export const getWebSocketState = (sessionId) => {
+  return wsManager.getConnectionState(sessionId);
+};
+
+// FIXED: Enhanced audio processing utilities
+export const processAudioForWebSocket = async (audioBlob) => {
+  try {
+    console.log('?? Processing audio for WebSocket transmission...');
+    
+    if (!audioBlob || audioBlob.size === 0) {
+      throw new Error('Empty audio blob provided');
+    }
+    
+    // Convert blob to base64
+    const base64Audio = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result;
+        // Remove the data:audio/webm;base64, prefix if present
+        const base64 = result.includes(',') ? result.split(',')[1] : result;
+        resolve(base64);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(audioBlob);
+    });
+    
+    console.log(`? Audio processed: ${audioBlob.size} bytes -> ${base64Audio.length} base64 chars`);
+    
+    return {
+      type: 'audio_data',
+      audio: base64Audio,
+      size: audioBlob.size,
+      timestamp: Date.now()
+    };
+    
+  } catch (error) {
+    console.error('? Audio processing failed:', error);
+    throw new Error(`Audio processing failed: ${error.message}`);
+  }
+};
+
+// FIXED: Enhanced session management utilities
+export const createInterviewSession = async () => {
+  try {
+    console.log('?? Creating new interview session...');
+    
+    const response = await assessmentApiRequest('/weekly_interview/start_interview', {
+      method: 'GET'
+    });
+    
+    if (!response || !response.session_id) {
+      throw new Error('Invalid session response from server');
+    }
+    
+    console.log('? Interview session created:', response.session_id);
+    
+    return {
+      sessionId: response.session_id,
+      testId: response.test_id,
+      studentName: response.student_name || 'Student',
+      websocketUrl: `/weekly_interview/ws/${response.session_id}`,
+      fragmentsCount: response.fragments_count || 0,
+      estimatedDuration: response.estimated_duration || 45,
+      greeting: response.greeting || 'Welcome to your interview!'
+    };
+    
+  } catch (error) {
+    console.error('? Session creation failed:', error);
+    throw new Error(`Failed to create interview session: ${error.message}`);
+  }
+};
+
+// FIXED: Enhanced interview results utilities
+export const getInterviewResults = async (testId) => {
+  try {
+    console.log('?? Fetching interview results for:', testId);
+    
+    const response = await assessmentApiRequest(`/weekly_interview/evaluate?test_id=${testId}`, {
+      method: 'GET'
+    });
+    
+    if (!response) {
+      throw new Error('No results found for this interview');
+    }
+    
+    console.log('? Interview results retrieved');
+    
+    return response;
+    
+  } catch (error) {
+    console.error('? Results retrieval failed:', error);
+    throw new Error(`Failed to get interview results: ${error.message}`);
+  }
+};
+
 // Export everything
-export { ASSESSMENT_API_BASE_URL, wsManager, getWebSocketURL };
+export { 
+  ASSESSMENT_API_BASE_URL, 
+  wsManager, 
+  getWebSocketURL,
+  getAuthToken,
+  getAssessmentHeaders,
+  DEFAULT_TIMEOUT,
+  UPLOAD_TIMEOUT,
+  WEBSOCKET_TIMEOUT,
+  MAX_RETRIES,
+  RETRY_DELAY,
+  NATURAL_AUDIO_CONFIG
+};
 
 export default {
   assessmentApiRequest,
@@ -581,5 +788,13 @@ export default {
   WEBSOCKET_TIMEOUT,
   MAX_RETRIES,
   RETRY_DELAY,
-  NATURAL_AUDIO_CONFIG
+  NATURAL_AUDIO_CONFIG,
+  // Enhanced utilities
+  createInterviewWebSocket,
+  sendWebSocketMessage,
+  closeWebSocket,
+  getWebSocketState,
+  processAudioForWebSocket,
+  createInterviewSession,
+  getInterviewResults
 };
