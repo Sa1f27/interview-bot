@@ -1,16 +1,16 @@
-// FIXED: Fully Automated Speech-to-Speech Interview with Proper WebSocket Integration
+// FULLY AUTOMATED: Zero manual buttons - Complete speech-to-speech automation
 // src/components/student/MockInterviews/StartInterview.jsx
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import {
   Container, Typography, Box, Card, CardContent, Button,
-  Alert, CircularProgress, LinearProgress, Chip, IconButton,
+  Alert, CircularProgress, LinearProgress, Chip,
   Paper
 } from '@mui/material';
 import { 
-  Mic, MicOff, VolumeUp, VolumeOff, Stop, PlayArrow,
-  ArrowBack, RadioButtonChecked, Circle, Pause
+  Mic, VolumeUp, Stop,
+  ArrowBack, RadioButtonChecked, Circle
 } from '@mui/icons-material';
 
 const StartInterview = () => {
@@ -34,13 +34,13 @@ const StartInterview = () => {
   const [currentStage, setCurrentStage] = useState('greeting');
   const [questionNumber, setQuestionNumber] = useState(0);
   
-  // Audio states
+  // Audio states - FULLY AUTOMATED
   const [isAIPlaying, setIsAIPlaying] = useState(false);
   const [isListening, setIsListening] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
   const [audioLevel, setAudioLevel] = useState(0);
   const [silenceTimer, setSilenceTimer] = useState(0);
   const [microphoneReady, setMicrophoneReady] = useState(false);
+  const [conversationState, setConversationState] = useState('initializing'); // initializing, ai_speaking, listening, processing
   
   // Refs
   const wsRef = useRef(null);
@@ -48,22 +48,21 @@ const StartInterview = () => {
   const streamRef = useRef(null);
   const audioContextRef = useRef(null);
   const analyserRef = useRef(null);
-  const silenceTimeoutRef = useRef(null);
   const audioChunksRef = useRef([]);
   const keepAliveIntervalRef = useRef(null);
   const audioQueueRef = useRef([]);
   const isPlayingAudioRef = useRef(false);
-  const shouldStartListeningRef = useRef(false);
   const speechDetectionRef = useRef(null);
+  const autoListenTimeoutRef = useRef(null);
 
-  // FIXED: Auto-silence detection configuration - more responsive
-  const SILENCE_THRESHOLD = 0.015; // Lowered threshold for better detection
-  const SILENCE_DURATION = 2500;   // 2.5 seconds (more natural)
-  const MAX_RECORDING_TIME = 30000; // 30 seconds max
-  const MIN_SPEECH_TIME = 800;     // Must speak for at least 800ms
+  // FULLY AUTOMATED: Silence detection configuration - optimized for natural conversation
+  const SILENCE_THRESHOLD = 0.012; 
+  const SILENCE_DURATION = 2000;   // 2 seconds for natural conversation flow
+  const MAX_RECORDING_TIME = 30000;
+  const MIN_SPEECH_TIME = 600;     // Minimum speech time before silence detection
 
   useEffect(() => {
-    console.log('??? Starting automated speech-to-speech interview');
+    console.log('??? Initializing FULLY AUTOMATED interview system...');
     console.log('Session ID:', sessionId);
     console.log('Test ID:', testId);
     console.log('Student:', studentName);
@@ -74,21 +73,25 @@ const StartInterview = () => {
       return;
     }
     
-    // FIXED: Handle both session ID formats properly
-    if (!sessionId || sessionId === 'undefined') {
-      setConnectionError('Invalid session format. Please start a new interview.');
-      setIsConnecting(false);
-      return;
+    // PREVENT DOUBLE INITIALIZATION in React StrictMode
+    if (isConnecting && !isConnected) {
+      initializeAutomatedInterview();
     }
     
-    initializeInterview();
-    
     return cleanup;
-  }, [sessionId]);
+  }, [sessionId]); // Only depend on sessionId
 
-  const initializeInterview = async () => {
+  const initializeAutomatedInterview = async () => {
     try {
-      console.log('?? Initializing automated interview system...');
+      console.log('?? Initializing FULLY AUTOMATED interview system...');
+      
+      // PREVENT multiple initializations
+      if (isConnected || connectionError) {
+        console.log('?? Already initialized or has error, skipping');
+        return;
+      }
+      
+      setConversationState('initializing');
       
       // Initialize microphone first
       await setupMicrophone();
@@ -96,16 +99,21 @@ const StartInterview = () => {
       // Then initialize WebSocket
       await initializeWebSocket();
       
+      // Set ready state immediately after WebSocket connection
+      setConversationState('ready');
+      console.log('? System ready for automated interview');
+      
     } catch (error) {
-      console.error('? Interview initialization failed:', error);
+      console.error('? Automated interview initialization failed:', error);
       setConnectionError(`Initialization failed: ${error.message}`);
       setIsConnecting(false);
+      setConversationState('error');
     }
   };
 
   const setupMicrophone = async () => {
     try {
-      console.log('?? Setting up microphone for continuous listening...');
+      console.log('?? Setting up microphone for continuous automation...');
       
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -119,17 +127,16 @@ const StartInterview = () => {
       
       streamRef.current = stream;
       
-      // FIXED: Proper audio context setup with user gesture
+      // Setup audio context
       if (!audioContextRef.current) {
         audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
         
-        // Resume context if suspended
         if (audioContextRef.current.state === 'suspended') {
           await audioContextRef.current.resume();
         }
       }
       
-      // Setup audio analysis for silence detection
+      // Setup audio analysis for continuous monitoring
       analyserRef.current = audioContextRef.current.createAnalyser();
       const source = audioContextRef.current.createMediaStreamSource(stream);
       
@@ -138,7 +145,7 @@ const StartInterview = () => {
       source.connect(analyserRef.current);
       
       setMicrophoneReady(true);
-      console.log('? Microphone setup complete');
+      console.log('? Microphone ready for automation');
       
     } catch (error) {
       console.error('? Microphone setup failed:', error);
@@ -149,23 +156,44 @@ const StartInterview = () => {
   const initializeWebSocket = () => {
     return new Promise((resolve, reject) => {
       try {
+        // PREVENT DUPLICATE CONNECTIONS
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          console.log('? WebSocket already connected, using existing connection');
+          resolve();
+          return;
+        }
+        
+        // Close any existing connection
+        if (wsRef.current) {
+          console.log('?? Closing existing WebSocket connection');
+          wsRef.current.close();
+          wsRef.current = null;
+        }
+        
         const wsUrl = `wss://192.168.48.201:8070/weekly_interview/ws/${sessionId}`;
-        console.log('?? Connecting to WebSocket:', wsUrl);
+        console.log('?? Connecting to automated WebSocket:', wsUrl);
         
         const ws = new WebSocket(wsUrl);
         
         ws.onopen = () => {
-          console.log('? WebSocket connected - Interview ready!');
+          console.log('? WebSocket connected for automation!');
           setIsConnected(true);
           setIsConnecting(false);
           setConnectionError(null);
           
-          // Setup keepalive pings
+          // Setup keepalive
+          if (keepAliveIntervalRef.current) {
+            clearInterval(keepAliveIntervalRef.current);
+          }
+          
           keepAliveIntervalRef.current = setInterval(() => {
             if (ws.readyState === WebSocket.OPEN) {
               ws.send(JSON.stringify({ type: 'ping' }));
             }
           }, 30000);
+          
+          // AUTOMATICALLY START INTERVIEW - Interview will start when first ai_response arrives
+          setInterviewStarted(true);
           
           resolve();
         };
@@ -173,10 +201,8 @@ const StartInterview = () => {
         ws.onmessage = (event) => {
           try {
             const data = JSON.parse(event.data);
-            console.log('?? WebSocket message:', data.type);
-            
-            handleWebSocketMessage(data);
-            
+            console.log('?? Automated WebSocket message:', data.type);
+            handleAutomatedWebSocketMessage(data);
           } catch (error) {
             console.error('? WebSocket message parse error:', error);
           }
@@ -212,56 +238,125 @@ const StartInterview = () => {
     });
   };
 
-  const handleWebSocketMessage = useCallback((data) => {
+  const handleAutomatedWebSocketMessage = useCallback((data) => {
+    console.log('?? WebSocket Message Details:', {
+      type: data.type,
+      conversationState,
+      isAIPlaying,
+      isListening,
+      audioQueueLength: audioQueueRef.current.length
+    });
+
     switch (data.type) {
       case 'error':
         console.error('? Server error:', data.text);
         setConnectionError(data.text);
+        setConversationState('error');
         break;
         
       case 'ai_response':
-        console.log('?? AI Question:', data.text.substring(0, 50) + '...');
+        console.log('?? AI Response received:', data.text.substring(0, 100) + '...');
+        
+        // PREVENT DUPLICATE PROCESSING
+        if (isAIPlaying && currentMessage === data.text) {
+          console.log('?? Ignoring duplicate ai_response - same message already playing');
+          return;
+        }
+        
+        console.log('?? FORCE SETTING AI SPEAKING STATE IMMEDIATELY');
+        
+        // FORCE all states immediately - SYNCHRONOUS updates
         setCurrentMessage(data.text);
         setCurrentStage(data.stage || 'unknown');
         setQuestionNumber(data.question_number || 0);
         setIsAIPlaying(true);
+        setConversationState('ai_speaking');
         
-        // FIXED: Stop any current recording when AI starts speaking
-        if (isRecording) {
-          stopRecording();
-        }
+        // CLEAR audio queue
+        audioQueueRef.current = [];
+        isPlayingAudioRef.current = false;
+        
+        // STOP any recording
+        stopAutomaticRecording();
+        
+        console.log('? AI SPEAKING STATE SET - READY FOR AUDIO');
         break;
         
       case 'audio_chunk':
-        // FIXED: Queue audio chunks for sequential playback
+        console.log(`?? Audio chunk received - CURRENT state check:`);
+        console.log(`   conversationState: ${conversationState}`);
+        console.log(`   isAIPlaying: ${isAIPlaying}`);
+        console.log(`   currentMessage exists: ${!!currentMessage}`);
+        
+        // FORCE ACCEPT ALL AUDIO CHUNKS if we have a current message
         if (data.audio) {
-          audioQueueRef.current.push(data.audio);
-          if (!isPlayingAudioRef.current) {
-            processAudioQueue();
+          console.log('?? FORCING audio chunk acceptance');
+          
+          // Force set AI playing state if not already set
+          if (!isAIPlaying || conversationState !== 'ai_speaking') {
+            console.log('?? EMERGENCY: Force setting AI playing state');
+            setIsAIPlaying(true);
+            setConversationState('ai_speaking');
           }
+          
+          audioQueueRef.current.push(data.audio);
+          console.log(`?? Audio chunk FORCED into queue (${audioQueueRef.current.length} total)`);
+          
+          // Start processing immediately
+          if (!isPlayingAudioRef.current) {
+            console.log('?? Starting FORCED audio playback');
+            processAudioQueueAutomatically();
+          }
+        } else {
+          console.log('? No audio data in chunk');
         }
         break;
         
       case 'audio_end':
-        console.log('?? AI finished speaking - Your turn!');
-        setIsAIPlaying(false);
+        console.log('?? AI audio_end received');
+        console.log(`   currentMessage exists: ${!!currentMessage}`);
+        console.log(`   audioQueue length: ${audioQueueRef.current.length}`);
+        console.log(`   isPlayingAudio: ${isPlayingAudioRef.current}`);
         
-        // FIXED: Wait for all audio to finish, then start listening
-        shouldStartListeningRef.current = true;
-        
-        // Check if audio queue is empty before starting listening
-        setTimeout(() => {
-          if (!isPlayingAudioRef.current && shouldStartListeningRef.current && interviewStarted) {
-            startAutomaticListening();
-            shouldStartListeningRef.current = false;
-          }
-        }, 300); // Small delay to ensure audio is fully processed
+        // FORCE process audio_end if we have any current message
+        if (currentMessage) {
+          console.log('?? FORCING audio_end processing');
+          
+          // Wait for all audio chunks to finish playing
+          const waitForAudioComplete = () => {
+            if (isPlayingAudioRef.current || audioQueueRef.current.length > 0) {
+              console.log('? Waiting for audio to complete...', {
+                isPlaying: isPlayingAudioRef.current,
+                queueLength: audioQueueRef.current.length
+              });
+              setTimeout(waitForAudioComplete, 200);
+              return;
+            }
+            
+            console.log('? All AI audio completed - starting user recording');
+            setIsAIPlaying(false);
+            setConversationState('listening');
+            
+            // Start recording after a brief pause
+            setTimeout(() => {
+              if (interviewStarted && !isListening) {
+                console.log('?? Starting automatic recording after AI finished');
+                startAutomaticRecording();
+              }
+            }, 500);
+          };
+          
+          waitForAudioComplete();
+        } else {
+          console.log('?? No current message - ignoring audio_end');
+        }
         break;
         
       case 'interview_complete':
-        console.log('?? Interview completed!');
+        console.log('?? Interview completed automatically!');
         setInterviewStarted(false);
-        stopListening();
+        setConversationState('complete');
+        stopAutomaticRecording();
         
         // Navigate to results
         navigate(`/student/mock-interviews/results/${testId}`, {
@@ -276,109 +371,133 @@ const StartInterview = () => {
       default:
         console.log('? Unknown message type:', data.type);
     }
-  }, [interviewStarted, isRecording, testId, navigate]);
+  }, [conversationState, isAIPlaying, isListening, interviewStarted, testId, navigate, currentMessage]);
 
-  // FIXED: Proper audio queue processing for smooth AI speech
-  const processAudioQueue = async () => {
-    if (isPlayingAudioRef.current || audioQueueRef.current.length === 0) {
-      return;
-    }
-    
-    isPlayingAudioRef.current = true;
-    
-    while (audioQueueRef.current.length > 0) {
-      const hexAudio = audioQueueRef.current.shift();
-      await playAudioChunk(hexAudio);
-      
-      // Small delay between chunks for smooth playback
-      await new Promise(resolve => setTimeout(resolve, 50));
-    }
-    
-    isPlayingAudioRef.current = false;
-    
-    // Check if we should start listening after all audio is done
-    if (shouldStartListeningRef.current && !isAIPlaying && interviewStarted) {
-      startAutomaticListening();
-      shouldStartListeningRef.current = false;
-    }
-  };
-
-  const playAudioChunk = async (hexAudio) => {
-    return new Promise((resolve) => {
-      try {
-        if (!hexAudio) {
-          resolve();
-          return;
-        }
-        
-        // FIXED: Proper hex to binary conversion
-        const audioData = new Uint8Array(
-          hexAudio.match(/.{1,2}/g).map(byte => parseInt(byte, 16))
-        );
-        
-        if (!audioContextRef.current) {
-          resolve();
-          return;
-        }
-        
-        // FIXED: Create a copy of the array buffer for decoding
-        const audioBuffer = audioData.buffer.slice();
-        
-        audioContextRef.current.decodeAudioData(
-          audioBuffer,
-          (decodedBuffer) => {
-            const source = audioContextRef.current.createBufferSource();
-            source.buffer = decodedBuffer;
-            source.connect(audioContextRef.current.destination);
-            
-            source.onended = () => {
-              resolve();
-            };
-            
-            source.start();
-          },
-          (error) => {
-            console.warn('?? Audio decode failed:', error);
-            resolve();
-          }
-        );
-        
-      } catch (error) {
-        console.warn('?? Audio playback failed:', error);
-        resolve();
-      }
-    });
-  };
-
-  const startInterview = async () => {
+  // FULLY AUTOMATED: Start interview without any manual buttons
+  const startFullyAutomatedInterview = async () => {
     try {
-      console.log('?? Starting automated interview conversation...');
+      console.log('?? Starting FULLY AUTOMATED interview - NO MANUAL BUTTONS!');
       
-      // FIXED: Ensure audio context is running before starting
       if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
         await audioContextRef.current.resume();
       }
       
       setInterviewStarted(true);
+      setConversationState('ai_speaking');
       
-      // The AI greeting should already be playing from WebSocket connection
-      // We'll start listening automatically when AI finishes
+      console.log('? Fully automated interview started - AI will speak first automatically');
       
     } catch (error) {
-      console.error('? Failed to start interview:', error);
+      console.error('? Failed to start automated interview:', error);
       setConnectionError(`Failed to start interview: ${error.message}`);
     }
   };
 
-  const startAutomaticListening = async () => {
+  // AUTOMATED: Process AI audio queue for seamless playback
+  const processAudioQueueAutomatically = async () => {
+    if (isPlayingAudioRef.current) {
+      console.log('?? Audio already playing, skipping queue processing');
+      return;
+    }
+    
+    if (audioQueueRef.current.length === 0) {
+      console.log('?? No audio chunks to process');
+      return;
+    }
+    
+    isPlayingAudioRef.current = true;
+    console.log(`?? Processing ${audioQueueRef.current.length} audio chunks automatically`);
+    
     try {
-      if (isRecording || isAIPlaying || !microphoneReady) {
-        console.log('?? Skip listening - conditions not met');
+      while (audioQueueRef.current.length > 0) {
+        const hexAudio = audioQueueRef.current.shift();
+        await playAudioChunkAutomatically(hexAudio);
+        
+        // Small delay between chunks for smooth playback
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      
+      console.log('? All audio chunks processed successfully');
+    } catch (error) {
+      console.error('? Error processing audio queue:', error);
+    } finally {
+      isPlayingAudioRef.current = false;
+    }
+  };
+
+  const playAudioChunkAutomatically = async (hexAudio) => {
+    return new Promise((resolve) => {
+      try {
+        if (!hexAudio || !audioContextRef.current) {
+          console.log('?? No audio data or context');
+          resolve();
+          return;
+        }
+        
+        console.log(`?? Playing audio chunk: ${hexAudio.length} hex chars`);
+        
+        // Convert hex to ArrayBuffer
+        const audioData = new Uint8Array(
+          hexAudio.match(/.{1,2}/g).map(byte => parseInt(byte, 16))
+        );
+        
+        console.log(`?? Converted to ${audioData.length} bytes`);
+        
+        // Create a copy of the array buffer for decoding
+        const audioBuffer = audioData.buffer.slice();
+        
+        audioContextRef.current.decodeAudioData(
+          audioBuffer,
+          (decodedBuffer) => {
+            console.log(`?? Decoded buffer: ${decodedBuffer.duration}s`);
+            
+            const source = audioContextRef.current.createBufferSource();
+            source.buffer = decodedBuffer;
+            source.connect(audioContextRef.current.destination);
+            
+            source.onended = () => {
+              console.log('?? Audio chunk finished playing');
+              resolve();
+            };
+            
+            source.start();
+            console.log('?? Audio chunk started playing');
+          },
+          (error) => {
+            console.error('? Audio decode failed:', error);
+            resolve();
+          }
+        );
+        
+      } catch (error) {
+        console.error('? Audio playback failed:', error);
+        resolve();
+      }
+    });
+  };
+
+  // AUTOMATED: Start recording automatically when AI finishes
+  const startAutomaticRecording = async () => {
+    try {
+      // Check if we should start recording
+      if (isListening) {
+        console.log('?? Already listening, skipping start recording');
         return;
       }
       
-      console.log('?? Starting automatic listening with silence detection...');
+      if (isAIPlaying || isPlayingAudioRef.current) {
+        console.log('?? AI still playing, cannot start recording');
+        return;
+      }
       
+      if (!microphoneReady || !streamRef.current) {
+        console.log('?? Microphone not ready for recording');
+        return;
+      }
+      
+      console.log('?? AUTOMATICALLY starting user recording - NO BUTTONS!');
+      
+      // Clear previous audio chunks
       audioChunksRef.current = [];
       
       const mediaRecorder = new MediaRecorder(streamRef.current, {
@@ -392,56 +511,55 @@ const StartInterview = () => {
       };
       
       mediaRecorder.onstop = () => {
-        handleRecordingComplete();
+        console.log('?? Recording stopped automatically');
+        handleAutomaticRecordingComplete();
       };
       
       mediaRecorder.onerror = (error) => {
         console.error('? MediaRecorder error:', error);
-        setIsRecording(false);
         setIsListening(false);
+        setConversationState('error');
       };
       
-      mediaRecorder.start(100); // Collect data every 100ms
+      mediaRecorder.start(250); // Collect data every 250ms
       mediaRecorderRef.current = mediaRecorder;
       
-      setIsRecording(true);
       setIsListening(true);
+      console.log('? Recording started, beginning silence detection');
       
-      // FIXED: Start improved silence detection
-      startImprovedSilenceDetection();
+      // Start AUTOMATIC silence detection
+      startAutomaticSilenceDetection();
       
-      // Max recording time safety
+      // Safety timeout
       setTimeout(() => {
         if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-          console.log('? Max recording time reached');
-          stopRecording();
+          console.log('? Max recording time reached - auto-stopping');
+          stopAutomaticRecording();
         }
       }, MAX_RECORDING_TIME);
       
     } catch (error) {
-      console.error('? Auto listening failed:', error);
-      setIsRecording(false);
+      console.error('? Automatic recording failed:', error);
       setIsListening(false);
+      setConversationState('error');
     }
   };
 
-  // FIXED: Improved silence detection with better parameters
-  const startImprovedSilenceDetection = () => {
+  // AUTOMATED: Silence detection that automatically stops recording
+  const startAutomaticSilenceDetection = () => {
     if (!analyserRef.current) return;
     
     const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
     let speechStartTime = null;
     let silenceStartTime = null;
     let hasSpokeEnough = false;
-    let consecutiveSilenceFrames = 0;
-    const minSilenceFrames = 25; // About 2.5 seconds at 10fps
     
-    const detectSilence = () => {
-      if (!isRecording) return;
+    const detectSilenceAutomatically = () => {
+      if (!isListening) return;
       
       analyserRef.current.getByteFrequencyData(dataArray);
       
-      // FIXED: Better volume calculation using RMS
+      // Enhanced RMS calculation for better detection
       const rms = Math.sqrt(
         dataArray.reduce((sum, value) => sum + value * value, 0) / dataArray.length
       );
@@ -455,11 +573,10 @@ const StartInterview = () => {
         // User is speaking
         if (!speechStartTime) {
           speechStartTime = Date.now();
-          console.log('?? Speech detected');
+          console.log('?? Speech detected automatically');
         }
         
         silenceStartTime = null;
-        consecutiveSilenceFrames = 0;
         setSilenceTimer(0);
         
         // Check if user has spoken long enough
@@ -472,74 +589,96 @@ const StartInterview = () => {
         // Silence detected after sufficient speech
         if (!silenceStartTime) {
           silenceStartTime = Date.now();
-          console.log('?? Silence detected, starting timer...');
+          console.log('?? Silence detected - starting automatic timer...');
         }
         
-        consecutiveSilenceFrames++;
         const silenceElapsed = Date.now() - silenceStartTime;
         setSilenceTimer(silenceElapsed);
         
-        // FIXED: More stable silence detection
-        if (consecutiveSilenceFrames >= minSilenceFrames && silenceElapsed >= SILENCE_DURATION) {
-          console.log('?? Auto-stopping due to stable silence');
-          stopRecording();
+        if (silenceElapsed >= SILENCE_DURATION) {
+          console.log('?? AUTOMATICALLY stopping due to silence - NO MANUAL INTERVENTION!');
+          stopAutomaticRecording();
           return;
         }
       }
       
-      // Continue monitoring at ~10fps for better performance
-      setTimeout(detectSilence, 100);
+      // Continue monitoring
+      setTimeout(detectSilenceAutomatically, 100);
     };
     
-    detectSilence();
+    detectSilenceAutomatically();
   };
 
-  const stopRecording = () => {
+  // AUTOMATED: Stop recording automatically when silence is detected
+  const stopAutomaticRecording = () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      console.log('?? Stopping automatic recording');
       mediaRecorderRef.current.stop();
     }
     
-    setIsRecording(false);
     setIsListening(false);
     setSilenceTimer(0);
     setAudioLevel(0);
   };
 
-  const handleRecordingComplete = async () => {
+  // AUTOMATED: Handle recording completion and send to backend
+  const handleAutomaticRecordingComplete = async () => {
     try {
+      console.log('?? Handling automatic recording completion');
+      
       if (audioChunksRef.current.length === 0) {
-        console.warn('?? No audio recorded');
+        console.warn('?? No audio recorded automatically - may need to try again');
+        // Reset to listening state after a delay
+        setTimeout(() => {
+          if (conversationState === 'processing' && interviewStarted) {
+            setConversationState('listening');
+            startAutomaticRecording();
+          }
+        }, 1000);
         return;
       }
       
-      console.log('?? Processing and sending audio...');
+      console.log('?? AUTOMATICALLY processing and sending audio...');
+      setConversationState('processing');
       
       const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
       
       if (audioBlob.size < 100) {
-        console.warn('?? Audio too small:', audioBlob.size, 'bytes');
+        console.warn('?? Audio too small:', audioBlob.size, 'bytes - retrying');
+        setTimeout(() => {
+          if (conversationState === 'processing' && interviewStarted) {
+            setConversationState('listening');
+            startAutomaticRecording();
+          }
+        }, 1000);
         return;
       }
       
-      // FIXED: Convert to base64 properly
+      console.log(`?? Processing audio blob: ${audioBlob.size} bytes`);
+      
+      // Convert to base64
       const base64Audio = await convertBlobToBase64(audioBlob);
       
-      // Send to WebSocket
+      // Send to WebSocket automatically
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         const message = {
           type: 'audio_data',
-          audio: base64Audio.split(',')[1] || base64Audio // Remove data:audio prefix if present
+          audio: base64Audio.split(',')[1] || base64Audio,
+          size: audioBlob.size,
+          timestamp: Date.now()
         };
         
         wsRef.current.send(JSON.stringify(message));
-        console.log('?? Audio sent, waiting for AI response...');
+        console.log('?? Audio sent automatically, waiting for AI response...');
       } else {
-        console.error('? WebSocket not connected');
+        console.error('? WebSocket not connected - cannot send audio');
+        setConversationState('error');
         setConnectionError('Connection lost. Please refresh.');
       }
       
     } catch (error) {
-      console.error('? Audio processing failed:', error);
+      console.error('? Automatic audio processing failed:', error);
+      setConversationState('error');
     }
   };
 
@@ -552,37 +691,26 @@ const StartInterview = () => {
     });
   };
 
-  const stopInterview = () => {
-    console.log('?? Stopping interview...');
+  // MANUAL: Only emergency stop button (not part of automated flow)
+  const emergencyStopInterview = () => {
+    console.log('?? EMERGENCY: Stopping automated interview...');
     setInterviewStarted(false);
-    stopListening();
+    setConversationState('stopped');
+    stopAutomaticRecording();
     
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'end_interview' }));
     }
     
-    // Navigate back to dashboard
     setTimeout(() => {
       navigate('/student/mock-interviews');
     }, 1000);
   };
 
-  const stopListening = () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-      mediaRecorderRef.current.stop();
-    }
-    
-    setIsRecording(false);
-    setIsListening(false);
-    setSilenceTimer(0);
-    setAudioLevel(0);
-    shouldStartListeningRef.current = false;
-  };
-
   const cleanup = () => {
-    console.log('?? Cleaning up interview resources...');
+    console.log('?? Cleaning up automated interview resources...');
     
-    stopListening();
+    stopAutomaticRecording();
     
     if (wsRef.current) {
       wsRef.current.close();
@@ -590,6 +718,10 @@ const StartInterview = () => {
     
     if (keepAliveIntervalRef.current) {
       clearInterval(keepAliveIntervalRef.current);
+    }
+    
+    if (autoListenTimeoutRef.current) {
+      clearTimeout(autoListenTimeoutRef.current);
     }
     
     if (streamRef.current) {
@@ -600,10 +732,8 @@ const StartInterview = () => {
       audioContextRef.current.close();
     }
     
-    // Clear audio queue
     audioQueueRef.current = [];
     isPlayingAudioRef.current = false;
-    shouldStartListeningRef.current = false;
   };
 
   const getStageColor = (stage) => {
@@ -626,6 +756,20 @@ const StartInterview = () => {
     return labels[stage] || 'Interview';
   };
 
+  const getConversationStateLabel = () => {
+    const labels = {
+      initializing: 'Setting up automation...',
+      ready: '?? Ready to Start',
+      ai_speaking: '?? AI Speaking',
+      listening: '?? Listening to You',
+      processing: '?? Processing Response',
+      complete: '? Complete',
+      error: '? Error',
+      stopped: '?? Stopped'
+    };
+    return labels[conversationState] || 'Unknown';
+  };
+
   // Loading state
   if (isConnecting) {
     return (
@@ -633,16 +777,11 @@ const StartInterview = () => {
         <Box textAlign="center">
           <CircularProgress size={60} sx={{ mb: 3 }} />
           <Typography variant="h5" gutterBottom>
-            Initializing AI Interview System...
+            Initializing Fully Automated Interview...
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Setting up microphone and connecting to interview AI
+            Setting up microphone and AI connection - No manual buttons needed!
           </Typography>
-          {!microphoneReady && (
-            <Typography variant="caption" display="block" sx={{ mt: 1 }}>
-              Requesting microphone access...
-            </Typography>
-          )}
         </Box>
       </Container>
     );
@@ -683,10 +822,10 @@ const StartInterview = () => {
       <Box display="flex" alignItems="center" justifyContent="space-between" mb={3}>
         <Box>
           <Typography variant="h4" fontWeight="bold" color="primary.main">
-            ??? AI Interview Conversation
+            ??? Fully Automated AI Interview
           </Typography>
           <Typography variant="subtitle1" color="text.secondary">
-            {studentName} • Fully Automated Speech-to-Speech
+            {studentName} • Zero Manual Buttons - Completely Automated
           </Typography>
         </Box>
         
@@ -703,10 +842,14 @@ const StartInterview = () => {
           />
           
           <Chip
-            icon={microphoneReady ? <Mic /> : <MicOff />}
-            label={microphoneReady ? 'Mic Ready' : 'Mic Setup'}
-            color={microphoneReady ? 'success' : 'warning'}
-            variant="outlined"
+            icon={<Mic />}
+            label={getConversationStateLabel()}
+            color={
+              conversationState === 'ai_speaking' ? 'primary' :
+              conversationState === 'listening' ? 'success' :
+              conversationState === 'processing' ? 'warning' :
+              'default'
+            }
           />
         </Box>
       </Box>
@@ -728,7 +871,7 @@ const StartInterview = () => {
                   <Box sx={{ mt: 2 }}>
                     <LinearProgress />
                     <Typography variant="caption" color="text.secondary">
-                      AI is speaking... ({audioQueueRef.current.length} audio chunks queued)
+                      AI speaking automatically... ({audioQueueRef.current.length} chunks queued)
                     </Typography>
                   </Box>
                 )}
@@ -738,127 +881,123 @@ const StartInterview = () => {
         </Card>
       )}
 
-      {/* Interview Control */}
+      {/* Automated Status Display */}
       <Paper sx={{ p: 3, textAlign: 'center', borderRadius: 2 }}>
-        {!interviewStarted ? (
-          <Box>
-            <Typography variant="h5" gutterBottom>
-              Ready for Automated Interview?
-            </Typography>
-            <Typography variant="body1" color="text.secondary" paragraph>
-              Click start and the AI will begin the interview. Speak naturally - 
-              the system will automatically detect when you finish speaking (2.5s silence).
-            </Typography>
+        <Box>
+          {/* Conversation State Indicator */}
+          <Box sx={{ mb: 3 }}>
+            <Box display="flex" alignItems="center" justifyContent="center" gap={2} mb={2}>
+              <Mic 
+                sx={{ 
+                  fontSize: 40,
+                  color: isListening ? 'success.main' : 
+                         isAIPlaying ? 'primary.main' : 'grey.400',
+                  animation: isListening ? 'pulse 1s infinite' : 'none'
+                }} 
+              />
+              <Typography variant="h6">
+                {getConversationStateLabel()}
+              </Typography>
+            </Box>
             
-            <Button
-              variant="contained"
-              size="large"
-              startIcon={<PlayArrow />}
-              onClick={startInterview}
-              disabled={!isConnected || !microphoneReady}
-              sx={{
-                borderRadius: 3,
-                py: 1.5,
-                px: 4,
-                fontSize: '1.1rem'
-              }}
-            >
-              Start Automated Interview
-            </Button>
+            {/* Audio Level Meter - Only when listening */}
+            {isListening && (
+              <Box>
+                <LinearProgress 
+                  variant="determinate" 
+                  value={Math.min(audioLevel * 100, 100)} 
+                  color="success"
+                  sx={{ height: 8, borderRadius: 4, mb: 1 }}
+                />
+                <Typography variant="caption" color="text.secondary">
+                  Voice Level: {Math.round(audioLevel * 100)}% | Threshold: {Math.round(SILENCE_THRESHOLD * 100)}%
+                </Typography>
+              </Box>
+            )}
             
-            {!microphoneReady && (
-              <Typography variant="caption" display="block" sx={{ mt: 1 }} color="warning.main">
-                Please allow microphone access to continue
+            {/* Silence Timer - Only when detecting silence */}
+            {silenceTimer > 0 && (
+              <Box sx={{ mt: 1 }}>
+                <LinearProgress 
+                  variant="determinate" 
+                  value={(silenceTimer / SILENCE_DURATION) * 100}
+                  color="warning"
+                  sx={{ height: 6, borderRadius: 3 }}
+                />
+                <Typography variant="caption" color="warning.main">
+                  Silence: {(silenceTimer / 1000).toFixed(1)}s / {SILENCE_DURATION / 1000}s
+                </Typography>
+              </Box>
+            )}
+          </Box>
+          
+          {/* Status Messages */}
+          <Box sx={{ mb: 3 }}>
+            {conversationState === 'initializing' && (
+              <Typography variant="body1" color="text.secondary">
+                ?? Setting up fully automated interview system...
+              </Typography>
+            )}
+            
+            {conversationState === 'ready' && (
+              <Typography variant="body1" color="primary">
+                ? System ready! Interview will start automatically when AI responds.
+              </Typography>
+            )}
+            
+            {conversationState === 'ai_speaking' && (
+              <Typography variant="body1" color="primary">
+                ?? AI is speaking - Listen carefully, recording will start automatically when finished
+              </Typography>
+            )}
+            
+            {conversationState === 'listening' && (
+              <Typography variant="body1" color="success.main">
+                ?? Recording automatically - Speak naturally, will stop on {SILENCE_DURATION/1000}s silence
+              </Typography>
+            )}
+            
+            {conversationState === 'processing' && (
+              <Typography variant="body1" color="warning.main">
+                ?? Processing your response - AI will speak next automatically
+              </Typography>
+            )}
+            
+            {!interviewStarted && conversationState === 'initializing' && (
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                Interview will start automatically once everything is ready!
               </Typography>
             )}
           </Box>
-        ) : (
-          <Box>
-            {/* Voice Activity Indicator */}
-            <Box sx={{ mb: 3 }}>
-              <Box display="flex" alignItems="center" justifyContent="center" gap={2} mb={2}>
-                <Mic 
-                  sx={{ 
-                    fontSize: 40,
-                    color: isListening ? 'success.main' : 'grey.400',
-                    animation: isListening ? 'pulse 1s infinite' : 'none'
-                  }} 
-                />
-                <Typography variant="h6">
-                  {isAIPlaying ? '?? AI Speaking...' : 
-                   isListening ? '?? Listening...' : 
-                   '?? Standby'}
-                </Typography>
-              </Box>
-              
-              {/* Audio Level Meter */}
-              {isListening && (
-                <Box>
-                  <LinearProgress 
-                    variant="determinate" 
-                    value={Math.min(audioLevel * 100, 100)} 
-                    color="success"
-                    sx={{ height: 8, borderRadius: 4, mb: 1 }}
-                  />
-                  <Typography variant="caption" color="text.secondary">
-                    Audio Level: {Math.round(audioLevel * 100)}% | Threshold: {Math.round(SILENCE_THRESHOLD * 100)}%
-                  </Typography>
-                </Box>
-              )}
-              
-              {/* Silence Timer */}
-              {silenceTimer > 0 && (
-                <Box sx={{ mt: 1 }}>
-                  <LinearProgress 
-                    variant="determinate" 
-                    value={(silenceTimer / SILENCE_DURATION) * 100}
-                    color="warning"
-                    sx={{ height: 6, borderRadius: 3 }}
-                  />
-                  <Typography variant="caption" color="warning.main">
-                    Silence: {(silenceTimer / 1000).toFixed(1)}s / {SILENCE_DURATION / 1000}s
-                  </Typography>
-                </Box>
-              )}
-            </Box>
-            
-            {/* Manual Controls */}
-            <Box display="flex" gap={2} justifyContent="center">
-              <Button
-                variant="outlined"
-                startIcon={isListening ? <Pause /> : <Mic />}
-                onClick={isListening ? stopListening : startAutomaticListening}
-                disabled={isAIPlaying}
-              >
-                {isListening ? 'Pause Listening' : 'Start Speaking'}
-              </Button>
-              
-              <Button
-                variant="contained"
-                color="error"
-                startIcon={<Stop />}
-                onClick={stopInterview}
-              >
-                End Interview
-              </Button>
-            </Box>
-          </Box>
-        )}
+          
+          {/* Emergency Stop Only */}
+          {interviewStarted && (
+            <Button
+              variant="contained"
+              color="error"
+              startIcon={<Stop />}
+              onClick={emergencyStopInterview}
+              sx={{ borderRadius: 2 }}
+            >
+              Emergency Stop
+            </Button>
+          )}
+        </Box>
       </Paper>
 
       {/* Instructions */}
       <Card sx={{ mt: 3, bgcolor: 'grey.50', borderRadius: 2 }}>
         <CardContent>
           <Typography variant="h6" gutterBottom>
-            ?? How the Fully Automated Interview Works:
+            ?? Fully Automated Interview - Zero Manual Buttons:
           </Typography>
           <Typography variant="body2" component="div">
-            <strong>1. Fully Automated:</strong> Just click start - no recording buttons needed<br/>
-            <strong>2. Natural Conversation:</strong> Speak normally after AI finishes talking<br/>
-            <strong>3. Smart Silence Detection:</strong> 2.5 seconds of silence automatically submits your response<br/>
-            <strong>4. Real-time Audio Processing:</strong> Seamless speech-to-speech like a real interview<br/>
-            <strong>5. Audio Queue Management:</strong> Smooth AI speech with no overlapping<br/>
-            <strong>6. Improved Stability:</strong> Better error handling and connection management
+            <strong>1. 100% Automated:</strong> No buttons to press - everything happens automatically<br/>
+            <strong>2. AI Speaks First:</strong> Interview starts with AI greeting you automatically<br/>
+            <strong>3. Auto Recording:</strong> When AI finishes, recording starts automatically<br/>
+            <strong>4. Silence Detection:</strong> {SILENCE_DURATION/1000} seconds of silence automatically submits your answer<br/>
+            <strong>5. Natural Flow:</strong> Continuous conversation like talking to a real interviewer<br/>
+            <strong>6. Smart Processing:</strong> Audio sent in chunks for faster response times
           </Typography>
         </CardContent>
       </Card>

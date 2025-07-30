@@ -214,3 +214,65 @@ class UltraFastTTSProcessor:
                 "provider": "EdgeTTS",
                 "error": str(e)
             }
+            
+    # QUICK FIX for TTS Voice Issue
+    # Add this to your weekly_interview/core/tts_processor.py
+    
+    async def _check_voice_availability(self):
+        """Check if configured voice is available"""
+        if self._voices_checked:
+            return
+            
+        try:
+            voices = await edge_tts.list_voices()
+            self.available_voices = [voice["Name"] for voice in voices]
+            
+            # Print all available voices for debugging
+            print("?? Available TTS voices:")
+            for voice in self.available_voices:
+                if 'en-' in voice.lower():
+                    print(f"   {voice}")
+            
+            if self.voice not in self.available_voices:
+                logger.warning(f"?? Voice '{self.voice}' not available. Switching to fallback.")
+                
+                # FIXED: Better English voice fallback priority
+                english_voice_priority = [
+                    "en-US-JennyNeural",
+                    "en-US-AriaNeural", 
+                    "en-US-GuyNeural",
+                    "en-US-SaraNeural",
+                    "en-GB-SoniaNeural",
+                    "en-AU-NatashaNeural",
+                    "en-IN-NeerjaNeural",  # Try Indian English
+                    "en-IN-PrabhatNeural", # Your preferred voice
+                ]
+                
+                # Find first available English voice from priority list
+                for preferred_voice in english_voice_priority:
+                    if preferred_voice in self.available_voices:
+                        self.voice = preferred_voice
+                        logger.info(f"? Using priority English voice: {self.voice}")
+                        break
+                else:
+                    # If none of the priority voices available, find any English voice
+                    english_voices = [v for v in self.available_voices if v.startswith("en-")]
+                    if english_voices:
+                        self.voice = english_voices[0]
+                        logger.info(f"? Using fallback English voice: {self.voice}")
+                    else:
+                        # Last resort - use any available voice
+                        self.voice = self.available_voices[0] if self.available_voices else "en-US-JennyNeural"
+                        logger.warning(f"?? Using last-resort voice: {self.voice}")
+            else:
+                logger.info(f"? Using configured voice: {self.voice}")
+            
+            self._voices_checked = True
+            
+        except Exception as e:
+            logger.warning(f"?? Could not verify voice availability: {e}")
+            # Use a known working voice as fallback
+            self.voice = "en-US-JennyNeural"
+            self._voices_checked = True
+    
+    
