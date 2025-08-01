@@ -1,13 +1,12 @@
 """
 AI Services module for Daily Standup application
-Handles all AI-related operations: LLM calls, TTS, STT, and conversation management
+Handles all AI-related operations: LLM calls, STT, and conversation management
 """
 
 import os
 import time
 import logging
 import asyncio
-import edge_tts
 import openai
 import re
 import uuid
@@ -173,7 +172,7 @@ class SharedClientManager:
             if not api_key:
                 raise Exception("GROQ_API_KEY not found in environment variables")
             self._groq_client = Groq(api_key=api_key)
-            logger.info("? Groq client initialized")
+            logger.info("?? Groq client initialized")
         return self._groq_client
     
     @property 
@@ -183,7 +182,7 @@ class SharedClientManager:
             if not api_key:
                 raise Exception("OPENAI_API_KEY not found in environment variables")
             self._openai_client = openai.OpenAI(api_key=api_key)
-            logger.info("? OpenAI client initialized")
+            logger.info("?? OpenAI client initialized")
         return self._openai_client
     
     @property
@@ -234,7 +233,7 @@ class FragmentManager:
                     if self.session_data.fragment_keys else 1)
             )
             
-            logger.info(f"? Initialized {len(self.session_data.fragment_keys)} fragments, "
+            logger.info(f"?? Initialized {len(self.session_data.fragment_keys)} fragments, "
                        f"target {self.session_data.questions_per_concept} questions per concept")
             return True
             
@@ -383,8 +382,6 @@ SummaryManager = FragmentManager
 # AUDIO PROCESSING
 # =============================================================================
 
-# Add this to your ai_services.py file - replace the OptimizedAudioProcessor class
-
 class OptimizedAudioProcessor:
     def __init__(self, client_manager: SharedClientManager):
         self.client_manager = client_manager
@@ -468,79 +465,6 @@ class OptimizedAudioProcessor:
             else:
                 raise Exception(f"Groq transcription failed: {e}")
 
-class UltraFastTTSProcessor:
-    def __init__(self):
-        self.voice = config.TTS_VOICE
-        self.rate = config.TTS_RATE
-    
-    def split_text_optimized(self, text: str) -> List[str]:
-        """Optimized text splitting for minimal latency"""
-        sentences = re.split(r'[.!?]+', text)
-        chunks = []
-        
-        current_chunk = ""
-        for sentence in sentences:
-            sentence = sentence.strip()
-            if not sentence:
-                continue
-                
-            if len(current_chunk) + len(sentence) > config.TTS_CHUNK_SIZE * 5:
-                if current_chunk:
-                    chunks.append(current_chunk.strip())
-                current_chunk = sentence
-            else:
-                current_chunk += " " + sentence if current_chunk else sentence
-        
-        if current_chunk.strip():
-            chunks.append(current_chunk.strip())
-        
-        return chunks if chunks else [text]
-    
-    async def generate_ultra_fast_stream(self, text: str) -> AsyncGenerator[bytes, None]:
-        """Ultra-fast audio generation with parallel processing"""
-        try:
-            chunks = self.split_text_optimized(text)
-            
-            tasks = []
-            for i, chunk in enumerate(chunks):
-                if not chunk.strip():
-                    continue
-                
-                if i == 0:
-                    async for audio_chunk in self._generate_chunk_audio(chunk):
-                        if audio_chunk:
-                            yield audio_chunk
-                else:
-                    tasks.append(self._generate_chunk_audio(chunk))
-            
-            for task in tasks:
-                async for audio_chunk in task:
-                    if audio_chunk:
-                        yield audio_chunk
-                        
-        except Exception as e:
-            logger.error(f"? Ultra-fast TTS error: {e}")
-            raise Exception(f"TTS generation failed: {e}")
-    
-    async def _generate_chunk_audio(self, chunk: str) -> AsyncGenerator[bytes, None]:
-        """Generate audio for a single chunk"""
-        try:
-            tts = edge_tts.Communicate(chunk, self.voice, rate=self.rate)
-            audio_data = b""
-            
-            async for tts_chunk in tts.stream():
-                if tts_chunk["type"] == "audio":
-                    audio_data += tts_chunk["data"]
-            
-            if audio_data:
-                yield audio_data
-            else:
-                raise Exception("EdgeTTS returned empty audio data")
-                
-        except Exception as e:
-            logger.error(f"? Chunk TTS error: {e}")
-            raise Exception(f"TTS chunk generation failed: {e}")
-
 # =============================================================================
 # CONVERSATION MANAGEMENT
 # =============================================================================
@@ -588,11 +512,26 @@ class OptimizedConversationManager:
         return response
     
     async def _generate_technical_response(self, session_data: SessionData, user_input: str) -> str:
-        """Generate dynamic technical responses using fragment-based logic"""
+        """Generate dynamic technical responses - FIXED TO SINGLE API CALL"""
         if not session_data.summary_manager:
             raise Exception("Fragment manager not initialized")
         
         fragment_manager = session_data.summary_manager
+        
+        # Check if test should continue FIRST
+        if not fragment_manager.should_continue_test():
+            session_data.current_stage = SessionStage.COMPLETE
+            conversation_summary = fragment_manager.get_progress_info()
+            
+            prompt = prompts.dynamic_session_completion(conversation_summary)
+            
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                self.client_manager.executor,
+                self._sync_openai_call,
+                prompt
+            )
+            return response
         
         # Get current concept information
         current_concept_title, current_concept_content = fragment_manager.get_active_fragment()
@@ -606,7 +545,7 @@ class OptimizedConversationManager:
         # Get questions count for current concept
         questions_for_concept = session_data.concept_question_counts.get(current_concept_title, 0)
         
-        # Generate follow-up using dynamic prompt system
+        # SINGLE API CALL ONLY - No more double calls
         prompt = prompts.dynamic_followup_response(
             current_concept_title=current_concept_title,
             concept_content=current_concept_content,
@@ -624,86 +563,30 @@ class OptimizedConversationManager:
             prompt
         )
         
-        # Parse the LLM response
-        parsed_response = self._parse_llm_response(response, ["UNDERSTANDING", "CONCEPT", "QUESTION"])
+        # SIMPLE parsing - no additional API calls
+        lines = response.strip().split('\n')
+        understanding = "NO"
+        concept = current_concept_title
+        actual_response = response
         
-        understanding = parsed_response.get("understanding", "NO").upper()
-        next_question = parsed_response.get("question", "Can you elaborate more on that?")
-        suggested_concept = parsed_response.get("concept", current_concept_title)
+        for line in lines:
+            if line.upper().startswith("UNDERSTANDING:"):
+                understanding = line.split(":", 1)[1].strip().upper()
+            elif line.upper().startswith("CONCEPT:"):
+                concept = line.split(":", 1)[1].strip()
+            elif line.upper().startswith("QUESTION:"):
+                actual_response = line.split(":", 1)[1].strip()
         
-        # Determine if this is a follow-up question (staying with same concept)
-        is_followup = (understanding == "NO" and suggested_concept == current_concept_title)
-        
-        # If LLM suggests moving or understanding is complete, get next fragment
-        if understanding == "YES" or suggested_concept != current_concept_title:
-            # Check if we should continue the test
-            if not fragment_manager.should_continue_test():
-                session_data.current_stage = SessionStage.COMPLETE
-                conversation_summary = fragment_manager.get_progress_info()
-                
-                prompt = prompts.dynamic_session_completion(conversation_summary)
-                
-                loop = asyncio.get_event_loop()
-                response = await loop.run_in_executor(
-                    self.client_manager.executor,
-                    self._sync_openai_call,
-                    prompt
-                )
-                return response
-            
-            # Get next concept
-            next_concept_title, next_concept_content = fragment_manager.get_active_fragment()
-            concept_for_question = next_concept_title
-            
-            # Generate transition message
-            progress_info = {
-                'current_concept': next_concept_title,
-                'total_concepts': len(session_data.fragment_keys)
-            }
-            
-            prompt = prompts.dynamic_concept_transition(user_input, next_question, progress_info)
-            
-            loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(
-                self.client_manager.executor,
-                self._sync_openai_call,
-                prompt
-            )
-            
-            # Add the question to the session
-            fragment_manager.add_question(response, concept_for_question, is_followup)
-            
-            return response
+        # Simple decision logic
+        if understanding == "YES":
+            # Move to next concept
+            next_concept_title, _ = fragment_manager.get_active_fragment()
+            fragment_manager.add_question(actual_response, next_concept_title, False)
         else:
-            # Stay with current concept, generate a natural transition
-            concept_for_question = current_concept_title
-            
-            # Get recent conversation context to make the response more natural
-            context = self._build_conversation_context(session_data)
-            session_state = {
-                'questions_asked': session_data.question_index,
-                'current_topic': current_concept_title
-            }
-            
-            # Use the dedicated prompt for natural technical responses
-            prompt = prompts.dynamic_technical_response(
-                context=context,
-                user_input=user_input,
-                next_question=next_question,
-                session_state=session_state
-            )
-            
-            loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(
-                self.client_manager.executor,
-                self._sync_openai_call,
-                prompt
-            )
-            
-            # Add the full response (acknowledgement + question) to the session
-            fragment_manager.add_question(response, concept_for_question, is_followup)
-            
-            return response
+            # Stay with current concept  
+            fragment_manager.add_question(actual_response, current_concept_title, True)
+        
+        return actual_response
     
     def _parse_llm_response(self, response: str, keys: List[str]) -> Dict[str, str]:
         """Parse structured responses from the LLM"""

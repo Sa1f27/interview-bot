@@ -1,341 +1,285 @@
 """
-Dynamic Prompt templates for Daily Standup application
-Generates realistic, contextual responses instead of static templates
+Creative Varied Prompts for Daily Standup
+Makes LLM be creative and different every single time
 """
 
 from typing import List, Dict
 from .config import config
 
 class Prompts:
-    """Dynamic prompt repository for realistic, context-aware responses"""
+    """Creative prompts that force LLM to be original and varied"""
     
     @staticmethod
     def summary_splitting_prompt(summary: str) -> str:
-        """Dynamic prompt for splitting summary into semantic chunks"""
-        return f"""You are a technical interviewer preparing questions from a project summary.
+        """Get LLM to think creatively about topics"""
+        return f"""You're a curious person who wants to chat about this project work. Break it into {config.SUMMARY_CHUNKS} interesting topics.
 
-TASK: Break this technical summary into {config.SUMMARY_CHUNKS} distinct, meaningful topics for interview questions.
-
-SUMMARY:
+PROJECT WORK:
 {summary}
 
-REQUIREMENTS:
-- Each chunk should focus on ONE specific technical aspect
-- Chunks should be 2-4 sentences covering distinct topics
-- Avoid overlap between chunks
-- Ensure technical depth for meaningful questions
+Think like you're genuinely interested:
+- What sounds cool or challenging?
+- What would you be curious about?
+- What technical stuff catches your attention?
+- What problems or solutions interest you?
 
-FORMAT: Return chunks separated by '###CHUNK###' markers only."""
+Give me topics separated by '###CHUNK###' only."""
 
     @staticmethod  
     def base_questions_prompt(chunk_content: str) -> str:
-        """Dynamic prompt for generating contextual base questions"""
-        return f"""You are an experienced technical interviewer conducting a standup session.
+        """Make LLM ask unique questions each time"""
+        return f"""You just heard about this work from your teammate:
 
-CONTENT TO EXPLORE:
 {chunk_content}
 
-TASK: Generate exactly {config.BASE_QUESTIONS_PER_CHUNK} insightful questions that would naturally arise in a real standup conversation about this content.
+You're genuinely curious and want to know more. Ask {config.BASE_QUESTIONS_PER_CHUNK} questions that show real interest.
 
-QUESTION STYLE:
-- Conversational and natural (not robotic)
-- Encourage detailed technical explanations
-- Focus on implementation details, challenges, and decisions
-- Ask about specific aspects mentioned in the content
+BE CREATIVE - don't use boring standard questions. Make each question unique and natural. Think about what you'd really want to know if this was your friend's project.
 
-FORMAT: Return only the questions, numbered 1. 2. etc."""
+Mix different types:
+- Some about the technical details
+- Some about challenges they faced  
+- Some about what they learned
+- Some about what's coming next
+
+Just give numbered questions. Be original."""
 
     @staticmethod
     def followup_analysis_prompt(chunk_content: str, user_response: str) -> str:
-        """Dynamic prompt for analyzing responses and generating natural follow-ups"""
-        return f"""You are conducting a real-time standup conversation. Analyze the user's response to determine if natural follow-up questions would help get more useful information.
+        """Make LLM decide naturally about follow-ups"""
+        return f"""You asked about: "{chunk_content[:100]}..."
 
-TOPIC CONTEXT: "{chunk_content[:100]}..."
-USER'S RESPONSE: "{user_response}"
+They replied: "{user_response}"
 
-ANALYSIS CRITERIA:
-- Is the response too brief or vague?
-- Did they mention something interesting that deserves exploration?
-- Are there implementation details missing?
-- Would a real interviewer naturally ask for clarification?
+Put yourself in a real conversation. What would you naturally do?
 
-RESPONSE OPTIONS:
-1. If the response is complete and clear → respond with: COMPLETE
-2. If natural follow-ups would add value → generate 1-2 specific follow-up questions
+If you're satisfied with their answer → say: COMPLETE
+If you're still curious and would naturally ask more → create 1-2 follow-up questions
 
-FORMAT for follow-ups:
-FOLLOWUP: [Natural, conversational question]
-FOLLOWUP: [Another question if needed]"""
+Be creative with follow-ups. Don't use standard boring questions. Think about what a real curious person would ask based on what they actually said.
+
+FORMAT:
+FOLLOWUP: [Your creative question]
+FOLLOWUP: [Another creative one if needed]"""
 
     @staticmethod
     def dynamic_greeting_response(user_input: str, greeting_count: int, context: Dict = None) -> str:
-        """Dynamic greeting responses that feel natural and varied"""
+        """Make greetings feel real and different each time"""
         conversation_history = context.get('recent_exchanges', []) if context else []
         is_final_greeting = (greeting_count + 1) >= config.GREETING_EXCHANGES
 
-        transition_instruction = (
-            "This is the final greeting. Your response MUST smoothly transition to the technical questions. "
-            "For example: 'That sounds good. Alright, let's dive into the technical topics.' or 'Great, thanks for sharing. Ready to start?'"
-        ) if is_final_greeting else (
-            "This is a warm-up chat. Keep the conversation light and focused on what the user said."
-        )
+        if is_final_greeting:
+            next_instruction = "Now smoothly move to asking about their work. Be natural about the transition - like how you'd really shift topics with a friend."
+        else:
+            next_instruction = "Just have friendly small talk. Respond to what they said like a real person would."
 
-        return f"""You are an AI assistant starting a technical standup. Your goal is to have a brief, friendly chat before moving to the main technical questions.
+        return f"""You're chatting with a teammate at work. They just said: "{user_input}"
 
-**SESSION CONTEXT:**
-- This is greeting exchange #{greeting_count + 1} of {config.GREETING_EXCHANGES}.
-- The user just said: "{user_input}"
-- Recent chat history: {conversation_history[-2:] if conversation_history else "None"}
+Chat so far: {conversation_history[-2:] if conversation_history else "Just started"}
 
-**YOUR TASK:**
-1.  Respond warmly and naturally to the user's message.
-2.  **Do NOT ask what they want to talk about.** The technical topics are already set and you will begin asking about them after the greetings are over.
-3.  {transition_instruction}
+{next_instruction}
 
-**RESPONSE STYLE:**
-- Keep it brief: 1-2 sentences, max 25 words.
-- Sound human and encouraging, not robotic."""
+BE CREATIVE AND VARIED:
+- Don't use the same response style as before
+- React to what they actually said
+- Sound like a real person, not a template
+- Keep it short (10-15 words)
+- Make it feel genuine
+
+Every response should sound different. Be original."""
 
     @staticmethod
     def dynamic_technical_response(context: str, user_input: str, next_question: str, session_state: Dict = None) -> str:
-        """Dynamic technical responses that create natural conversation flow"""
+        """Make transitions creative and natural"""
         
-        return f"""You are conducting a natural standup conversation. Create a smooth, realistic transition between the user's response and your next question.
+        return f"""You're having a good work chat. Here's what happened:
 
-RECENT CONVERSATION:
 {context}
 
-USER JUST SAID: "{user_input}"
-YOUR NEXT QUESTION: "{next_question}"
+They just said: "{user_input}"
+You want to ask: "{next_question}"
 
-SESSION CONTEXT:
-- Questions asked so far: {session_state.get('questions_asked', 0) if session_state else 0}
-- Current topic area: {session_state.get('current_topic', 'technical work') if session_state else 'technical work'}
+Connect their response to your question in a CREATIVE way. Every transition should be different.
 
-CONVERSATION REQUIREMENTS:
-1. Acknowledge their response naturally (show you listened)
-2. Create smooth transition to next question
-3. Vary your acknowledgment style (don't repeat "great", "interesting", etc.)
-4. Sound like a real person, not a script
+BE ORIGINAL:
+- Don't use boring standard phrases
+- Reference something specific they mentioned
+- Make the connection feel natural
+- Sound interested in their work
+- Keep it short (max 20 words)
 
-RESPONSE STYLE: Brief acknowledgment + natural transition + question (max 40 words)"""
+Make each transition unique. Think like a real curious colleague."""
 
     @staticmethod
     def dynamic_followup_response(current_concept_title: str, concept_content: str, 
                                  history: str, previous_question: str, user_response: str,
                                  current_question_number: int, questions_for_concept: int) -> str:
-        """Dynamic follow-up generation based on fragment content and user response"""
+        """FIXED prompt - normal English with bullets for easy streaming"""
         
-        return f"""You are a supportive voice-based interviewer conducting a technical daily standup.
+        return f"""You're a friendly team lead having standup chat with your team member. Keep it normal and conversational.
 
-**Current Concept Fragment**
-Title: {current_concept_title}
-Content:
-{concept_content}
+**Topic**: {current_concept_title}
+**They said**: "{user_response}"
+**Your last question**: "{previous_question}"
 
-**Conversation Context**
-Last Question: {previous_question}
-Student's Response: {user_response}
-Recent Q&A History (Only this concept):
-{history}
-Question Number: {current_question_number}
-Questions Asked for This Concept: {questions_for_concept}
+**RULES:**
+1. Talk like a NORMAL person - no weird fancy phrases
+2. Use SIMPLE English that sounds natural
+3. Keep responses SHORT - max 15-20 words each
+4. Sound interested but not fake
+5. Be different each time but stay normal
 
----
+**RESPONSE STYLE**: 
+- Normal conversational English
+- Show you're listening to what they said
+- Ask good follow-up questions
+- Don't use weird phrases like "data stew" or "sentence acrobatics"
+- Sound like a real colleague, not a poet
 
-**Instructions**
+**TASK**: 
+1. Decide if their answer is good enough (YES/NO)
+2. Give ONE natural response with next question
 
-1. Focus only on the current concept. Do NOT bring in prior concepts or previous conversation context.
-
-2. Response Handling Logic:
-- ✅ If the response is clear or reasonably accurate (even if brief):
-    - Give supportive feedback.
-    - Then either:
-    a. Ask the next main question for this concept
-    b. OR mark UNDERSTANDING as YES to proceed to next concept
-    c. OR ask one unique follow-up only if the answer is interesting
-
-- ⚠️ If the response is short, vague, or unclear:
-    - Retry **once only** using simpler phrasing.
-    - If still unclear in next round, lower difficulty or move to next concept.
-    - Do NOT rephrase the same question multiple times.
-
----
-
-**Tone & Style**
-- Keep it natural, simple, friendly
-- Avoid repetition
-- Use everyday English
-
----
-
-**Output Format (strict)**
-UNDERSTANDING: [YES | NO]
+**FORMAT** (EXACTLY like this):
+UNDERSTANDING: [YES or NO]
 CONCEPT: [{current_concept_title}]
-QUESTION: [Next question to ask]"""
+QUESTION: [Your normal, short response with next question - max 20 words]
+
+Keep it simple, natural, and conversational. No weird creative phrases."""
 
     @staticmethod
     def dynamic_concept_transition(user_response: str, next_question: str, progress_info: Dict) -> str:
-        """Dynamic transitions between concepts in fragment system"""
+        """Creative topic transitions"""
         
-        return f"""You're smoothly transitioning to a new concept in your standup conversation.
+        return f"""You're moving to a new topic in your chat.
 
-USER'S LAST RESPONSE: "{user_response}"
-NEXT CONCEPT: "{progress_info.get('current_concept', 'next topic')}"
-NEXT QUESTION: "{next_question}"
+**They said**: "{user_response}"
+**New topic**: "{progress_info.get('current_concept', 'next thing')}"
+**Next question**: "{next_question}"
 
-TASK: Create a natural transition that:
-1. Briefly acknowledges their previous response
-2. Signals a topic shift naturally  
-3. Introduces the new question smoothly
+**BE CREATIVE**: Make this transition feel natural and different. Don't use boring standard phrases.
 
-TRANSITION STYLE: Sound like you're naturally moving the conversation forward, not following a script.
+Think about:
+- What they just told you
+- How to smoothly shift topics
+- How a real person would change subjects
 
-AVOID: "Great insights! Now let me ask about..." (too repetitive)
-USE: Natural conversation patterns that real people use
+Make it feel like a real conversation where you're genuinely moving from one interesting topic to another.
 
-RESPONSE: 1-2 sentences + question (max 35 words)"""
+Max 20 words. Be original every time."""
 
     @staticmethod
     def dynamic_fragment_evaluation(concepts_covered: List[str], conversation_exchanges: List[Dict],
                                    session_stats: Dict) -> str:
-        """Dynamic evaluation based on fragment coverage and conversation quality"""
+        """Creative evaluation like a real manager"""
         
         concepts_text = "\n".join([f"- {concept}" for concept in concepts_covered])
         
-        # Create conversation summary
         conversation_summary = []
-        for exchange in conversation_exchanges[-8:]:  # Last 8 exchanges
-            q_type = " (Follow-up)" if exchange.get('is_followup') else " (Main)"
+        for exchange in conversation_exchanges[-6:]:
             conversation_summary.append(
-                f"Concept: {exchange['concept']}{q_type}\n"
-                f"Q: {exchange['ai_message'][:100]}...\n"
-                f"A: {exchange['user_response'][:100]}...\n"
+                f"Q: {exchange['ai_message'][:80]}...\n"
+                f"A: {exchange['user_response'][:80]}...\n"
             )
         
         conversation_text = "\n".join(conversation_summary)
         
-        return f"""You are evaluating a student's performance in a fragment-based daily standup covering multiple technical concepts.
+        return f"""You're a team lead writing feedback for your team member after a good standup chat.
 
-**COVERAGE ANALYTICS:**
-- Total Concepts Available: {session_stats['total_concepts']}
-- Concepts Covered: {session_stats['concepts_covered']} ({session_stats['coverage_percentage']}%)
-- Main Questions: {session_stats['main_questions']}
-- Follow-up Questions: {session_stats['followup_questions']}
-- Session Duration: {session_stats['duration_minutes']} minutes
+**THEIR PERFORMANCE:**
+- Topics covered: {session_stats['concepts_covered']}/{session_stats['total_concepts']} ({session_stats['coverage_percentage']}%)
+- Main questions: {session_stats['main_questions']}
+- Follow-ups: {session_stats['followup_questions']}  
+- Time: {session_stats['duration_minutes']} minutes
 
-**CONCEPTS COVERED:**
+**TOPICS THEY TALKED ABOUT:**
 {concepts_text}
 
-**CONVERSATION SAMPLE:**
+**SAMPLE CONVERSATION:**
 {conversation_text}
 
-**DETAILED QUESTION DISTRIBUTION:**
-{session_stats['questions_per_concept']}
+**WRITE CREATIVE FEEDBACK**: Don't use boring template language. Write like you actually care about helping them grow.
 
-Generate a comprehensive but concise evaluation with these sections:
-1. **Coverage Analysis**: How well they covered the available concepts
-2. **Response Quality**: Depth and clarity of their technical explanations  
-3. **Key Strengths**: 2-3 specific positive points from their responses
-4. **Areas for Growth**: 1-2 constructive suggestions
-5. **Final Assessment**: Overall performance summary
+Cover these areas creatively:
+1. **Coverage**: How well they covered different topics
+2. **Communication**: How clearly they explained things
+3. **Strengths**: What they did really well (be specific)
+4. **Growth areas**: What they can improve (be helpful)
+5. **Overall**: Your honest assessment
 
-**SCORING CRITERIA:**
-- Concept Coverage (30%): Breadth of topics discussed
-- Technical Depth (25%): Quality of explanations and details
-- Communication (25%): Clarity and organization of responses
-- Engagement (20%): Responsiveness to questions and follow-ups
+**STYLE**: 
+- Write like a real manager who cares
+- Use simple English
+- Be encouraging but honest
+- Make it personal, not generic
+- Keep under 250 words
 
-Keep under 300 words, maintain supportive tone.
-Format final score as: Score: X/10"""
+End with: Score: X/10
 
-    @staticmethod
-    def dynamic_chunk_transition(user_response: str, next_question: str, progress_info: Dict) -> str:
-        """Dynamic transitions between topic chunks that feel natural"""
-        
-        return f"""You're smoothly transitioning to a new topic in your standup conversation.
-
-USER'S LAST RESPONSE: "{user_response}"
-NEXT QUESTION: "{next_question}"
-PROGRESS: Moving to topic {progress_info.get('current_chunk', 0) + 1} of {progress_info.get('total_chunks', 0)}
-
-TASK: Create a natural transition that:
-1. Briefly acknowledges their previous response
-2. Signals a topic shift naturally
-3. Introduces the new question smoothly
-
-TRANSITION STYLE: Sound like you're naturally moving the conversation forward, not following a script.
-
-AVOID: "Great insights! Now let me ask about..." (too repetitive)
-USE: Natural conversation patterns that real people use
-
-RESPONSE: 1-2 sentences + question (max 35 words)"""
+Be creative and genuine in your feedback."""
 
     @staticmethod
     def dynamic_session_completion(conversation_summary: Dict, user_final_response: str = None) -> str:
-        """Dynamic session completion based on actual conversation content"""
+        """End conversations creatively"""
         
         topics_discussed = conversation_summary.get('topics_covered', [])
         total_exchanges = conversation_summary.get('total_exchanges', 0)
         
-        return f"""You're naturally concluding a productive standup conversation.
+        return f"""You're ending a good standup chat with your teammate.
 
-CONVERSATION SUMMARY:
-- Topics discussed: {len(topics_discussed)} different areas
-- Total exchanges: {total_exchanges}
-- User's final response: "{user_final_response}" (if provided)
+**CHAT SUMMARY:**
+- Talked about: {len(topics_discussed)} different topics
+- Total questions: {total_exchanges}
+- Their final words: "{user_final_response}"
 
-TASK: Create a natural, appreciative conclusion that:
-1. Acknowledges the productive conversation
-2. References specific value from their sharing
-3. Sounds genuinely grateful, not scripted
+**BE CREATIVE**: End this naturally like a real conversation. Don't use boring standard endings.
 
-STYLE: Warm, professional, specific to this conversation
+Think about:
+- What you learned about their work
+- How the conversation went
+- How you'd really thank a teammate
 
-RESPONSE: 1-2 sentences that feel like a real conversation ending"""
+Make it genuine and different each time. Sound like you actually enjoyed the chat.
+
+Max 25 words. Be original."""
 
     @staticmethod
     def dynamic_clarification_request(context: Dict) -> str:
-        """Dynamic clarification requests that vary based on context"""
+        """Creative clarification requests"""
         
         attempts = context.get('clarification_attempts', 0)
-        last_audio_quality = context.get('audio_quality', 0.5)
         
-        return f"""You need to ask for clarification in a natural, varied way.
+        return f"""You need them to speak more clearly.
 
-CONTEXT:
-- Clarification attempts: {attempts}
-- Audio quality: {last_audio_quality}
+**SITUATION**: You've asked for clarity {attempts} times already.
 
-TASK: Ask for clarification in a way that:
-1. Varies from previous requests
-2. Stays encouraging and natural
-3. Doesn't make them feel bad about unclear audio
+**BE CREATIVE**: Ask for clarification in a different way each time. Don't use the same boring phrases.
 
-VARIATION LEVELS:
-- First time: Gentle and encouraging
-- Second time: More specific about what you need
-- Third time: Patient but direct
+Make it:
+- Natural and friendly
+- Different from previous attempts  
+- Not repetitive or annoying
+- Understanding and patient
 
-RESPONSE: One natural sentence asking for clarification"""
+One creative sentence. Make it feel real."""
 
     @staticmethod
     def dynamic_conclusion_response(user_input: str, session_context: Dict) -> str:
-        """Dynamic conclusion that references the actual conversation"""
+        """Creative final responses"""
         
-        return f"""You're responding to the user's final input and wrapping up naturally.
+        return f"""They just said: "{user_input}"
 
-USER'S FINAL WORDS: "{user_input}"
-SESSION HIGHLIGHTS: {session_context.get('key_topics', 'various technical topics')}
+You're wrapping up the chat about their work.
 
-TASK: Create a natural closing response that:
-1. Acknowledges what they just said
-2. Thanks them specifically for the conversation
-3. Confirms their input has value
+**BE CREATIVE**: Respond to what they said and end naturally. Don't use boring standard endings.
 
-STYLE: Natural, appreciative, like ending a real conversation with a colleague
+Make it:
+- Personal to what they shared
+- Appreciative of their time
+- Natural like a real conversation ending
+- Unique and genuine
 
-RESPONSE: 1-2 sentences that feel genuine and conversational"""
+Max 20 words. Be original every time."""
 
-# Global dynamic prompts instance
+# Global prompts instance  
 prompts = Prompts()

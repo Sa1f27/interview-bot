@@ -11,10 +11,10 @@ from .ai_services import (
     SessionStage,
     SummaryManager,
     OptimizedAudioProcessor,
-    UltraFastTTSProcessor,
     OptimizedConversationManager,
     shared_clients
 )
+from .tts_processor import UltraFastTTSProcessor
 from .prompts import prompts
 
 __all__ = [
