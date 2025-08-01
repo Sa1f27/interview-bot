@@ -1,25 +1,25 @@
 
-# 🚀 FastAPI Multi-Module Interview & Testing System
+# ?? FastAPI Multi-Module Interview & Testing System
 
 A comprehensive AI-powered platform featuring voice-based interviews, mock tests, and daily standups. Built with FastAPI, MongoDB, LangChain, and OpenAI/Groq APIs, this system provides a complete solution for technical assessments, adaptive testing, and real-time evaluation.
 
 ---
 
-## 🌟 Features
+## ?? Features
 
-### 🎤 Daily Standup Module
+### ?? Daily Standup Module
 - Voice-based adaptive questioning
 - Whisper transcription (via Groq API)
 - Text-to-speech feedback (Edge TTS)
 - Real-time evaluation, silence detection
 - PDF summary export
 
-### 📝 Weekend Mock Test Module
+### ?? Weekend Mock Test Module
 - Developer & Non-developer test modes
 - Code questions, MCQs, adaptive logic
 - PDF export and scoring analytics
 
-### 💼 Weekly Interview Module
+### ?? Weekly Interview Module
 - 3-round AI interview (Tech, Comm, HR)
 - Realistic voice interaction
 - Progressive difficulty & evaluation
@@ -27,33 +27,33 @@ A comprehensive AI-powered platform featuring voice-based interviews, mock tests
 
 ---
 
-## 🏗️ Project Structure
+## ??? Project Structure
 
 ```
 
-├── main.py                  # FastAPI main app
-├── requirements.txt
-├── Dockerfile
-├── docker-compose.yml
-├── .env                     # API keys
-├── yolo\_model/
-│   └── interview\_monitor.py
-├── static/index.html        # Landing UI
-├── daily\_standup/
-│   ├── main.py
-│   └── index.html
-├── weekend\_mocktest/
-│   ├── main.py
-│   └── frontend/index.html
-└── weekly\_interview/
-├── main.py
-└── frontend/index.html
++-- main.py                  # FastAPI main app
++-- requirements.txt
++-- Dockerfile
++-- docker-compose.yml
++-- .env                     # API keys
++-- yolo\_model/
+�   +-- interview\_monitor.py
++-- static/index.html        # Landing UI
++-- daily\_standup/
+�   +-- main.py
+�   +-- index.html
++-- weekend\_mocktest/
+�   +-- main.py
+�   +-- frontend/index.html
++-- weekly\_interview/
++-- main.py
++-- frontend/index.html
 
 ````
 
 ---
 
-## ⚙️ Tech Stack
+## ?? Tech Stack
 
 **Backend**
 - FastAPI, MongoDB, LangChain
@@ -70,7 +70,7 @@ A comprehensive AI-powered platform featuring voice-based interviews, mock tests
 
 ---
 
-## 📋 Prerequisites
+## ?? Prerequisites
 
 - Python 3.8+ (Windows/Linux)
 - MongoDB (local/cloud)
@@ -80,27 +80,20 @@ A comprehensive AI-powered platform featuring voice-based interviews, mock tests
 
 ---
 
-## 💻 Setup Options
+## ??? Setup (Linux)
 
-### 🅰️ Manual Setup (Recommended for Dev)
+### ? One-Step Script-Based Setup (Recommended)
 
 ```bash
-# Clone
 git clone https://github.com/Sa1f27/Edu-app.git
 cd Edu-app
 
-# Create virtual env
-python -m venv venv
-venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-pip install torch==2.6.0+cu126 torchvision==0.21.0+cu126 torchaudio==2.6.0+cu126 --index-url https://download.pytorch.org/whl/cu126
-
-# Set environment
-echo OPENAI_API_KEY=your_key >> .env
-echo GROQ_API_KEY=your_key >> .env
+sudo apt install dos2unix
+dos2unix setup.sh
+chmod +x setup.sh
+./setup.sh
 ````
+## for windows 
 
 **Install FFmpeg**
 
@@ -121,7 +114,7 @@ Open browser: [http://localhost:8070](http://localhost:8070)
 
 ---
 
-### 🅱️ Docker Setup (No Python Needed)
+### ??? Docker Setup (No Python Needed)
 
 **Steps:**
 
@@ -143,7 +136,7 @@ Open: [http://localhost:8070](http://localhost:8070)
 
 ---
 
-## 🐳 Docker Files
+## ?? Docker Files
 
 **Dockerfile**
 
@@ -185,7 +178,7 @@ volumes:
 
 ---
 
-## 🛠️ APIs (Selected)
+## ??? APIs (Selected)
 
 **Daily Standup**
 
@@ -206,7 +199,7 @@ volumes:
 
 ---
 
-## 📊 Usage Flow
+## ?? Usage Flow
 
 ### Daily Standup
 
@@ -222,13 +215,13 @@ volumes:
 
 ### Interview
 
-1. Tech → Comm → HR rounds
+1. Tech ? Comm ? HR rounds
 2. Voice interaction throughout
 3. Final evaluation generated
 
 ---
 
-## 🔍 Troubleshooting
+## ?? Troubleshooting
 
 | Issue              | Solution                                        |                                             |
 | ------------------ | ----------------------------------------------- | ------------------------------------------- |
@@ -239,7 +232,7 @@ volumes:
 
 ---
 
-## 🧪 Performance & Security
+## ?? Performance & Security
 
 * Audio auto-deletes after 1 hour
 * Sessions expire after 2 hrs
@@ -248,12 +241,11 @@ volumes:
 
 ---
 
-## 📈 Future Add-ons
+## ?? Future Add-ons
 
-* ✅ JWT Authentication
-* ✅ Admin dashboard with results
-* ⏳ AI candidate scoring with LLM memory
-* ⏳ Leaderboard & job alerts integration
+* ? JWT Authentication
+* ? Admin dashboard with results
+* ? AI candidate scoring with LLM memory
+* ? Leaderboard & job alerts integration
 
 ---
-

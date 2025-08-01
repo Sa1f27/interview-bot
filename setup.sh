@@ -36,7 +36,7 @@ mkdir -p daily_standup/audio \
          certs \
          env
 
-# === 5. Generate self-signed SSL certs as cert.pem / key.pem ===
+# === 5. Generate self-signed SSL certs as cert.pem / key.pem and in TMPS/certs ===
 CERT_PATH="./certs"
 if [ ! -f "$CERT_PATH/cert.pem" ] || [ ! -f "$CERT_PATH/key.pem" ]; then
   echo "?? Generating self-signed SSL certificates..."
@@ -48,6 +48,26 @@ if [ ! -f "$CERT_PATH/cert.pem" ] || [ ! -f "$CERT_PATH/key.pem" ]; then
 else
   echo "?? SSL certificates already exist. Skipping generation."
 fi
+
+# === 5. Generate self-signed SSL certs  ===
+echo "?? Creating TMPS/certs and generating SSL certificates there..."
+
+cd TMPS/
+mkdir -p certs
+cd certs
+
+if [ ! -f "cert.pem" ] || [ ! -f "key.pem" ]; then
+  echo "?? Generating self-signed SSL certificates in TMPS/certs..."
+  openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+    -keyout key.pem \
+    -out cert.pem \
+    -subj "/C=IN/ST=TS/L=Hyderabad/O=Lanciere/OU=Dev/CN=localhost"
+  echo "? Certificates created: TMPS/certs/cert.pem and key.pem"
+else
+  echo "?? Certs already exist in TMPS/certs. Skipping generation."
+fi
+
+cd ../../  # Go back to project root
 
 # === 6. Check if ports 8070 and 5173 are available ===
 echo "?? Checking ports 8070 and 5173..."
@@ -69,7 +89,7 @@ if [ ! -f "$ENV_PATH" ]; then
 OPENAI_API_KEY=your-openai-api-key
 GROQ_API_KEY=your-groq-api-key
 EOL
-  echo "? .env file created at $ENV_PATH — Please edit it and add your real keys."
+  echo "? .env file created at $ENV_PATH ? Please edit it and add your real keys."
 else
   echo "?? .env file already exists. Skipping creation."
 fi
