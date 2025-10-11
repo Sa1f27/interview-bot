@@ -3,20 +3,22 @@ class VadProcessor extends AudioWorkletProcessor {
         super();
         // Voice activity detection parameters
         const opts = options.processorOptions || {};
-        this.voiceStopDelayMs = opts.voiceStopDelay || 2000; // 2 seconds default
-        this.speakingThreshold = opts.speakingThreshold || 0.02;
-        this.minSpeakingDuration = opts.minSpeakingDuration || 300; // Minimum 300ms of speech
+        this.voiceStopDelayMs = opts.voiceStopDelay || 1500; // Reduced to 1.5 seconds
+        this.speakingThreshold = opts.speakingThreshold || 0.04; // Increased threshold to ignore background noise
+        this.minSpeakingDuration = opts.minSpeakingDuration || 400; // Reduced minimum duration
+        this.maxRecordingDuration = opts.maxRecordingDuration || 8000; // Force stop after 8 seconds
         
         // State tracking
         this.isSpeaking = false;
         this.lastVoiceTime = 0;
         this.firstVoiceTime = 0;
         this.silenceStartTime = 0;
+        this.recordingStartTime = 0;
         this.frameCount = 0;
         
         // Smoothing parameters
         this.rmsHistory = [];
-        this.historySize = 5;
+        this.historySize = 3; // Reduced for faster response
         
         this.port.onmessage = (event) => {
             if (event.data.reset) {
@@ -30,6 +32,7 @@ class VadProcessor extends AudioWorkletProcessor {
         this.lastVoiceTime = 0;
         this.firstVoiceTime = 0;
         this.silenceStartTime = 0;
+        this.recordingStartTime = 0;
         this.rmsHistory = [];
     }
     
@@ -67,11 +70,31 @@ class VadProcessor extends AudioWorkletProcessor {
         this.frameCount++;
         const currentTimeMs = this.frameCount * (samples.length / sampleRate) * 1000;
         
+        // Initialize recording start time
+        if (this.recordingStartTime === 0) {
+            this.recordingStartTime = currentTimeMs;
+        }
+        
+        // FORCE STOP after max duration (8 seconds)
+        const recordingDuration = currentTimeMs - this.recordingStartTime;
+        if (recordingDuration >= this.maxRecordingDuration) {
+            if (this.isSpeaking) {
+                this.isSpeaking = false;
+                this.port.postMessage({ 
+                    speaking: false,
+                    reason: 'max_duration',
+                    duration: recordingDuration
+                });
+                this.reset();
+            }
+            return true;
+        }
+        
         // Calculate RMS (volume level)
         const rms = this.calculateRMS(samples);
         const smoothedRMS = this.getSmoothedRMS(rms);
         
-        // Detect voice activity
+        // Detect voice activity with higher threshold (less sensitive to noise)
         const isVoiceDetected = smoothedRMS > this.speakingThreshold;
         
         if (isVoiceDetected) {
@@ -102,7 +125,7 @@ class VadProcessor extends AudioWorkletProcessor {
                 const silenceDuration = currentTimeMs - this.silenceStartTime;
                 const speakingDuration = this.lastVoiceTime - this.firstVoiceTime;
                 
-                // Only stop if:
+                // Stop if:
                 // 1. Silence lasted long enough (voiceStopDelayMs)
                 // 2. User spoke for minimum duration (minSpeakingDuration)
                 if (silenceDuration >= this.voiceStopDelayMs && 
@@ -111,6 +134,7 @@ class VadProcessor extends AudioWorkletProcessor {
                     this.isSpeaking = false;
                     this.port.postMessage({ 
                         speaking: false,
+                        reason: 'silence',
                         duration: speakingDuration
                     });
                     this.reset();
