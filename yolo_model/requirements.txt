@@ -1,1 +1,0 @@
-# pip install --no-cache-dir --force-reinstall ultralytics onnxruntime-gpu numpy opencv-python

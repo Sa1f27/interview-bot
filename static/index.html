@@ -3,232 +3,286 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FastAPI Project Launcher</title>
+    <title>AI Interview</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
+            background-color: #f0f2f5;
+            color: #333;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+        .interview-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        .main-content {
+            flex-grow: 1;
+            display: flex;
+        }
+        .video-panel {
+            flex-grow: 1;
+            background-color: #fff;
             display: flex;
             align-items: center;
             justify-content: center;
-            color: #333;
-        }
-
-        .container {
-            background: rgba(255, 255, 255, 0.95);
-            padding: 3rem;
-            border-radius: 20px;
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
-            text-align: center;
-            max-width: 1200px;
-            width: 90%;
-            backdrop-filter: blur(10px);
-        }
-
-        h1 {
-            font-size: 2.5rem;
-            margin-bottom: 1rem;
-            background: linear-gradient(135deg, #667eea, #764ba2);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-
-        .subtitle {
-            font-size: 1.1rem;
-            color: #666;
-            margin-bottom: 3rem;
-            line-height: 1.6;
-        }
-
-        .modules-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 1.5rem;
-            margin-bottom: 2rem;
-        }
-
-        .module-card {
-            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-            border: none;
-            padding: 2rem;
-            border-radius: 15px;
-            text-decoration: none;
-            color: #333;
-            transition: all 0.3s ease;
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
-            cursor: pointer;
             position: relative;
-            overflow: hidden;
+            border-right: 1px solid #d1d5db;
         }
-
-        .module-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: -100%;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
-            transition: left 0.5s;
+        .transcript-panel {
+            width: 380px;
+            background-color: #f9fafb;
+            padding: 20px;
+            overflow-y: auto;
+            height: calc(100vh - 80px);
+            border-left: 1px solid #d1d5db;
         }
-
-        .module-card:hover::before {
-            left: 100%;
+        .control-bar {
+            height: 80px;
+            background-color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-top: 1px solid #d1d5db;
         }
-
-        .module-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 15px 30px rgba(0, 0, 0, 0.15);
+        .transcript-entry {
+            margin-bottom: 15px;
         }
-
-        .module-icon {
-            font-size: 2.5rem;
-            margin-bottom: 1rem;
-            display: block;
-        }
-
-        .module-title {
-            font-size: 1.3rem;
+        .transcript-entry .role {
             font-weight: 600;
-            margin-bottom: 0.5rem;
-            color: #333;
+            margin-bottom: 4px;
         }
-
-        .module-description {
-            font-size: 0.9rem;
-            color: #666;
-            line-height: 1.5;
+        .transcript-entry .text {
+            white-space: pre-wrap;
+            color: #555;
         }
-
-        .footer {
-            margin-top: 2rem;
-            padding-top: 2rem;
-            border-top: 1px solid #eee;
-            color: #888;
-            font-size: 0.9rem;
+        .ai-avatar {
+            width: 180px;
+            height: 180px;
+            position: relative;
         }
-
-        .health-indicator {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            background: #4CAF50;
-            color: white;
-            padding: 0.5rem 1rem;
-            border-radius: 20px;
-            font-size: 0.8rem;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        #statusIndicator {
+            position: absolute;
+            bottom: 15px;
+            right: 15px;
+            width: 25px;
+            height: 25px;
+            border-radius: 50%;
+            background-color: #6c757d;
+            border: 3px solid #fff;
         }
-
-        @media (max-width: 768px) {
-            .container {
-                padding: 2rem;
-                margin: 1rem;
-            }
-
-            .modules-grid {
-                grid-template-columns: 1fr;
-            }
-
-            h1 {
-                font-size: 2rem;
-            }
-
-            .module-card {
-                padding: 1.5rem;
-            }
-
-            .module-icon {
-                font-size: 2rem;
-            }
+        #statusIndicator.listening {
+            background-color: #dc3545;
+            animation: pulse 1.5s infinite;
         }
-
-        @media (max-width: 1024px) and (min-width: 769px) {
-            .modules-grid {
-                grid-template-columns: repeat(2, 1fr);
-            }
+        #statusIndicator.speaking {
+            background-color: #198754;
+        }
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.7); }
+            70% { box-shadow: 0 0 0 12px rgba(220, 53, 69, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0); }
+        }
+        #startBtn, #endBtn {
+            font-size: 1.1rem;
+            padding: 12px 24px;
+            border-radius: 8px;
         }
     </style>
 </head>
 <body>
-    <div class="health-indicator" id="healthIndicator">
-        ● System Online
-    </div>
-
-    <div class="container">
-        <h1>Choose a Module</h1>
-        <p class="subtitle">
-            Welcome to the FastAPI project launcher. Select a module below to access its features.
-        </p>
-
-        <div class="modules-grid">
-            <a href="/daily_standup" class="module-card">
-                <span class="module-icon">🎤</span>
-                <div class="module-title">Daily Standup</div>
-                <div class="module-description">Voice-based testing system with AI-powered questions and real-time evaluation</div>
-            </a>
-
-            <a href="/weekend_mocktest" class="module-card">
-                <span class="module-icon">📝</span>
-                <div class="module-title">Weekend Mock Test</div>
-                <div class="module-description">Comprehensive mock testing platform with adaptive questions for developers and non-developers</div>
-            </a>
-
-            <a href="/weekly_interview" class="module-card">
-                <span class="module-icon">💼</span>
-                <div class="module-title">Weekly Interview</div>
-                <div class="module-description">AI-powered interview system with technical, communication, and HR rounds</div>
-            </a>
+    <div class="interview-container">
+        <div class="main-content">
+            <div class="video-panel">
+                <div class="ai-avatar">
+                    <svg id="ai-avatar-svg" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                        <circle cx="50" cy="50" r="48" fill="#0d6efd"/>
+                        <path id="mouth" d="M 30 60 Q 50 70 70 60" stroke="white" stroke-width="3" fill="none" />
+                    </svg>
+                    <div id="statusIndicator" class="status-indicator"></div>
+                </div>
+            </div>
+            <div class="transcript-panel" id="transcriptPanel">
+                <!-- Transcript entries will be added here -->
+            </div>
         </div>
-
-        <div class="footer">
-            <p>FastAPI Multi-App Launcher | All modules are running independently</p>
+        <div class="control-bar">
+            <button id="startBtn" class="btn btn-primary">Start Interview</button>
+            <button id="endBtn" class="btn btn-danger d-none">End Interview</button>
         </div>
     </div>
 
     <script>
-        // Check health status
-        async function checkHealth() {
+        const startBtn = document.getElementById('startBtn');
+        const endBtn = document.getElementById('endBtn');
+        const transcriptPanel = document.getElementById('transcriptPanel');
+        const statusIndicator = document.getElementById('statusIndicator');
+        const mouth = document.getElementById('mouth');
+
+        let testId = null;
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let audioContext;
+        let vadNode;
+
+        startBtn.addEventListener('click', startInterview);
+
+        function addTranscriptEntry(role, text) {
+            const entry = document.createElement('div');
+            entry.classList.add('transcript-entry');
+            const roleEl = document.createElement('div');
+            roleEl.classList.add('role');
+            roleEl.textContent = role;
+            const textEl = document.createElement('div');
+            textEl.classList.add('text');
+            textEl.textContent = text;
+            entry.appendChild(roleEl);
+            entry.appendChild(textEl);
+            transcriptPanel.appendChild(entry);
+            transcriptPanel.scrollTop = transcriptPanel.scrollHeight;
+        }
+
+        async function startInterview() {
+            startBtn.classList.add('d-none');
+            endBtn.addEventListener('click', endInterview, { once: true });
+            endBtn.classList.remove('d-none');
+            addTranscriptEntry('System', 'Starting interview...');
+
             try {
-                const response = await fetch('/healthz');
+                const response = await fetch('/start_test', { method: 'POST' });
                 const data = await response.json();
-                const indicator = document.getElementById('healthIndicator');
-                
-                if (data.status === 'ok') {
-                    indicator.style.background = '#4CAF50';
-                    indicator.textContent = '● System Online';
-                } else {
-                    indicator.style.background = '#f44336';
-                    indicator.textContent = '● System Error';
-                }
+                testId = data.test_id;
+
+                addTranscriptEntry('AI', data.question);
+                playAudio(data.audio_path, () => {
+                    startRecording();
+                });
+
             } catch (error) {
-                const indicator = document.getElementById('healthIndicator');
-                indicator.style.background = '#ff9800';
-                indicator.textContent = '● Connection Error';
+                console.error('Error starting interview:', error);
+                addTranscriptEntry('System', 'Error starting interview.');
             }
         }
 
-        // Check health on page load
-        checkHealth();
+        function endInterview() {
+            stopRecording();
+            addTranscriptEntry('System', 'Interview ended.');
+            startBtn.classList.remove('d-none');
+            endBtn.classList.add('d-none');
+            statusIndicator.className = 'status-indicator';
+            testId = null; // Reset testId
+        }
 
-        // Check health every 30 seconds
-        setInterval(checkHealth, 30000);
+        async function sendAudioAndGetResponse() {
+            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+            if (audioBlob.size === 0) {
+                console.log("No audio recorded, restarting listening.");
+                startRecording(); // If no audio, just start listening again
+                return;
+            }
 
-        // Add click tracking for analytics
-        document.querySelectorAll('.module-card').forEach(card => {
-            card.addEventListener('click', function(e) {
-                const moduleName = this.querySelector('.module-title').textContent;
-                console.log(`Navigating to: ${moduleName}`);
+            try {
+                const response = await fetch(`/interview/${testId}`, {
+                    method: 'POST',
+                    body: audioBlob
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Server responded with ${response.status}`);
+                }
+
+                const data = await response.json();
+                addTranscriptEntry('AI', data.text);
+                playAudio(data.audio_path, () => {
+                    data.ended ? endInterview() : startRecording();
+                });
+            } catch (error) {
+                console.error('Error during interview step:', error);
+                addTranscriptEntry('System', 'An error occurred. Please try again.');
+            }
+        }
+
+        function playAudio(audioPath, onEndedCallback) {
+            if (!audioPath) {
+                if (onEndedCallback) onEndedCallback();
+                return;
+            }
+            const audio = new Audio(audioPath);
+            audio.onended = () => {
+                statusIndicator.classList.remove('speaking');
+                animateMouth(false);
+                if (onEndedCallback) onEndedCallback();
+            };
+            audio.play();
+            animateMouth(true);
+        }
+
+        async function startRecording() {
+            if (mediaRecorder && mediaRecorder.state === 'recording') return;
+            if (!testId) return; // Don't start if interview has ended
+
+            statusIndicator.classList.remove('speaking');
+            statusIndicator.classList.add('listening');
+            addTranscriptEntry('System', 'Listening...');
+
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            
+            audioContext = new AudioContext();
+            await audioContext.audioWorklet.addModule('/static/vad-processor.js');
+            const microphone = audioContext.createMediaStreamSource(stream);
+            vadNode = new AudioWorkletNode(audioContext, 'vad-processor', {
+                processorOptions: {
+                    voiceStopDelay: 1500, // Increased delay to 1.5 seconds
+                    speakingThreshold: 0.05
+                }
             });
-        });
+
+            vadNode.port.onmessage = (event) => {
+                if (event.data.speaking === false) {
+                    stopRecording();
+                }
+            };
+
+            microphone.connect(vadNode);
+
+            mediaRecorder = new MediaRecorder(stream);
+            audioChunks = [];
+
+            mediaRecorder.ondataavailable = (event) => {
+                audioChunks.push(event.data);
+            };
+
+            mediaRecorder.onstop = () => {
+                sendAudioAndGetResponse();
+            };
+
+            mediaRecorder.start();
+        }
+
+        function stopRecording() {
+            if (mediaRecorder && mediaRecorder.state === 'recording') {
+                mediaRecorder.stop();
+            }
+            if (vadNode) {
+                vadNode.disconnect();
+                vadNode = null;
+            }
+            if (audioContext) {
+                audioContext.close();
+                audioContext = null;
+            }
+            statusIndicator.classList.remove('listening');
+            addTranscriptEntry('System', 'Processing...');
+        }
+
+        function animateMouth(speaking) {
+            if (speaking) {
+                mouth.setAttribute('d', 'M 30 60 Q 50 80 70 60');
+            } else {
+                mouth.setAttribute('d', 'M 30 60 Q 50 70 70 60');
+            }
+        }
+
     </script>
 </body>
 </html>
