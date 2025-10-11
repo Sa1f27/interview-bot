@@ -17,11 +17,13 @@ client = Groq(api_key=GROQ_API_KEY)
 INACTIVITY_TIMEOUT = 600
 TTS_SPEED = 1.15
 MAX_QUESTIONS = 6
+RESPONSE_TIMEOUT = 8  # seconds - move to next question if no valid response
 
 class Session:
-    def __init__(self, summary: str, voice: str):
+    def __init__(self, summary: str, voice: str, applicant_id: str):
         self.summary = summary
         self.voice = voice
+        self.applicant_id = applicant_id  # Store applicant ID
         self.conversation_log: List[Dict[str, str]] = []
         self.last_activity = time.time()
         self.question_index = 0
@@ -31,10 +33,10 @@ class TestManager:
     def __init__(self):
         self.tests: Dict[str, Session] = {}
 
-    def create_test(self, summary: str, voice: str) -> str:
+    def create_test(self, summary: str, voice: str, applicant_id: str) -> str:
         test_id = str(uuid.uuid4())
-        self.tests[test_id] = Session(summary, voice)
-        logger.info(f"Created test {test_id}")
+        self.tests[test_id] = Session(summary, voice, applicant_id)
+        logger.info(f"Created test {test_id} for applicant {applicant_id}")
         return test_id
 
     def get_test(self, test_id: str) -> Optional[Session]:

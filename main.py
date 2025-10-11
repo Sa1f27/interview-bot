@@ -5,8 +5,8 @@ from fastapi.middleware.cors import CORSMiddleware
 import os
 import logging
 
-from database import fetch_latest_applicant
-from interview import test_manager, llm_manager, audio_manager
+from database import fetch_latest_applicant, save_interview_summary
+from interview import test_manager, llm_manager, audio_manager, RESPONSE_TIMEOUT
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -48,7 +48,8 @@ async def start_test():
             raise HTTPException(status_code=404, detail="No applicant found with AI data")
 
         voice = audio_manager.get_random_voice()
-        test_id = test_manager.create_test(applicant['ai_data'], voice)
+        # Pass applicant ID to test manager
+        test_id = test_manager.create_test(applicant['ai_data'], voice, applicant['id'])
         
         initial_question = llm_manager.generate_initial_greeting(applicant['ai_data'])
         test_manager.add_entry(test_id, "assistant", initial_question)
@@ -59,7 +60,8 @@ async def start_test():
             "test_id": test_id,
             "question": initial_question,
             "audio_path": audio_path,
-            "applicant_name": applicant.get('name', 'Candidate')
+            "applicant_name": applicant.get('name', 'Candidate'),
+            "response_timeout": RESPONSE_TIMEOUT
         }
     except HTTPException:
         raise
@@ -82,22 +84,20 @@ async def interview_step(test_id: str, request: Request):
         
         audio_data = await request.body()
         
+        # Handle timeout - if no audio or very small audio, treat as timeout
         if not audio_data or len(audio_data) < 100:
-            return JSONResponse(
-                status_code=400,
-                content={"error": "No audio received. Please try again."}
-            )
-        
-        logger.info(f"Received {len(audio_data)} bytes")
-        
-        # Transcribe with Whisper
-        user_response = audio_manager.transcribe_audio(audio_data)
-        
-        if not user_response:
-            return JSONResponse(
-                status_code=400,
-                content={"error": "Could not transcribe. Please speak clearly."}
-            )
+            logger.info("⏱️ Timeout or no audio - moving to next question")
+            user_response = "[No response within time limit]"
+        else:
+            logger.info(f"Received {len(audio_data)} bytes")
+            
+            # Transcribe with Whisper
+            user_response = audio_manager.transcribe_audio(audio_data)
+            
+            # If transcription fails (noisy environment), move forward
+            if not user_response:
+                logger.info("⏱️ Transcription failed - moving to next question")
+                user_response = "[Unable to understand response - background noise]"
         
         logger.info(f"User: {user_response}")
         test_manager.add_entry(test_id, "user", user_response)
@@ -112,8 +112,17 @@ async def interview_step(test_id: str, request: Request):
             test.question_index >= 6
         )
         
+        # If interview ended, save evaluation to database
         if interview_ended:
             test_manager.mark_complete(test_id)
+            logger.info(f"📝 Interview ended. Generating evaluation...")
+            try:
+                evaluation = llm_manager.generate_evaluation(test)
+                save_success = save_interview_summary(test.applicant_id, evaluation)
+                if not save_success:
+                    logger.warning("Failed to save summary to database")
+            except Exception as e:
+                logger.error(f"Error saving evaluation: {e}")
         
         # Convert to speech
         audio_path = await audio_manager.text_to_speech(next_question, test.voice)
@@ -123,7 +132,8 @@ async def interview_step(test_id: str, request: Request):
             "audio_path": audio_path,
             "ended": interview_ended,
             "question_number": test.question_index,
-            "user_transcript": user_response
+            "user_transcript": user_response,
+            "response_timeout": RESPONSE_TIMEOUT
         }
 
     except ValueError as e:

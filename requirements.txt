@@ -4,3 +4,5 @@ edge-tts
 pydantic
 python-multipart
 websockets
+psycopg2-binary
+groq
