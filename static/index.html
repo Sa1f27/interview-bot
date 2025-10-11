@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,108 +8,160 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         body {
-            background-color: #f0f2f5;
-            color: #333;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
         }
+
         .interview-container {
             display: flex;
-            flex-direction: column;
             height: 100vh;
         }
-        .main-content {
-            flex-grow: 1;
-            display: flex;
-        }
+
         .video-panel {
-            flex-grow: 1;
-            background-color: #fff;
+            flex: 1;
             display: flex;
+            flex-direction: column;
             align-items: center;
             justify-content: center;
-            position: relative;
-            border-right: 1px solid #d1d5db;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 40px;
         }
+
         .transcript-panel {
-            width: 380px;
-            background-color: #f9fafb;
-            padding: 20px;
+            width: 400px;
+            background: white;
+            padding: 24px;
             overflow-y: auto;
-            height: calc(100vh - 80px);
-            border-left: 1px solid #d1d5db;
+            border-left: 2px solid #e5e7eb;
         }
-        .control-bar {
-            height: 80px;
-            background-color: #fff;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border-top: 1px solid #d1d5db;
-        }
-        .transcript-entry {
-            margin-bottom: 15px;
-        }
-        .transcript-entry .role {
-            font-weight: 600;
-            margin-bottom: 4px;
-        }
-        .transcript-entry .text {
-            white-space: pre-wrap;
-            color: #555;
-        }
+
         .ai-avatar {
-            width: 180px;
-            height: 180px;
+            width: 200px;
+            height: 200px;
             position: relative;
+            margin-bottom: 40px;
         }
+
         #statusIndicator {
             position: absolute;
-            bottom: 15px;
-            right: 15px;
-            width: 25px;
-            height: 25px;
+            bottom: 10px;
+            right: 10px;
+            width: 30px;
+            height: 30px;
             border-radius: 50%;
-            background-color: #6c757d;
-            border: 3px solid #fff;
+            background: #6c757d;
+            border: 4px solid white;
+            transition: all 0.3s;
         }
+
         #statusIndicator.listening {
-            background-color: #dc3545;
+            background: #dc3545;
             animation: pulse 1.5s infinite;
         }
+
         #statusIndicator.speaking {
-            background-color: #198754;
+            background: #28a745;
         }
+
         @keyframes pulse {
-            0% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.7); }
-            70% { box-shadow: 0 0 0 12px rgba(220, 53, 69, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0); }
+
+            0%,
+            100% {
+                box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.7);
+            }
+
+            50% {
+                box-shadow: 0 0 0 15px rgba(220, 53, 69, 0);
+            }
         }
-        #startBtn, #endBtn {
-            font-size: 1.1rem;
-            padding: 12px 24px;
+
+        .transcript-entry {
+            margin-bottom: 20px;
+            padding: 12px;
             border-radius: 8px;
+            background: #f8f9fa;
+        }
+
+        .transcript-entry.user {
+            background: #e3f2fd;
+        }
+
+        .transcript-entry .role {
+            font-weight: 600;
+            margin-bottom: 6px;
+            color: #495057;
+        }
+
+        .transcript-entry .text {
+            color: #212529;
+            line-height: 1.5;
+        }
+
+        .control-bar {
+            padding: 20px;
+            text-align: center;
+        }
+
+        #startBtn,
+        #endBtn {
+            padding: 14px 32px;
+            font-size: 1.1rem;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        #startBtn {
+            background: #0d6efd;
+            color: white;
+        }
+
+        #startBtn:hover {
+            background: #0b5ed7;
+        }
+
+        #endBtn {
+            background: #dc3545;
+            color: white;
+        }
+
+        .status-text {
+            margin-top: 20px;
+            font-size: 1.2rem;
+            color: #495057;
+            font-weight: 500;
+        }
+
+        .hidden {
+            display: none !important;
         }
     </style>
 </head>
+
 <body>
     <div class="interview-container">
-        <div class="main-content">
-            <div class="video-panel">
-                <div class="ai-avatar">
-                    <svg id="ai-avatar-svg" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-                        <circle cx="50" cy="50" r="48" fill="#0d6efd"/>
-                        <path id="mouth" d="M 30 60 Q 50 70 70 60" stroke="white" stroke-width="3" fill="none" />
-                    </svg>
-                    <div id="statusIndicator" class="status-indicator"></div>
-                </div>
+        <div class="video-panel">
+            <div class="ai-avatar">
+                <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="50" cy="50" r="48" fill="#0d6efd" />
+                    <circle cx="35" cy="40" r="5" fill="white" />
+                    <circle cx="65" cy="40" r="5" fill="white" />
+                    <path id="mouth" d="M 30 60 Q 50 70 70 60" stroke="white" stroke-width="3" fill="none" />
+                </svg>
+                <div id="statusIndicator"></div>
             </div>
-            <div class="transcript-panel" id="transcriptPanel">
-                <!-- Transcript entries will be added here -->
+            <div class="status-text" id="statusText">Ready to start</div>
+            <div class="control-bar">
+                <button id="startBtn">Start Interview</button>
+                <button id="endBtn" class="hidden">End Interview</button>
             </div>
         </div>
-        <div class="control-bar">
-            <button id="startBtn" class="btn btn-primary">Start Interview</button>
-            <button id="endBtn" class="btn btn-danger d-none">End Interview</button>
+        <div class="transcript-panel" id="transcriptPanel">
+            <h5 class="mb-3">Interview Transcript</h5>
         </div>
     </div>
 
@@ -117,149 +170,151 @@
         const endBtn = document.getElementById('endBtn');
         const transcriptPanel = document.getElementById('transcriptPanel');
         const statusIndicator = document.getElementById('statusIndicator');
+        const statusText = document.getElementById('statusText');
         const mouth = document.getElementById('mouth');
 
         let testId = null;
         let mediaRecorder = null;
         let audioChunks = [];
-        let audioContext;
-        let vadNode;
+        let audioContext = null;
+        let vadNode = null;
+        let isRecording = false;
+        let currentAudio = null;
 
         startBtn.addEventListener('click', startInterview);
+        endBtn.addEventListener('click', endInterview);
 
-        function addTranscriptEntry(role, text) {
+        function setStatus(text, indicator = '') {
+            statusText.textContent = text;
+            statusIndicator.className = indicator;
+        }
+
+        function addTranscript(role, text) {
             const entry = document.createElement('div');
-            entry.classList.add('transcript-entry');
-            const roleEl = document.createElement('div');
-            roleEl.classList.add('role');
-            roleEl.textContent = role;
-            const textEl = document.createElement('div');
-            textEl.classList.add('text');
-            textEl.textContent = text;
-            entry.appendChild(roleEl);
-            entry.appendChild(textEl);
+            entry.className = `transcript-entry ${role.toLowerCase()}`;
+            entry.innerHTML = `
+                <div class="role">${role}</div>
+                <div class="text">${text}</div>
+            `;
             transcriptPanel.appendChild(entry);
             transcriptPanel.scrollTop = transcriptPanel.scrollHeight;
         }
 
         async function startInterview() {
-            startBtn.classList.add('d-none');
-            endBtn.addEventListener('click', endInterview, { once: true });
-            endBtn.classList.remove('d-none');
-            addTranscriptEntry('System', 'Starting interview...');
+            startBtn.classList.add('hidden');
+            endBtn.classList.remove('hidden');
+            setStatus('Starting interview...', '');
 
             try {
                 const response = await fetch('/start_test', { method: 'POST' });
                 const data = await response.json();
                 testId = data.test_id;
 
-                addTranscriptEntry('AI', data.question);
+                addTranscript('AI', data.question);
                 playAudio(data.audio_path, () => {
                     startRecording();
                 });
-
             } catch (error) {
-                console.error('Error starting interview:', error);
-                addTranscriptEntry('System', 'Error starting interview.');
+                console.error('Start error:', error);
+                addTranscript('System', 'Error starting interview');
+                resetUI();
             }
         }
 
         function endInterview() {
             stopRecording();
-            addTranscriptEntry('System', 'Interview ended.');
-            startBtn.classList.remove('d-none');
-            endBtn.classList.add('d-none');
-            statusIndicator.className = 'status-indicator';
-            testId = null; // Reset testId
+            setStatus('Interview ended', '');
+            resetUI();
         }
 
-        async function sendAudioAndGetResponse() {
-            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-            if (audioBlob.size === 0) {
-                console.log("No audio recorded, restarting listening.");
-                startRecording(); // If no audio, just start listening again
-                return;
-            }
-
-            try {
-                const response = await fetch(`/interview/${testId}`, {
-                    method: 'POST',
-                    body: audioBlob
-                });
-
-                if (!response.ok) {
-                    throw new Error(`Server responded with ${response.status}`);
-                }
-
-                const data = await response.json();
-                addTranscriptEntry('AI', data.text);
-                playAudio(data.audio_path, () => {
-                    data.ended ? endInterview() : startRecording();
-                });
-            } catch (error) {
-                console.error('Error during interview step:', error);
-                addTranscriptEntry('System', 'An error occurred. Please try again.');
+        function resetUI() {
+            startBtn.classList.remove('hidden');
+            endBtn.classList.add('hidden');
+            testId = null;
+            if (currentAudio) {
+                currentAudio.pause();
+                currentAudio = null;
             }
         }
 
-        function playAudio(audioPath, onEndedCallback) {
+        function playAudio(audioPath, callback) {
             if (!audioPath) {
-                if (onEndedCallback) onEndedCallback();
+                if (callback) callback();
                 return;
             }
-            const audio = new Audio(audioPath);
-            audio.onended = () => {
-                statusIndicator.classList.remove('speaking');
-                animateMouth(false);
-                if (onEndedCallback) onEndedCallback();
+
+            setStatus('AI is speaking...', 'speaking');
+            mouth.setAttribute('d', 'M 30 60 Q 50 75 70 60');
+
+            currentAudio = new Audio(audioPath);
+            currentAudio.onended = () => {
+                mouth.setAttribute('d', 'M 30 60 Q 50 70 70 60');
+                setStatus('Listening...', '');
+                currentAudio = null;
+                if (callback) callback();
             };
-            audio.play();
-            animateMouth(true);
+            currentAudio.onerror = () => {
+                console.error('Audio playback error');
+                if (callback) callback();
+            };
+            currentAudio.play();
         }
 
         async function startRecording() {
-            if (mediaRecorder && mediaRecorder.state === 'recording') return;
-            if (!testId) return; // Don't start if interview has ended
+            if (isRecording || !testId) return;
+            isRecording = true;
 
-            statusIndicator.classList.remove('speaking');
-            statusIndicator.classList.add('listening');
-            addTranscriptEntry('System', 'Listening...');
+            setStatus('Listening to your response...', 'listening');
 
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            
-            audioContext = new AudioContext();
-            await audioContext.audioWorklet.addModule('/static/vad-processor.js');
-            const microphone = audioContext.createMediaStreamSource(stream);
-            vadNode = new AudioWorkletNode(audioContext, 'vad-processor', {
-                processorOptions: {
-                    voiceStopDelay: 1500, // Increased delay to 1.5 seconds
-                    speakingThreshold: 0.05
-                }
-            });
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-            vadNode.port.onmessage = (event) => {
-                if (event.data.speaking === false) {
-                    stopRecording();
-                }
-            };
+                audioContext = new AudioContext();
+                await audioContext.audioWorklet.addModule('/static/vad-processor.js');
 
-            microphone.connect(vadNode);
+                const microphone = audioContext.createMediaStreamSource(stream);
+                vadNode = new AudioWorkletNode(audioContext, 'vad-processor', {
+                    processorOptions: {
+                        voiceStopDelay: 2000,
+                        speakingThreshold: 0.02,
+                        minSpeakingDuration: 500
+                    }
+                });
 
-            mediaRecorder = new MediaRecorder(stream);
-            audioChunks = [];
+                vadNode.port.onmessage = (event) => {
+                    if (event.data.speaking === false) {
+                        stopRecording();
+                    }
+                };
 
-            mediaRecorder.ondataavailable = (event) => {
-                audioChunks.push(event.data);
-            };
+                microphone.connect(vadNode);
 
-            mediaRecorder.onstop = () => {
-                sendAudioAndGetResponse();
-            };
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
 
-            mediaRecorder.start();
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) {
+                        audioChunks.push(event.data);
+                    }
+                };
+
+                mediaRecorder.onstop = () => {
+                    stream.getTracks().forEach(track => track.stop());
+                    sendAudioAndGetResponse();
+                };
+
+                mediaRecorder.start();
+            } catch (error) {
+                console.error('Recording error:', error);
+                setStatus('Microphone error', '');
+                isRecording = false;
+            }
         }
 
         function stopRecording() {
+            if (!isRecording) return;
+            isRecording = false;
+
             if (mediaRecorder && mediaRecorder.state === 'recording') {
                 mediaRecorder.stop();
             }
@@ -271,18 +326,54 @@
                 audioContext.close();
                 audioContext = null;
             }
-            statusIndicator.classList.remove('listening');
-            addTranscriptEntry('System', 'Processing...');
+
+            setStatus('Processing...', '');
         }
 
-        function animateMouth(speaking) {
-            if (speaking) {
-                mouth.setAttribute('d', 'M 30 60 Q 50 80 70 60');
-            } else {
-                mouth.setAttribute('d', 'M 30 60 Q 50 70 70 60');
+        async function sendAudioAndGetResponse() {
+            if (audioChunks.length === 0) {
+                console.log('No audio recorded');
+                startRecording();
+                return;
+            }
+
+            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+            audioChunks = [];
+
+            try {
+                const response = await fetch(`/interview/${testId}`, {
+                    method: 'POST',
+                    body: audioBlob
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Server error: ${response.status}`);
+                }
+
+                const data = await response.json();
+
+                if (data.user_transcript) {
+                    addTranscript('You', data.user_transcript);
+                }
+
+                addTranscript('AI', data.text);
+
+                if (data.ended) {
+                    playAudio(data.audio_path, () => {
+                        endInterview();
+                    });
+                } else {
+                    playAudio(data.audio_path, () => {
+                        startRecording();
+                    });
+                }
+            } catch (error) {
+                console.error('Interview step error:', error);
+                addTranscript('System', 'Error occurred. Please try again.');
+                startRecording();
             }
         }
-
     </script>
 </body>
+
 </html>

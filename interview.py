@@ -6,153 +6,197 @@ import edge_tts
 import os
 import subprocess
 from typing import Dict, List, Optional
-from groq import AsyncGroq
+from groq import Groq
+import tempfile
 
 logger = logging.getLogger(__name__)
 
-# Constants
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-if not GROQ_API_KEY:
-    logger.warning("GROQ_API_KEY environment variable not set. LLM calls will fail.")
+client = Groq(api_key=GROQ_API_KEY)
 
-
-INACTIVITY_TIMEOUT = 300  # 5 minutes
-TTS_SPEED = 1.2
-
-# =======================
-# Models and schemas
-# =======================
+INACTIVITY_TIMEOUT = 600
+TTS_SPEED = 1.15
+MAX_QUESTIONS = 6
 
 class Session:
-    """Session data model"""
     def __init__(self, summary: str, voice: str):
         self.summary = summary
         self.voice = voice
         self.conversation_log: List[Dict[str, str]] = []
         self.last_activity = time.time()
         self.question_index = 0
-        self.current_concept = "General"
+        self.is_complete = False
 
 class TestManager:
-    """Manages test sessions"""
     def __init__(self):
         self.tests: Dict[str, Session] = {}
 
     def create_test(self, summary: str, voice: str) -> str:
-        """Create a new test session"""
         test_id = str(uuid.uuid4())
         self.tests[test_id] = Session(summary, voice)
         logger.info(f"Created test {test_id}")
         return test_id
 
     def get_test(self, test_id: str) -> Optional[Session]:
-        """Get a test by ID"""
         return self.tests.get(test_id)
 
     def validate_test(self, test_id: str) -> Session:
-        """Validate test ID and update last activity"""
         test = self.get_test(test_id)
         if not test:
             raise ValueError("Test not found")
-        
         if time.time() > test.last_activity + INACTIVITY_TIMEOUT:
             self.tests.pop(test_id, None)
             raise ValueError("Test timed out")
-        
         test.last_activity = time.time()
         return test
 
     def add_entry(self, test_id: str, role: str, content: str):
-        """Add an entry to the conversation log"""
         test = self.validate_test(test_id)
         test.conversation_log.append({"role": role, "content": content})
         if role == "assistant":
             test.question_index += 1
-
-# =======================
-# AI and prompt setup
-# =======================
+            
+    def mark_complete(self, test_id: str):
+        test = self.get_test(test_id)
+        if test:
+            test.is_complete = True
 
 class LLMManager:
-    """Manages LLM interactions (simulated)"""
     def __init__(self):
         self.greetings = [
-            "Hi there! I'm your AI interviewer. Are you ready to begin?",
-            "Hello! I'll be conducting your interview today. Shall we start?",
-            "Welcome! I'm ready to start the interview when you are."
+            "Hello! I've reviewed your profile. Let's begin with your background and experience.",
+            "Good to meet you! I'm ready to assess your technical skills. Let's start.",
+            "Welcome! I've studied your application. Let's dive into your expertise."
         ]
-        self.client = AsyncGroq(api_key=GROQ_API_KEY)
 
-    async def generate_initial_greeting(self) -> str:
-        return random.choice(self.greetings)
-
-    async def _generate_response(self, system_prompt: str, test: Session) -> str:
-        """
-        This is a placeholder for a real LLM call.
-        It simulates generating a response based on a system prompt and conversation history.
-        """
-        if not self.client.api_key:
-            logger.error("Groq API key is not configured.")
-            return "Error: AI model is not configured. Please set the GROQ_API_KEY."
-
-        messages = [{"role": "system", "content": system_prompt}]
-        messages.extend(test.conversation_log)
-
+    def generate_initial_greeting(self, summary: str) -> str:
         try:
-            logger.info(f"Calling Groq LLM for test...")
-            response = await self.client.chat.completions.create(
-                model="llama-3.1-8b-instant",
-                messages=messages,
-                max_tokens=100, # Reduced max_tokens for more concise questions
-                temperature=0.7,
-            )
-            content = response.choices[0].message.content.strip()
+            messages = [
+                {"role": "system", "content": "You are a technical interviewer. Give a brief greeting (1-2 sentences) and ask the first technical question based on the candidate's profile."},
+                {"role": "user", "content": f"Candidate profile:\n{summary}\n\nGreet briefly and ask first question."}
+            ]
             
-            # Add a concluding phrase if the LLM indicates the end.
-            if test.question_index >= 6:
-                 return content + " The interview is now complete."
+            completion = client.chat.completions.create(
+                model="openai/gpt-oss-20b",
+                messages=messages,
+                temperature=0.7,
+                max_completion_tokens=150,
+                stream=False
+            )
+            return completion.choices[0].message.content.strip()
+        except Exception as e:
+            logger.error(f"Error generating greeting: {e}")
+            return random.choice(self.greetings)
 
+    def generate_next_question(self, test: Session) -> str:
+        if test.question_index >= MAX_QUESTIONS:
+            return "Thank you for your time and thoughtful responses. This concludes our interview today. We'll be in touch soon."
+        
+        try:
+            system_prompt = (
+                f"You are a technical interviewer. Ask ONE specific, probing question based on the candidate's last response. "
+                f"Be direct and challenging. Keep it concise (1-2 sentences).\n\n"
+                f"Candidate Profile:\n{test.summary}\n\n"
+                f"Question {test.question_index + 1} of {MAX_QUESTIONS}. "
+                f"After {MAX_QUESTIONS} questions, conclude the interview."
+            )
+            
+            messages = [{"role": "system", "content": system_prompt}]
+            messages.extend(test.conversation_log)
+            
+            completion = client.chat.completions.create(
+                model="openai/gpt-oss-20b",
+                messages=messages,
+                temperature=0.8,
+                max_completion_tokens=150,
+                stream=False
+            )
+            
+            content = completion.choices[0].message.content.strip()
+            
+            if test.question_index >= MAX_QUESTIONS - 1:
+                content += " This will be our final question."
+            
             return content
         except Exception as e:
-            logger.error(f"Error calling Groq API: {e}")
-            return "I'm having trouble formulating my next question. Let's try again. Can you elaborate on your last point?"
+            logger.error(f"Error generating question: {e}")
+            return "Could you elaborate more on that?"
 
-    async def generate_next_question(self, test: Session) -> str:
-        """
-        Generates the next interview question based on the applicant's data and conversation history.
-        """
-        system_prompt = (
-            "You are a strict and highly-technical interrogator. Your goal is to rigorously verify the candidate's skills and experience. "
-            "Do not use pleasantries. Be direct, concise, and demanding. "
-            "Ask one, and only one, probing follow-up question based on their last response and their profile. "
-            "Challenge their answers. Ask for specific examples, metrics, and proof. "
-            "If their answer is vague, demand specifics. If they claim success, question how it was measured. "
-            "After about 6 questions, you must conclude the interview. "
-            f"Here is the candidate's profile summary:\n---\n{test.summary}\n---"
-        )
-        return await self._generate_response(system_prompt, test)
-
-    async def generate_evaluation(self, test: Session) -> str:
-        """Generates a final evaluation of the interview."""
-        system_prompt = (
-            "You are a senior hiring manager reviewing a technical interrogation. "
-            "You will be given the candidate's profile and the full interview transcript. "
-            "Your task is to provide a brutally honest, concise evaluation. "
-            "Focus on: 1. Technical depth shown. 2. Alignment between their profile and their answers. 3. Red flags or inconsistencies. 4. A final hire/no-hire recommendation. "
-            "Use Markdown for formatting."
-            f"Here is the candidate's profile summary:\n---\n{test.summary}\n---"
-        )
-        return await self._generate_response(system_prompt, test)
-
-# =======================
-# Audio utilities
-# =======================
+    def generate_evaluation(self, test: Session) -> str:
+        try:
+            system_prompt = (
+                f"You are a hiring manager. Review this interview and provide evaluation:\n\n"
+                f"## Technical Assessment\n- Knowledge depth\n- Example quality\n\n"
+                f"## Profile Alignment\n- Consistency with stated experience\n\n"
+                f"## Red Flags\n- Any concerns\n\n"
+                f"## Recommendation\n- HIRE / NO HIRE / BORDERLINE with reasons\n\n"
+                f"Candidate Profile:\n{test.summary}"
+            )
+            
+            messages = [{"role": "system", "content": system_prompt}]
+            messages.extend(test.conversation_log)
+            
+            completion = client.chat.completions.create(
+                model="openai/gpt-oss-20b",
+                messages=messages,
+                temperature=0.7,
+                max_completion_tokens=800,
+                stream=False
+            )
+            return completion.choices[0].message.content.strip()
+        except Exception as e:
+            logger.error(f"Error generating evaluation: {e}")
+            return "Error generating evaluation."
 
 class AudioManager:
-    """Manages audio transcription and text-to-speech"""
+    def transcribe_audio(self, audio_data: bytes) -> Optional[str]:
+        if not audio_data or len(audio_data) < 1000:
+            logger.warning("Audio data too small")
+            return None
+            
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as temp_audio:
+                temp_audio.write(audio_data)
+                temp_audio_path = temp_audio.name
+            
+            wav_path = temp_audio_path.replace(".webm", ".wav")
+            
+            try:
+                subprocess.run([
+                    "ffmpeg", "-i", temp_audio_path,
+                    "-ar", "16000", "-ac", "1", "-y", wav_path
+                ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+            except:
+                wav_path = temp_audio_path
+            
+            with open(wav_path, "rb") as audio_file:
+                logger.info("Transcribing with Whisper...")
+                transcription = client.audio.transcriptions.create(
+                    file=(os.path.basename(wav_path), audio_file.read()),
+                    model="whisper-large-v3-turbo",
+                    temperature=0,
+                    response_format="verbose_json"
+                )
+            
+            try:
+                os.remove(temp_audio_path)
+                if wav_path != temp_audio_path:
+                    os.remove(wav_path)
+            except:
+                pass
+            
+            transcript = transcription.text.strip()
+            logger.info(f"Transcribed: {transcript}")
+            return transcript if transcript else None
+            
+        except Exception as e:
+            logger.error(f"Transcription error: {e}")
+            return None
     
-    @staticmethod
-    async def text_to_speech(text: str, voice: str, speed: float = TTS_SPEED) -> Optional[str]:
+    async def text_to_speech(self, text: str, voice: str) -> Optional[str]:
+        if not text:
+            return None
+            
         timestamp = int(time.time() * 1000)
         audio_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "audio")
         os.makedirs(audio_dir, exist_ok=True)
@@ -162,9 +206,11 @@ class AudioManager:
         
         try:
             await edge_tts.Communicate(text, voice).save(raw_path)
+            
             subprocess.run([
                 "ffmpeg", "-y", "-i", raw_path,
-                "-filter:a", f"atempo={speed}", "-vn", final_path
+                "-filter:a", f"atempo={TTS_SPEED}",
+                "-vn", final_path
             ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
 
             if os.path.exists(raw_path):
@@ -172,17 +218,13 @@ class AudioManager:
             
             return f"/audio/{os.path.basename(final_path)}"
         except Exception as e:
-            logger.error(f"Text-to-speech error: {e}")
+            logger.error(f"TTS error: {e}")
             return None
 
     @staticmethod
     def get_random_voice() -> str:
         voices = ["en-US-AriaNeural", "en-US-GuyNeural", "en-GB-SoniaNeural"]
         return random.choice(voices)
-
-# =======================
-# Singleton instances
-# =======================
 
 test_manager = TestManager()
 llm_manager = LLMManager()
